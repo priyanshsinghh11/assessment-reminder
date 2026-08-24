@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Assessment Reminders</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Fragment+Mono&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="auth.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-left">
+    <p class="eyebrow brand">
+      <picture class="brand-logo">
+        <source srcset="/assets/ajaia-logo.png" media="(prefers-color-scheme: light)">
+        <img src="/assets/ajaia-logo-white.png" alt="Ajaia" width="62" height="15">
+      </picture>
+      <span>Recruiting Ops</span>
+    </p>
+    <h1>Assessment Reminders</h1>
+    <p class="subtitle" id="runMeta">Loading&hellip;</p>
+  </div>
+  <div class="topbar-actions">
+    <a class="btn btn-ghost" href="/evaluations.html">Evaluations</a>
+    <button class="btn" id="syncBtn"
+            title="Re-scan the portal and Workable. Nothing scans on its own.">Sync portal</button>
+    <button class="btn" data-mode="dry-run">Dry run</button>
+  </div>
+</header>
+
+<main>
+
+  <section class="stats" id="stats"></section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Candidates</h2>
+      <div class="controls">
+        <input type="search" id="search" placeholder="Search name or email" autocomplete="off">
+        <select id="jobFilter"><option value="">All jobs</option></select>
+        <select id="statusFilter">
+          <option value="">All statuses</option>
+          <option value="eligible">Eligible</option>
+          <option value="reminded">Reminded</option>
+          <option value="maxed">Max reminders</option>
+          <option value="started">Started</option>
+          <option value="submitted">Submitted</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="sendbar">
+      <span class="sendbar-count" id="selCount">No candidates selected</span>
+      <div class="sendbar-actions">
+        <label class="toggle" title="Print each email to the terminal running server.py instead of sending it">
+          <input type="checkbox" id="testMode" checked>
+          Print to terminal
+        </label>
+        <label class="limit-field">
+          Cap
+          <input type="number" id="limitInput" min="1" step="1" value="20"
+                 title="Maximum emails to send in one run">
+        </label>
+        <button class="btn" id="sendAllBtn">All eligible</button>
+        <button class="btn btn-primary" id="sendSelBtn" disabled>Send to selected</button>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table id="table">
+        <thead>
+          <tr>
+            <th class="shrink"><input type="checkbox" id="selectAll" title="Select all eligible"></th>
+            <th data-sort="name">Candidate</th>
+            <th data-sort="job_title">Job</th>
+            <th data-sort="stage">Stage</th>
+            <th data-sort="applied_at">Applied</th>
+            <th data-sort="business_days_elapsed" class="num">Biz days</th>
+            <th data-sort="portal_status">Portal</th>
+            <th data-sort="reminders_sent">Reminders</th>
+            <th data-sort="status">Status</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <p class="empty" id="empty" hidden>No candidates match these filters.</p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Recent log</h2>
+      <button class="btn btn-ghost" id="refreshLog">Refresh</button>
+    </div>
+    <pre class="log" id="log">&mdash;</pre>
+  </section>
+
+</main>
+
+<div class="toast" id="toast" hidden></div>
+
+<!-- session.js first: it wraps window.fetch so every request below
+     carries its CSRF token and knows where to go when the session
+     has expired. -->
+<script src="session.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

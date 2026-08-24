@@ -1,0 +1,344 @@
+/* ==========================================================================
+   Sign-in, and the account chip the dashboards carry in their header.
+
+   Everything here rides on the tokens in styles.css -- same navy, same
+   Poppins, same 8px radius -- so the login screen reads as the front door of
+   this dashboard rather than a generic form somebody bolted on.
+   ========================================================================== */
+
+/* --- the sign-in page ----------------------------------------------------- */
+
+.auth-body {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px 20px;
+}
+
+.auth-shell {
+  width: 100%;
+  max-width: 420px;
+}
+
+.auth-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 32px 30px 26px;
+}
+
+.auth-card h1 {
+  font-size: var(--fs-h4);
+  letter-spacing: var(--tr-h4);
+  margin: 6px 0 8px;
+}
+
+.auth-lede {
+  font-size: var(--fs-body-sm);
+  color: var(--text-dim);
+  line-height: var(--lh-body);
+  margin: 0 0 22px;
+}
+
+.auth-field {
+  display: block;
+  margin-bottom: 16px;
+}
+
+.auth-field > span {
+  display: block;
+  font-size: var(--fs-body-sm);
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+
+.auth-field input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  font-family: var(--font-sans);
+  font-size: var(--fs-body-sm);
+  color: var(--text);
+  background: var(--bg-top);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+
+.auth-field input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.auth-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--text-faint);
+}
+
+.auth-submit {
+  width: 100%;
+  margin-top: 6px;
+  justify-content: center;
+}
+
+/* A failed sign-in is not a red banner across the top of the page -- it is one
+   line above the button that failed, where the person is already looking. */
+.auth-error {
+  margin: 0 0 14px;
+  padding: 9px 11px;
+  font-size: var(--fs-body-sm);
+  line-height: 1.45;
+  color: #ffd9d9;
+  background: rgba(220, 60, 60, 0.12);
+  border: 1px solid rgba(220, 60, 60, 0.35);
+  border-radius: var(--r-sm);
+}
+
+.auth-foot {
+  margin: 20px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+
+.linkbtn {
+  padding: 0;
+  font: inherit;
+  color: var(--sky);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.linkbtn:hover { color: var(--sky-soft); }
+
+/* --- the account chip, on every dashboard header -------------------------- */
+
+.account {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.account-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  font-family: var(--font-sans);
+  font-size: var(--fs-nav);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.account-btn:hover { background: var(--surface-hover); }
+
+.account-initials {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  color: var(--navy-3);
+  background: var(--sky);
+  border-radius: 50%;
+}
+
+/* Which kind of account this is, said on the chip rather than only in the
+   menu. "You are seeing 2 of 26 roles because you are a hiring manager" is
+   the answer to the only confusing thing about this page, and it should not
+   need a click. */
+.account-role {
+  font-size: 11px;
+  letter-spacing: var(--tr-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.account-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  min-width: 260px;
+  padding: 14px 15px 12px;
+  text-align: left;
+  background: var(--bg-top);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  box-shadow: 0 18px 40px rgba(0, 6, 15, .55);
+}
+
+.account-menu p { margin: 0 0 4px; }
+
+.account-menu .account-email {
+  font-size: var(--fs-body-sm);
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.account-menu .account-scope {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
+.account-menu .account-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 11px;
+  border-top: 1px solid var(--line);
+}
+
+.account-menu .btn { flex: 1; justify-content: center; }
+
+/* --- the accounts panel, on the evaluations page -------------------------- */
+
+.users-table { width: 100%; border-collapse: collapse; }
+
+.users-table th,
+.users-table td {
+  padding: 9px 10px;
+  text-align: left;
+  font-size: var(--fs-body-sm);
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.users-table th {
+  font-size: var(--fs-eyebrow);
+  letter-spacing: var(--tr-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: 500;
+}
+
+.users-table .user-email { font-weight: 600; }
+
+.users-table .user-roles {
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.user-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.user-actions .btn { padding: 5px 9px; font-size: 12.5px; }
+
+/* A generated password is on screen exactly once. It gets the loudest
+   treatment on the page, and says so in words -- a value that is quietly
+   unrecoverable is one somebody closes the toast on. */
+.secret {
+  margin: 14px 0 0;
+  padding: 13px 14px;
+  background: rgba(151, 194, 248, .07);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+}
+
+.secret code {
+  display: block;
+  margin: 7px 0;
+  padding: 9px 11px;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  color: var(--accent-bright);
+  background: var(--navy-4);
+  border-radius: var(--r-sm);
+  word-break: break-all;
+  user-select: all;
+}
+
+.secret small { color: var(--text-faint); font-size: 12.5px; line-height: 1.5; }
+
+.new-user-form {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin-bottom: 18px;
+}
+
+.new-user-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.new-user-form input,
+.new-user-form select {
+  padding: 8px 10px;
+  font-family: var(--font-sans);
+  font-size: var(--fs-body-sm);
+  color: var(--text);
+  background: var(--bg-top);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+
+.new-user-form input { min-width: 200px; }
+
+@media (max-width: 620px) {
+  .auth-card { padding: 26px 20px 20px; }
+  .account-menu { right: -8px; min-width: 240px; }
+}
+
+/* --- the roles an account is on, in the accounts table -------------------- */
+
+.role-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+
+.role-chips:empty { margin: 0; }
+
+.role-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 9px;
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--surface-hover);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+
+.role-chip button {
+  padding: 0 2px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-faint);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.role-chip button:hover { color: var(--accent-bright); }
+
+.role-add {
+  max-width: 240px;
+  padding: 6px 8px;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--bg-top);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.role-add:disabled { opacity: .45; cursor: default; }

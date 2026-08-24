@@ -1,0 +1,234 @@
+/*
+ * The hiring manager's review page.
+ *
+ * Shares styles.css with the two internal dashboards -- same tokens, same
+ * palette, same buttons -- but deliberately not evaluations.css. This page is
+ * seen by someone outside the recruiting team, doing one task on a phone
+ * between meetings, and it should read as a short list of people rather than
+ * as an operations console with the dangerous parts removed.
+ */
+
+/* Any class here that sets `display` outranks the browser's own
+ * [hidden] { display: none }, and the consequences are not cosmetic: a shut
+ * dialog that is still laid out covers the page with an invisible scrim that
+ * eats every click, and a hidden field stays on screen. Both happened. One
+ * rule, so the next element with a display rule cannot reintroduce it. */
+[hidden] { display: none !important; }
+
+.review-body main { max-width: 940px; margin: 0 auto; }
+
+/* --- intro ------------------------------------------------------------- */
+
+.intro-inner { padding: 20px 22px; }
+.intro-inner p { margin: 0 0 10px; line-height: var(--lh-body); }
+.intro-inner p:last-child { margin-bottom: 0; }
+
+.small { font-size: var(--fs-body-sm); }
+
+/* Something the manager needs to know before they click, not after. Amber is
+ * not in the palette, so emphasis does the work: a rule down the side and the
+ * only non-body background on the page. */
+.warn {
+  padding: 12px 14px;
+  background: var(--surface-hover);
+  border-left: 3px solid var(--sky);
+  border-radius: 0 var(--r) var(--r) 0;
+  color: var(--text);
+}
+
+/* --- a dead link ------------------------------------------------------- */
+
+.review-dead .dead-inner { padding: 48px 22px; text-align: center; }
+.review-dead h2 { margin: 0 0 10px; font-size: var(--fs-h5); }
+.review-dead p { margin: 0; color: var(--text-dim); line-height: var(--lh-body); }
+
+/* --- the list ---------------------------------------------------------- */
+
+.cand-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cand {
+  display: grid;
+  grid-template-columns: 24px 34px 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--line);
+}
+.cand:last-child { border-bottom: none; }
+.cand:hover { background: var(--surface); }
+
+/* Rank is the only part of the marking that crosses to this page. Mono, like
+ * every other figure in the system. */
+.cand-rank {
+  font-family: var(--font-mono);
+  font-size: 17px;
+  color: var(--accent-bright);
+  text-align: center;
+}
+
+.cand-name { font-weight: 600; font-size: var(--fs-body); line-height: 1.3; }
+
+.cand-sub {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 3px;
+  font-size: var(--fs-body-sm);
+}
+.cand-email {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text-dim);
+  user-select: all;
+}
+
+/* CV, answers, video. Big enough to hit with a thumb -- this is the part of
+ * the page a manager actually uses before deciding. */
+.cand-arts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.art {
+  display: inline-block;
+  padding: 6px 12px;
+  font-size: var(--fs-body-sm);
+  font-weight: 600;
+  color: var(--sky);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  text-decoration: none;
+}
+.art:hover { background: var(--surface-hover); border-color: var(--sky); }
+.art.is-missing {
+  color: var(--text-faint);
+  border-style: dashed;
+  font-weight: 400;
+  cursor: not-allowed;
+}
+
+.cand-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+
+.stage-btn { font-size: var(--fs-body-sm); white-space: nowrap; }
+.stage-btn.stage-interview:hover { border-color: var(--sky); color: var(--sky); }
+.stage-btn.stage-hired:hover { border-color: var(--accent-bright); color: var(--accent-bright); }
+.stage-btn.stage-rejected:hover { border-color: #e4708a; color: #e4708a; }
+
+/* The one they already chose, shown as chosen rather than removed: a manager
+ * coming back should see their own decision, not a fresh set of buttons that
+ * makes them wonder whether the first click registered. */
+.stage-btn.is-current {
+  background: var(--surface-hover);
+  border-color: var(--line-2);
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.cand.is-decided { background: var(--surface); }
+.cand.is-decided .cand-name { color: var(--text-dim); }
+
+/* A picked row, marked down its edge rather than by a fill. The rows already
+ * use background to mean "decided", and two meanings on one channel is how a
+ * manager ends up inviting somebody they had turned down. */
+.cand.is-picked {
+  background: rgba(151, 194, 248, 0.07);
+  box-shadow: inset 3px 0 0 var(--sky);
+}
+
+.cand-state {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: var(--fs-body-sm);
+}
+.cand-note { color: var(--text-dim); font-style: italic; }
+
+.badge-interview { color: var(--sky); border-color: var(--sky); }
+.badge-hired { color: var(--accent-bright); border-color: var(--accent-bright); }
+.badge-rejected { color: var(--text-faint); border-style: dashed; }
+
+/* A candidate whose rubric the AI grader did not finish. Dashed, like
+ * `rejected`, because both mean "this row is not what it looks like" -- but
+ * coloured, because this one is a claim about our own work rather than about
+ * the candidate, and the manager has to notice it before they read the rank. */
+.badge-partial {
+  color: var(--sky);
+  border-color: var(--sky);
+  border-style: dashed;
+}
+
+/* --- narrow ------------------------------------------------------------ */
+
+@media (max-width: 640px) {
+  /* The buttons drop under the candidate rather than squeezing beside them.
+   * Three decisions on one thumb-width column is a mis-tap waiting to happen,
+   * and a mis-tap here emails somebody. */
+  .cand {
+    grid-template-columns: 24px 1fr;
+    gap: 10px;
+  }
+  /* Rank folds in beside the name; the tickbox does not move, because it is
+   * the control the whole page is now built around. */
+  .cand-rank {
+    grid-row: 1;
+    grid-column: 2;
+    text-align: left;
+    font-size: 13px;
+  }
+  .cand-main { grid-column: 2; }
+  .cand-actions {
+    grid-column: 2;
+    justify-content: flex-start;
+    margin-top: 6px;
+  }
+  .stage-btn { flex: 1 1 auto; }
+}
+
+
+/* --- picking ----------------------------------------------------------- */
+
+.cand-pick { display: flex; align-items: center; justify-content: center; }
+.cand-pick input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--sky);
+  cursor: pointer;
+}
+.cand-pick input:disabled { cursor: not-allowed; opacity: .35; }
+
+/* A label wrapping a select, so the word and the box are one hit target. */
+.sel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-eyebrow);
+  color: var(--text-faint);
+}
+
+/* Sticky, because the button that acts on a selection has to stay reachable
+ * while the manager scrolls the list they are selecting from. Twenty names is
+ * more than one screen, and a Send that scrolls off the top is a Send nobody
+ * finds. */
+.pick-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 12px 22px;
+  background: var(--bg-top);
+  border-bottom: 1px solid var(--line);
+}
+.pick-count { flex: 1 1 auto; font-size: var(--fs-body-sm); }
+
+/* "Marked for interview" and "we actually emailed them" are different facts.
+ * The gap between them is the one a manager needs to see, so it is the only
+ * coloured thing in a decided row. */
+.warn-inline { color: var(--sky); font-weight: 600; }

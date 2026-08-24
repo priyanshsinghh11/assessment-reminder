@@ -1,0 +1,719 @@
+/* ==========================================================================
+   Assessment Reminders — styled with the Ajaia design system
+   ========================================================================== */
+
+:root {
+  /* brand */
+  --navy: #001d6b;
+  --navy-2: #001244;
+  --navy-3: #00091f;
+  --navy-4: #00060f;
+  --sky: #97c2f8;
+  --sky-soft: #c4dcfb;
+  --paper: #f1f7ff;
+  --muted: #aebfe2;
+  --muted-2: #8093c4;
+  --ink-subtle: #6b7280;
+  --ink-700: #0b2e8e;
+
+  --accent-h: 210;
+  --accent: hsl(var(--accent-h) 90% 70%);
+  --accent-bright: hsl(var(--accent-h) 100% 78%);
+
+  /* type */
+  --font-sans: "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "Fragment Mono", "SF Mono", ui-monospace, Menlo, monospace;
+
+  --fs-h3: 30px;
+  --fs-h4: 22px;
+  --fs-h5: 18px;
+  --fs-body: 16px;
+  --fs-body-sm: 14px;
+  --fs-eyebrow: 13px;
+  --fs-nav: 13.5px;
+
+  --tr-h3: -0.02em;
+  --tr-h4: -0.01em;
+  --tr-body: -0.002em;
+  --tr-eyebrow: 0.12em;
+  --lh-body: 1.6;
+
+  /* motion */
+  --ease: cubic-bezier(.22, .61, .36, 1);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --ds-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --ds-dur: 180ms;
+
+  /* geometry */
+  --maxw: 1240px;
+  --nav-h: 72px;
+  --r: 8px;
+  --r-sm: 2px;
+
+  /* semantic — dark (default, matches ajaia.ai) */
+  --bg: var(--navy-3);
+  --bg-top: var(--navy-4);
+  --surface: rgba(151, 194, 248, 0.035);
+  --surface-hover: rgba(151, 194, 248, 0.06);
+  --line: rgba(151, 194, 248, 0.14);
+  --line-2: rgba(151, 194, 248, 0.26);
+  --text: var(--paper);
+  --text-dim: var(--muted);
+  --text-faint: var(--muted-2);
+  --glow: rgba(81, 166, 251, 0.8) 0 0 12px 2px;
+  --inset-hi: inset 0 1px 0 0 rgba(255, 255, 255, 0.035);
+
+  color-scheme: dark;  /* native selects + scrollbars follow the theme */
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: var(--paper);
+    --bg-top: #ffffff;
+    --surface: #ffffff;
+    --surface-hover: #f7faff;
+    --line: rgba(0, 29, 107, 0.10);
+    --line-2: rgba(0, 29, 107, 0.18);
+    --text: var(--navy);
+    --text-dim: #0b2e8e;
+    --text-faint: var(--ink-subtle);
+    --accent: var(--ink-700);
+    --accent-bright: #005cb9;
+    --glow: rgba(81, 166, 251, 0.45) 0 0 12px 2px;
+    --inset-hi: none;
+
+    color-scheme: light;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-body-sm);
+  font-weight: 500;
+  line-height: var(--lh-body);
+  letter-spacing: var(--tr-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- top bar ---------- */
+
+.topbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  min-height: var(--nav-h);
+  padding: 20px 28px;
+  background: var(--bg-top);
+  border-bottom: 1px solid var(--line);
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  font-size: var(--fs-eyebrow);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-eyebrow);
+  color: var(--sky);
+}
+@media (prefers-color-scheme: light) { .eyebrow { color: var(--ink-700); } }
+
+/* The wordmark stands in for the word "Ajaia" wherever the eyebrow carries it.
+   Two files rather than one recoloured in CSS: the mark is flat navy on the
+   light theme and knocked out to white on the dark one, and a filter that
+   turns navy into white turns everything else into grey on the way. */
+.eyebrow.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-logo,
+.brand-logo img {
+  display: block;
+  width: auto;
+  height: 15px;
+}
+
+/* The separator the text used to carry itself. On the element rather than in
+   the markup so the logo and the label stay two things, not three. */
+.eyebrow.brand > span::before {
+  content: "\00B7";
+  margin-right: 8px;
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: var(--fs-h4);
+  font-weight: 600;
+  letter-spacing: var(--tr-h4);
+  line-height: 1.36;
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  color: var(--text-faint);
+  font-size: 13px;
+}
+
+.topbar-actions { display: flex; gap: 10px; }
+
+main {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+/* ---------- buttons ---------- */
+
+.btn {
+  font-family: inherit;
+  font-size: var(--fs-nav);
+  font-weight: 600;
+  letter-spacing: var(--tr-body);
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  padding: 9px 16px;
+  cursor: pointer;
+  transition: background var(--ds-dur) var(--ds-ease),
+              border-color var(--ds-dur) var(--ds-ease),
+              transform var(--ds-dur) var(--ds-ease),
+              color var(--ds-dur) var(--ds-ease);
+}
+.btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--sky);
+}
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: .45; cursor: default; }
+
+.btn-primary {
+  color: var(--navy);
+  background: var(--sky);
+  border-color: var(--sky);
+  box-shadow: var(--inset-hi);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--sky-soft);
+  border-color: var(--sky-soft);
+  color: var(--navy);
+}
+
+.btn-ghost {
+  border-color: transparent;
+  color: var(--text-faint);
+  font-weight: 500;
+}
+
+.btn:focus-visible,
+.controls input:focus-visible,
+.controls select:focus-visible,
+th:focus-visible {
+  outline: none;
+  box-shadow: var(--glow);
+  border-color: var(--sky);
+}
+
+/* ---------- stats ---------- */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px;
+}
+
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 16px 18px;
+  box-shadow: var(--inset-hi);
+}
+
+.stat-label {
+  color: var(--text-faint);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-eyebrow);
+}
+
+.stat-value {
+  margin-top: 8px;
+  font-size: var(--fs-h3);
+  font-weight: 700;
+  line-height: 1.26;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tr-h3);
+}
+
+.stat.is-accent {
+  border-color: var(--line-2);
+  background: linear-gradient(180deg, rgba(151, 194, 248, 0.10), transparent);
+}
+.stat.is-accent .stat-value { color: var(--accent-bright); }
+
+/* ---------- panels ---------- */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
+  box-shadow: var(--inset-hi);
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.panel-head h2 {
+  margin: 0;
+  font-size: var(--fs-h5);
+  font-weight: 600;
+  letter-spacing: var(--tr-h4);
+}
+
+.controls { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.controls input,
+.controls select {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  padding: 8px 12px;
+  transition: border-color var(--ds-dur) var(--ds-ease);
+}
+.controls input::placeholder { color: var(--text-faint); }
+.controls input { min-width: 220px; }
+/* ...but not the checkboxes. The floor above is for the search and filter
+ * boxes; applied to a tickbox it stretches the whole .toggle around it into a
+ * 220px slab with the label marooned at the far end. */
+.controls input[type="checkbox"],
+.controls input[type="radio"] { min-width: 0; }
+.controls select { cursor: pointer; }
+
+/* ---------- send bar ---------- */
+
+.sendbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(151, 194, 248, 0.06), transparent);
+}
+
+.sendbar-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.sendbar-actions { display: flex; align-items: center; gap: 10px; }
+
+.limit-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-eyebrow);
+  color: var(--text-faint);
+}
+
+.limit-field input {
+  width: 72px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  padding: 7px 10px;
+}
+
+input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--sky);
+  cursor: pointer;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px 7px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-eyebrow);
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color var(--ds-dur) var(--ds-ease),
+              border-color var(--ds-dur) var(--ds-ease);
+}
+.toggle:has(input:checked) {
+  color: var(--sky);
+  border-color: var(--sky);
+  background: rgba(151, 194, 248, 0.08);
+}
+
+/* ---------- table ---------- */
+
+.table-wrap { overflow-x: auto; }
+
+table { width: 100%; border-collapse: collapse; }
+
+th {
+  text-align: left;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-eyebrow);
+  color: var(--text-faint);
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: color var(--ds-dur) var(--ds-ease);
+}
+th:hover { color: var(--sky); }
+th.num { text-align: right; }
+th.shrink { width: 1%; cursor: default; }
+th.shrink:hover { color: var(--text-faint); }
+th[aria-sort] { color: var(--sky); }
+th[aria-sort]::after { content: " ↑"; }
+th[aria-sort="descending"]::after { content: " ↓"; }
+
+td {
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr { transition: background var(--ds-dur) var(--ds-ease); }
+tbody tr:hover { background: var(--surface-hover); }
+
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.shrink { width: 1%; }
+
+/* candidates who cannot be sent to (started, or out of reminders) */
+.row-inert .cand-name,
+.row-inert .cand-email { opacity: .65; }
+
+.cand-name { font-weight: 600; letter-spacing: var(--tr-h4); }
+.cand-email {
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0;
+}
+.dim { color: var(--text-dim); }
+.nowrap { white-space: nowrap; }
+
+.link {
+  color: var(--accent-bright);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: color var(--ds-dur) var(--ds-ease);
+}
+.link:hover { color: var(--sky-soft); text-decoration: underline; }
+
+/* ---------- badges ----------
+   One loud badge: `eligible` is the only actionable state, so it is the only
+   filled one. Everything else stays quiet and tonal. */
+
+.badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.badge-eligible {
+  color: var(--navy);
+  background: var(--sky);
+  border-color: var(--sky);
+}
+.badge-reminded  { color: var(--sky); border-color: var(--line-2); }
+.badge-started   { color: var(--accent-bright); border-color: var(--line-2);
+                   background: rgba(151, 194, 248, 0.08); }
+.badge-submitted { color: var(--text); border-color: var(--line-2); }
+.badge-waiting   { color: var(--text-faint); background: var(--surface-hover); }
+.badge-maxed     { color: var(--text-faint); border-style: dashed;
+                   border-color: var(--line-2); }
+
+/* reminder pips */
+.pips { display: inline-flex; gap: 5px; align-items: center; }
+.pip {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--line-2);
+}
+.pip.on { background: var(--sky); border-color: var(--sky); }
+
+/* ---------- log ---------- */
+
+.log {
+  margin: 0;
+  padding: 16px 18px;
+  max-height: 280px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.9;
+  letter-spacing: 0;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.empty { padding: 40px 18px; text-align: center; color: var(--text-faint); }
+
+/* ---------- toast ---------- */
+
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--navy);
+  color: var(--paper);
+  border: 1px solid var(--line-2);
+  padding: 11px 20px;
+  border-radius: var(--r);
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 8px 28px rgba(0, 6, 15, .45);
+  z-index: 60;
+  /* Capped and wrapped. Without this a long message -- which is exactly what a
+   * failed send produces -- runs off both edges of a phone screen, losing the
+   * half that says what to do about it. */
+  max-width: min(600px, calc(100vw - 32px));
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  animation: rise .4s var(--ease-out);
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+@media (max-width: 640px) {
+  .topbar { flex-direction: column; align-items: stretch; }
+  main { padding: 20px 16px; }
+  .controls input { min-width: 0; flex: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+
+/* ==========================================================================
+ * Dialogs and the interview composer
+ *
+ * HERE RATHER THAN IN review.css BECAUSE TWO PAGES DRAW THEM NOW. The
+ * composer is the manager's way into the interview stage, and a manager
+ * reaches it either from the token'd review page or from their dashboard
+ * account. invite.js renders the same markup into both, so the rules it needs
+ * have to live in the stylesheet both of them load.
+ * ======================================================================== */
+
+/* --- dialog chrome ---------------------------------------------------- */
+
+/* THE [hidden] TRAP, GUARDED WHERE THE DISPLAY IS SET.
+ *
+ * `hidden` hides an element through the user-agent rule `[hidden] { display:
+ * none }`, which sits at the very bottom of the cascade. Any rule of ours that
+ * sets `display` on the same element outranks it, and the element stays on
+ * screen with its attribute cheerfully set -- so JS that "hides" it does
+ * nothing and there is no error anywhere to say so.
+ *
+ * review.css answers this with a blanket `[hidden] { display: none !important }`,
+ * and that is why the composer behaved on the review page. The dashboard never
+ * loaded review.css: it guards case by case (.view[hidden], .viewtab[hidden],
+ * .mgr-form[hidden]), so the moment these rules moved here the composer, its
+ * suggested-time row and its resend checkbox were all permanently visible on
+ * that page -- a dialog nobody had opened, with nothing in it.
+ *
+ * Guarded here rather than by copying the blanket rule, so this stylesheet
+ * cannot change the behaviour of anything on either page that it does not
+ * already style. */
+.modal[hidden],
+.field[hidden],
+.toggle[hidden] { display: none; }
+
+.modal { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; }
+.modal-scrim { position: absolute; inset: 0; background: rgba(0, 8, 32, .62); }
+
+.modal-box {
+  position: relative;
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 24px;
+  background: var(--bg);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  box-shadow: 0 24px 60px rgba(0, 8, 32, .45);
+}
+.modal-box h2 { margin: 0 0 8px; font-size: var(--fs-h5); }
+.modal-box > p { margin: 0 0 18px; color: var(--text-dim); line-height: var(--lh-body); }
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-eyebrow);
+  color: var(--text-faint);
+}
+.field input,
+.field textarea {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  padding: 9px 11px;
+}
+.field textarea { resize: vertical; }
+.field input:focus-visible,
+.field textarea:focus-visible { outline: none; border-color: var(--sky); }
+
+.opt { font-weight: 400; text-transform: none; letter-spacing: 0; opacity: .7; }
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+/* --- the composer ------------------------------------------------------ */
+
+.modal-wide { width: min(1080px, calc(100vw - 32px)); }
+
+/* Writing on the left, what the candidate receives on the right. Side by side
+ * rather than behind a Preview button: the whole point of letting a manager
+ * rewrite this is that they can see what they did to it. */
+.compose-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.compose-edit { display: flex; flex-direction: column; min-width: 0; }
+.compose-edit .field { margin-bottom: 14px; }
+.compose-edit textarea { line-height: var(--lh-body); }
+.compose-edit p { margin: 0 0 10px; }
+
+.chips-line { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.chips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+
+/* Click to drop the token in at the cursor. Monospace because it is literal
+ * text that has to be typed exactly, and a proportional {first_name} invites
+ * somebody to retype it as {First Name}. */
+.chip {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--sky);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.chip:hover { border-color: var(--sky); background: var(--surface-hover); }
+
+/* What the manager cannot edit away, said where they are editing. */
+.locked-note {
+  padding: 10px 12px;
+  background: var(--surface);
+  border-left: 3px solid var(--line-2);
+  border-radius: 0 var(--r) var(--r) 0;
+  word-break: break-word;
+}
+
+.compose-preview {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+.preview-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line-2);
+}
+
+/* White, always. This is a picture of an email, and an email is not rendered
+ * in the dark palette this page happens to be wearing. */
+#previewFrame {
+  width: 100%;
+  height: 520px;
+  border: 0;
+  background: #ffffff;
+}
+
+.resend { margin-top: 16px; text-transform: none; letter-spacing: 0; font-size: 13px; }
+
+@media (max-width: 900px) {
+  /* The preview goes under the editor rather than beside it, and shortens:
+   * on a phone the manager is writing, and the render is something they
+   * scroll down to check rather than watch. */
+  .compose-grid { grid-template-columns: minmax(0, 1fr); }
+  #previewFrame { height: 360px; }
+}

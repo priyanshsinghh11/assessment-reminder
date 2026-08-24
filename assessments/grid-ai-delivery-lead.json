@@ -1,0 +1,153 @@
+{
+  "key": "derived_ai_delivery_lead",
+  "unit": "AI Delivery Lead",
+  "entity": "Ajaia",
+  "source": "derived",
+  "slugs": [
+    "ai-delivery-lead"
+  ],
+  "roles": [
+    "AI Delivery Lead Assessment"
+  ],
+  "assessment": "AI Delivery Lead Technical Challenge",
+  "spike": "Strategic Risk Prioritization",
+  "seat": "Define a realistic delivery plan and build a lightweight prototype that aggregates public stock data, demonstrating end‑to‑end AI workflow judgment and hands‑on execution.",
+  "core_skill": "Translating a high‑level AI solution brief into a concrete, risk‑aware delivery roadmap while delivering a functional prototype under tight time constraints.",
+  "criteria": [
+    {
+      "key": "solution_architecture",
+      "label": "Part 1 – Solution Architecture (Task 1)",
+      "block": "work_product",
+      "weight": 15,
+      "anchors": {
+        "5": "Provides a clear, labeled diagram (or structured outline) that shows all required layers – data sources, ingestion, analysis/synthesis, storage, orchestration, output UI and explicit human‑review checkpoints – and references at least three concrete public data sources (e.g., SEC EDGAR, Yahoo Finance API, NewsAPI).",
+        "3": "Shows a diagram/outline with most layers present but omits one required component (e.g., no human‑review point) or lists generic data sources without naming at least two specific APIs.",
+        "1": "Supplies only a textual paragraph with no diagram, misses most layers, or lists vague sources like “various web sites” without any concrete identifiers."
+      }
+    },
+    {
+      "key": "delivery_phases",
+      "label": "Part 1 – Delivery Phases (Task 2)",
+      "block": "work_product",
+      "weight": 15,
+      "anchors": {
+        "5": "Breaks the effort into 5‑7 distinct phases, each with a 1‑sentence objective, deliverable, and measurable exit criteria (e.g., “Phase 3 – MVP Build – deliver a runnable prototype that returns a JSON diligence summary for any ticker”).",
+        "3": "Lists 3‑4 phases with vague objectives and no explicit exit criteria or deliverables.",
+        "1": "Provides a single “plan” paragraph with no phase separation or measurable outcomes."
+      }
+    },
+    {
+      "key": "risk_dependency",
+      "label": "Part 1 – Dependencies & Risks (Task 3)",
+      "block": "work_product",
+      "weight": 10,
+      "anchors": {
+        "5": "Identifies at least five concrete risks (e.g., rate‑limit throttling of Alpha Vantage, SEC filing format changes, hallucination in LLM synthesis, data‑privacy compliance, stakeholder mis‑alignment) and maps each to a mitigation or contingency.",
+        "3": "Lists 2‑3 risks, some generic (e.g., “technical risk”), with limited mitigation detail.",
+        "1": "Provides no risk list or only a generic statement like “there are risks”."
+      }
+    },
+    {
+      "key": "prototype_delivery",
+      "label": "Part 2 – Working Prototype (Task 4‑6)",
+      "block": "work_product",
+      "weight": 30,
+      "anchors": {
+        "5": "Delivers runnable code (e.g., Python script or notebook) that accepts a ticker, calls at least two live public APIs, merges the data, and outputs a structured diligence summary containing: company snapshot, recent price trend, top‑3 news headlines, risk flag list, and a short LLM‑generated note. Includes a README with one‑click run instructions.",
+        "3": "Prototype runs but only uses a single static data source or mock data, or outputs a summary missing two of the required sections.",
+        "1": "Code does not run, requires extensive manual setup, or merely provides a design mock‑up without any executable component."
+      }
+    },
+    {
+      "key": "ai_forwardness",
+      "label": "Part 3 – AI Workflow Note (Task 7)",
+      "block": "ai_forwardness",
+      "weight": 10,
+      "anchors": {
+        "5": "Explicitly lists each AI tool (e.g., ChatGPT for code generation, Claude for prompt engineering, Copilot for IDE assistance), describes what was automated (e.g., prompt creation, data‑to‑text synthesis), what remained manual (risk validation, architecture decisions), and explains verification steps (e.g., spot‑checking LLM output against source articles).",
+        "3": "Mentions AI tools but provides only high‑level usage (“used ChatGPT to write code”) without detailing automation scope or verification.",
+        "1": "No AI workflow note or a statement that no AI was used."
+      }
+    },
+    {
+      "key": "communication",
+      "label": "Part 1 – Executive Status Update (Task 5)",
+      "block": "communication",
+      "weight": 10,
+      "anchors": {
+        "5": "A 150‑word executive‑style brief that follows the prompt’s “Client/Executive Status Update” heading, includes progress % per phase, key decisions, risk flag count, and next‑step timeline, written in plain business language with no jargon.",
+        "3": "Provides an update but exceeds 250 words, mixes technical jargon, or omits at least two of the required elements (progress, risk, next steps).",
+        "1": "No executive update or a paragraph that is purely technical without any business framing."
+      }
+    },
+    {
+      "key": "spike",
+      "label": "Differentiator – Strategic Risk Prioritization",
+      "block": "spike",
+      "weight": 10,
+      "anchors": {
+        "5": "Reviewer sees a concise risk‑prioritization matrix that ranks each identified risk by impact and likelihood, ties it to concrete mitigation actions, and shows how this drives phase sequencing.",
+        "3": "Risk list is present but lacks clear ranking or mitigation linkage.",
+        "1": "Risk discussion is absent or completely unstructured."
+      }
+    }
+  ],
+  "auto_fails": [
+    "Missing Google Drive folder link or YouTube video link in the application text field.",
+    "Prototype code does not retrieve any live public data (all data hard‑coded or mocked).",
+    "Submission exceeds the stated 4‑hour time limit claim (e.g., includes timestamps showing >4 h of work)."
+  ],
+  "red_flags": [
+    "Prototype runs but requires paid API keys without providing a free‑fallback.",
+    "Executive update contains confidential client language not sanitized for a public submission."
+  ],
+  "tells": {
+    "strong": "A working prototype that pulls live SEC filings and market data, merges them, and generates an LLM‑crafted diligence note, all documented with a one‑click README.",
+    "weak": "A static PDF mock‑up of a dashboard with no executable code."
+  },
+  "gia": {
+    "primary": [
+      "Reasoning",
+      "Word Meaning"
+    ],
+    "secondary": [
+      "Number Speed"
+    ],
+    "why": "The seat demands high‑level architectural reasoning, clear risk articulation, and concise executive communication.",
+    "proxies": [
+      "Architecture diagram shows systems thinking (Reasoning)",
+      "Risk matrix ranks impact/likelihood (Reasoning)",
+      "Executive status update uses precise business language (Word Meaning)",
+      "Prototype aggregates numeric market metrics (Number Speed)"
+    ]
+  },
+  "triage": [
+    {
+      "key": "has_folder_link",
+      "label": "Google Drive folder link present and accessible"
+    },
+    {
+      "key": "has_video_link",
+      "label": "Unlisted YouTube walkthrough link present"
+    },
+    {
+      "key": "prototype_runs",
+      "label": "Prototype code executes and returns a JSON summary for a sample ticker"
+    },
+    {
+      "key": "architecture_present",
+      "label": "Solution architecture diagram or outline included"
+    },
+    {
+      "key": "ai_note_present",
+      "label": "AI workflow note describing tools and verification is included"
+    },
+    {
+      "key": "time_claim_respected",
+      "label": "Submission states ≤4 hours of effort"
+    }
+  ],
+  "repairs": [],
+  "derived_by": "openai/gpt-oss-120b",
+  "pack_version": "2026-08-12"
+}

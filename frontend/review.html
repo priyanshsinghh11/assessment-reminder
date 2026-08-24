@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Candidate review</title>
+  <!-- Search engines must never hold a token. The header on the response is
+       the real control, but a crawler that arrives via a forwarded email
+       reads this first. -->
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <!-- The token is in the path, so a click through to a candidate's CV would
+       otherwise hand it to Google Drive in the Referer header. -->
+  <meta name="referrer" content="no-referrer">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Fragment+Mono&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/review.css">
+</head>
+<body class="review-body">
+
+<header class="topbar">
+  <div class="topbar-left">
+    <p class="eyebrow brand">
+      <picture class="brand-logo">
+        <source srcset="/assets/ajaia-logo.png" media="(prefers-color-scheme: light)">
+        <img src="/assets/ajaia-logo-white.png" alt="Ajaia" width="62" height="15">
+      </picture>
+      <span>Hiring</span>
+    </p>
+    <h1 id="roleTitle">Candidate review</h1>
+    <p class="subtitle" id="meta">Loading&hellip;</p>
+  </div>
+</header>
+
+<main>
+
+  <!-- A dead link gets a sentence, not a stack trace. Which kind of dead it is
+       matters: expired and revoked are recoverable by asking, mistyped is
+       recoverable by opening the email again. -->
+  <section class="panel review-dead" id="dead" hidden>
+    <div class="dead-inner">
+      <h2 id="deadTitle">This link is not available</h2>
+      <p id="deadBody"></p>
+    </div>
+  </section>
+
+  <section class="panel" id="intro" hidden>
+    <div class="intro-inner">
+      <p id="introLead"></p>
+      <p class="dim" id="introHow">
+        Read anyone&rsquo;s CV and the answers they submitted, then narrow the
+        list down. Tick the people you want to meet and send them an invitation
+        over your own calendar &mdash; you write it and read it before it goes.
+        Hire and rejection are the two buttons beside each name.
+      </p>
+      <p class="warn" id="introPartial" hidden></p>
+      <p class="warn" id="introWarn" hidden></p>
+    </div>
+  </section>
+
+  <section class="panel" id="listPanel" hidden>
+    <div class="panel-head">
+      <h2>Candidates</h2>
+      <div class="controls">
+        <input type="search" id="search" class="search"
+               placeholder="Filter by name or email" aria-label="Filter by name or email">
+        <label class="sel">
+          <span>Show</span>
+          <select id="topN">
+            <option value="0">Everyone</option>
+            <option value="3">Top 3</option>
+            <option value="5">Top 5</option>
+            <option value="10">Top 10</option>
+          </select>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" id="hideDecided">
+          Hide the ones I have decided
+        </label>
+      </div>
+    </div>
+
+    <!-- The picking row. Sticky, because the button that acts on a selection
+         has to stay reachable while the manager scrolls the list they are
+         selecting from -- twenty names is more than one screen on a phone. -->
+    <div class="pick-bar" id="pickBar">
+      <label class="toggle">
+        <input type="checkbox" id="pickAll">
+        <span id="pickAllLabel">Select all</span>
+      </label>
+      <span class="dim pick-count" id="pickCount">Nobody picked yet</span>
+      <button class="btn btn-primary" type="button" id="inviteBtn" disabled>
+        Invite to interview
+      </button>
+    </div>
+
+    <ul class="cand-list" id="candList"></ul>
+    <p class="empty" id="listEmpty" hidden>Nothing here.</p>
+  </section>
+
+</main>
+
+<!-- Hire and rejection. Marking someone reaches a real person, so it asks
+     first and gives the manager somewhere to say why. The note goes into the
+     candidate's email when there is one.
+
+     The interview is not in here: it is a message with a subject and a body,
+     and it has the composer below. -->
+<div class="modal" id="confirm" hidden>
+  <div class="modal-scrim" data-cancel></div>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+    <h2 id="confirmTitle"></h2>
+    <p id="confirmBody"></p>
+
+    <label class="field">
+      <span id="noteLabel">Note <span class="opt">optional</span></span>
+      <textarea id="confirmNote" rows="3"></textarea>
+    </label>
+    <p class="dim small" id="noteHint"></p>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" type="button" data-cancel>Cancel</button>
+      <button class="btn btn-primary" type="button" id="confirmGo">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- The invitation, written by the manager who is going to take the meeting.
+     Two columns: what they are typing on the left, what the candidate will
+     actually receive on the right, re-rendered by the server as they type.
+
+     The booking button, the fallback URL and the signature are not in the
+     editable box. They are appended to whatever is typed, every time, so an
+     invitation cannot go out with no way to book. -->
+
+<div class="toast" id="toast" hidden></div>
+
+<!-- The composer, shared with the dashboard: it renders its own
+     markup, so this page carries none of it. Loaded first, because
+     review.js hands it its configuration on the way past. -->
+<script src="/invite.js"></script>
+<script src="/review.js"></script>
+</body>
+</html>

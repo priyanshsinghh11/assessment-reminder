@@ -1,0 +1,155 @@
+{
+  "key": "derived_ai_solutions_architect",
+  "unit": "AI Solutions Architecture",
+  "entity": "Ajaia",
+  "source": "derived",
+  "slugs": [
+    "ai-solutions-architect"
+  ],
+  "roles": [
+    "AI Solutions Architect"
+  ],
+  "assessment": "AI Solutions Architect Assessment",
+  "spike": "Prototype Utility",
+  "seat": "Define a delivery operating model, write a technical‑readiness note, and build a lightweight delivery‑ops prototype for the Patient Acquisition & Growth Agent.",
+  "core_skill": "Translating an AI product concept into a concrete, risk‑aware execution plan and a usable tool within tight time constraints.",
+  "criteria": [
+    {
+      "key": "workstream_structure",
+      "label": "Task 1A – Workstream Structure",
+      "block": "work_product",
+      "weight": 20,
+      "anchors": {
+        "5": "Provides a table of **exactly 6 workstreams** (e.g., Discovery, Integration, Conversation Design, Compliance, QA/Pilot, Rollout) each with a one‑sentence Objective, a named Owner, 2‑3 concrete dependencies, and 2‑3 primary outputs; all items are realistic to a hospital AI project.",
+        "3": "Lists 4‑5 workstreams with objectives and owners, but some dependencies or outputs are vague (e.g., “various stakeholders”) or missing a required field.",
+        "1": "Provides fewer than 3 workstreams, no owners, or generic bullets like “Define scope” without any concrete deliverables."
+      }
+    },
+    {
+      "key": "milestone_timeline",
+      "label": "Task 1B – Milestones & Timeline",
+      "block": "work_product",
+      "weight": 15,
+      "anchors": {
+        "5": "Delivers a Gantt‑style or tabular plan covering **exactly 8 weeks**, with all required milestones (Kickoff, Discovery, Design Checkpoint, Prototype Demo, QA Review, Launch‑Readiness Review, Pilot Go‑Live) dated, showing logical dependencies and realistic week allocations (e.g., Discovery weeks 1‑2, Prototype week 4).",
+        "3": "Provides a timeline that includes most milestones but stretches beyond week 8 or omits one required checkpoint.",
+        "1": "Timeline is missing >2 required milestones, has no dates, or extends past the 8‑week horizon."
+      }
+    },
+    {
+      "key": "technical_readiness",
+      "label": "Task 2 – Technical Readiness Note",
+      "block": "work_product",
+      "weight": 15,
+      "anchors": {
+        "5": "Chooses one workstream and supplies a **four‑section note** (Inputs, Teams, Open Questions, Failure Modes, “Ready‑to‑Build” criteria) with concrete examples (e.g., “FHIR API endpoint, OAuth scopes, calendar‑ID mapping”) and clear mitigation steps.",
+        "3": "Provides the four sections but some are generic (e.g., “Team involvement needed”) or missing a concrete “Ready‑to‑Build” definition.",
+        "1": "Note is a single paragraph, lacks structure, or does not identify technical inputs or risks."
+      }
+    },
+    {
+      "key": "prototype_delivery",
+      "label": "Task 3 – Delivery Ops Prototype",
+      "block": "work_product",
+      "weight": 20,
+      "anchors": {
+        "5": "Delivers runnable code (e.g., a Python Streamlit app or simple Node script) that loads a JSON/CSV of workstreams, displays a **dashboard with Milestone, Owner, Status, and Risk severity**, highlights blocked items, and includes a one‑page README with install/run steps.",
+        "3": "Prototype runs but is missing one key feature (e.g., no risk colour‑coding) or README is incomplete.",
+        "1": "Code does not run, has syntax errors, or lacks any usable interface."
+      }
+    },
+    {
+      "key": "ai_forwardness",
+      "label": "AI Workflow Note – Evidence of AI Leverage",
+      "block": "ai_forwardness",
+      "weight": 10,
+      "anchors": {
+        "5": "Explicitly lists each AI tool used (e.g., ChatGPT‑4 for drafting the delivery plan, GitHub Copilot for prototype scaffolding, Claude for risk wording), describes what was auto‑generated vs. manually edited, and explains verification steps (e.g., unit‑test, peer review of generated code).",
+        "3": "Mentions AI tools but vague about which artefacts were AI‑generated or lacks verification description.",
+        "1": "No AI tool mention or claims “no AI used” despite evidence of AI‑generated content."
+      }
+    },
+    {
+      "key": "communication",
+      "label": "Executive Readability & Compliance",
+      "block": "communication",
+      "weight": 10,
+      "anchors": {
+        "5": "All deliverables respect the caps (120 min, 8‑week timeline), use the exact section headings from the assessment, are concise, and the Sample Client Status Update follows the bullet template with clear headings and a one‑sentence overall status (e.g., “Green – on track”).",
+        "3": "Most sections follow the template but contain minor formatting errors or exceed the implied word‑count modestly.",
+        "1": "Deliverables ignore headings, exceed caps, or the status update is a free‑form paragraph lacking structure."
+      }
+    },
+    {
+      "key": "spike",
+      "label": "Differentiator – Prototype Utility",
+      "block": "spike",
+      "weight": 10,
+      "anchors": {
+        "5": "Prototype not only runs but **automatically generates the weekly client status update** from the underlying workstream data, showing a clear time‑saving advantage over a manual spreadsheet.",
+        "3": "Prototype runs and displays data but requires manual copy‑paste to produce the status update.",
+        "1": "Prototype runs but offers no tangible delivery‑ops benefit beyond a static list."
+      }
+    }
+  ],
+  "auto_fails": [
+    "Missing runnable prototype (code does not start or crashes on first run).",
+    "README absent or does not contain clear install/run instructions.",
+    "Video link is not an unlisted YouTube URL or is missing entirely.",
+    "Delivery plan timeline exceeds the 8‑week limit.",
+    "Risk/RAID section contains no concrete risk entries."
+  ],
+  "red_flags": [
+    "Prototype uses a proprietary library that requires a paid license.",
+    "AI workflow note claims 100 % AI‑generated content with no human verification.",
+    "Milestone dates conflict (e.g., launch before prototype)."
+  ],
+  "tells": {
+    "strong": "A fully functional Streamlit dashboard that auto‑generates a formatted weekly status memo from the workstream JSON.",
+    "weak": "A single‑page HTML mockup with placeholder data and no runnable code."
+  },
+  "gia": {
+    "primary": [
+      "Reasoning",
+      "Word Meaning"
+    ],
+    "secondary": [
+      "Number Speed"
+    ],
+    "why": "The seat demands logical structuring of workstreams, risk analysis, and clear written communication.",
+    "proxies": [
+      "Construction of the 8‑week milestone Gantt table (Reasoning, Number Speed).",
+      "Risk‑impact matrix wording (Word Meaning, Reasoning).",
+      "AI workflow note that explains tool selection and verification (Reasoning)."
+    ]
+  },
+  "triage": [
+    {
+      "key": "has_prototype",
+      "label": "Prototype code is present and runs locally"
+    },
+    {
+      "key": "readme_complete",
+      "label": "README includes install and execution steps"
+    },
+    {
+      "key": "video_link",
+      "label": "Unlisted YouTube link is provided"
+    },
+    {
+      "key": "timeline_within_caps",
+      "label": "8‑week milestone plan respects the 8‑week cap"
+    },
+    {
+      "key": "risk_entries",
+      "label": "At least three concrete risks with mitigation are listed"
+    },
+    {
+      "key": "ai_disclosure",
+      "label": "AI Workflow Note discloses tools and human judgment"
+    }
+  ],
+  "repairs": [],
+  "derived_by": "openai/gpt-oss-120b",
+  "pack_version": "2026-08-12"
+}

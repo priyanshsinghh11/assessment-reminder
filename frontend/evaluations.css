@@ -1,0 +1,1330 @@
+/*
+ * Additions for the evaluations page. Everything shared with the reminders
+ * dashboard -- tokens, buttons, panels, tables, toast -- comes from styles.css
+ * and is deliberately not repeated here.
+ */
+
+/* --- The two views ----------------------------------------------------
+ *
+ * The page is a list and a detail, not one long scroll. Only one is mounted
+ * at a time, so "which role am I looking at" is never a question the reader
+ * has to answer by checking how far down the page they are.
+ */
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.view[hidden] { display: none; }
+
+/* --- The opened role's header ------------------------------------------
+ *
+ * Way out, then name, then this role's own numbers. The metrics repeat the
+ * shape of the overview's cards at a smaller size on purpose: the same eight
+ * questions, asked about one seat instead of all of them.
+ */
+
+.role-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.backlink {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 12px 6px 10px;
+  margin-left: -10px;
+  font-family: inherit;
+  font-size: var(--fs-nav);
+  font-weight: 600;
+  letter-spacing: var(--tr-body);
+  color: var(--text-faint);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r);
+  cursor: pointer;
+  transition: color var(--ds-dur) var(--ds-ease),
+              background var(--ds-dur) var(--ds-ease);
+}
+.backlink:hover { color: var(--text); background: var(--surface-hover); }
+.backlink:focus-visible {
+  outline: none;
+  box-shadow: var(--glow);
+  border-color: var(--sky);
+}
+
+.back-arrow {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-left: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translate(1px, -1px);
+  transition: transform var(--ds-dur) var(--ds-ease);
+}
+.backlink:hover .back-arrow { transform: rotate(45deg) translate(-1px, 1px); }
+
+/* The two-standard switch on a role sat by two postings.
+ *
+ * Sits between the title and the tallies because it changes what those tallies
+ * mean: every number under it is one posting's, not the assignment's. Styled
+ * as a segmented control rather than a tab strip -- the role already has a tab
+ * strip below, and a second row of tabs would read as four sections of one
+ * thing instead of two versions of all four. */
+.tier-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+}
+
+.tier-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.tier-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.tier-pill:hover { color: var(--text); background: var(--surface-hover); }
+.tier-pill:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 2px; }
+.tier-pill.is-active {
+  background: var(--surface-hover);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+
+.tier-pill-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.tier-pill.is-active .tier-pill-count { color: var(--sky); border-color: var(--line-2); }
+
+/* Said in words, not as a badge. "17 unmatched" next to a count is read as a
+ * status; a sentence explaining that those people are here by fallback and a
+ * button that fixes it is read as a thing to do. */
+.tier-note {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-faint);
+}
+
+.role-hero-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.role-hero-head h2 {
+  margin: 0;
+  font-size: var(--fs-h3);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: var(--tr-h3);
+}
+
+.role-hero-head .subtitle { margin-top: 6px; }
+
+/* A manager's booking link, sitting in the role header because the tab that
+ * used to hold it is not drawn for them. Two states and they read differently
+ * on purpose: set is a quiet ghost button nobody needs to act on, missing is
+ * the amber one, because an unset link is an interview invitation that will
+ * refuse to send and no other screen says so first. */
+.hero-cal {
+  flex: none;
+  align-self: center;
+  font-size: var(--fs-body-sm);
+  white-space: nowrap;
+}
+
+.hero-cal.is-missing {
+  color: var(--accent-bright);
+  border-color: var(--line-2);
+}
+
+.hero-cal.is-missing::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--accent-bright);
+  vertical-align: 1px;
+}
+
+@media (max-width: 640px) {
+  /* Under a wrapped title rather than squeezed beside it. */
+  .hero-cal { align-self: flex-start; }
+}
+
+/* The funnel reads left to right -- submitted, scored, seen, hired -- so all
+ * eight belong on one line. A wrapped ninth-of-eight sitting alone under the
+ * row reads as a separate fact, which is exactly what it is not. */
+#stats {
+  grid-template-columns: repeat(auto-fit, minmax(124px, 1fr));
+  gap: 12px;
+}
+
+/* Same cards, quieter: at this size the row fits on one line next to a role
+ * name rather than becoming a second dashboard. */
+.stats-compact {
+  grid-template-columns: repeat(auto-fit, minmax(122px, 1fr));
+  gap: 10px;
+}
+.stats-compact .stat { padding: 11px 13px; }
+.stats-compact .stat-value { margin-top: 3px; font-size: 21px; }
+.stats-compact .stat-label { font-size: 10.5px; }
+.stats-compact .stat.is-zero .stat-value { color: var(--text-faint); }
+
+/* --- The role's sections as tabs ---------------------------------------
+ *
+ * Candidates, the hand-off, the standard and the board are four different
+ * jobs, and stacked they were four screens of scrolling to reach the last
+ * one. As tabs each starts at the top of the viewport. The bar sticks so the
+ * way between them survives a long candidate table.
+ */
+
+.viewtabs {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-top: 8px;
+  margin-bottom: -6px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  /* Stuck, the bar has a table sliding under it. Without a shadow the first
+     half-row reads as part of the bar. */
+  box-shadow: 0 10px 14px -12px rgba(0, 0, 0, .75);
+}
+.viewtabs::-webkit-scrollbar { display: none; }
+
+.viewtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 16px;
+  font-family: inherit;
+  font-size: var(--fs-nav);
+  font-weight: 600;
+  letter-spacing: var(--tr-body);
+  white-space: nowrap;
+  color: var(--text-faint);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: var(--r) var(--r) 0 0;
+  cursor: pointer;
+  transition: color var(--ds-dur) var(--ds-ease),
+              background var(--ds-dur) var(--ds-ease),
+              border-color var(--ds-dur) var(--ds-ease);
+}
+.viewtab:hover { color: var(--text); background: var(--surface-hover); }
+.viewtab:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: -2px; }
+
+/* .viewtab sets a display, which outranks the browser's own
+ * [hidden] { display: none } -- so the Shortlist tab that applyAccountView()
+ * hides from a hiring manager would otherwise stay right where it was. Same
+ * rule and same reason as .view[hidden] above. */
+.viewtab[hidden] { display: none; }
+
+.viewtab.is-active {
+  color: var(--text);
+  border-bottom-color: var(--accent-bright);
+}
+
+.viewtab-count {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text-faint);
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.viewtab-count:empty { display: none; }
+.viewtab.is-active .viewtab-count { color: var(--sky); border-color: var(--line-2); }
+
+.tabpane {
+  display: none;
+  flex-direction: column;
+  gap: 22px;
+}
+.tabpane.is-active { display: flex; }
+
+@media (max-width: 640px) {
+  /* A search box sharing a phone-width row with a status select leaves
+     neither wide enough to read what is in it. One control, one row. */
+  .panel-head .controls { width: 100%; }
+  .panel-head .controls > input,
+  .panel-head .controls > select { flex: 1 1 100%; min-width: 0; }
+
+  .role-hero-head h2 { font-size: var(--fs-h4); }
+  .viewtab { padding: 11px 13px; }
+}
+
+/* --- Role cards ------------------------------------------------------- */
+
+.role-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  gap: 12px;
+  padding: 16px 18px 20px;
+}
+
+.role-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 15px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--inset-hi);
+  cursor: pointer;
+  transition: background var(--ds-dur) var(--ds-ease),
+              border-color var(--ds-dur) var(--ds-ease),
+              transform var(--ds-dur) var(--ds-ease);
+}
+
+.role-card:hover {
+  background: var(--surface-hover);
+  border-color: var(--line-2);
+  transform: translateY(-1px);
+}
+.role-card:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 2px; }
+.role-card.is-active { border-color: var(--accent-bright); background: var(--surface-hover); }
+
+.role-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+
+.role-name {
+  font-weight: 600;
+  font-size: var(--fs-body-sm);
+  line-height: 1.35;
+  letter-spacing: var(--tr-h4);
+}
+
+/* A card is a way in, not a summary you read in place. The arrow only shows
+ * on hover -- twelve permanent arrows would be twelve pieces of furniture. */
+.role-name::after {
+  content: "\2192";
+  margin-left: 7px;
+  color: var(--accent-bright);
+  opacity: 0;
+  transform: translateX(-3px);
+  display: inline-block;
+  transition: opacity var(--ds-dur) var(--ds-ease),
+              transform var(--ds-dur) var(--ds-ease);
+}
+.role-card:hover .role-name::after,
+.role-card:focus-visible .role-name::after { opacity: 1; transform: none; }
+
+.role-sub {
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* Total submissions, the one number worth reading at a glance. */
+.role-total {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  line-height: 1;
+  color: var(--accent-bright);
+}
+.role-total.is-zero { color: var(--text-faint); }
+
+/* Stacked bar: the mix of statuses within a role, sized by share. */
+.role-bar {
+  display: flex;
+  height: 5px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--line);
+}
+.role-bar span { display: block; height: 100%; }
+.seg-scored      { background: var(--accent-bright); }
+.seg-pending     { background: var(--sky); }
+.seg-rejected    { background: var(--text-faint); }
+.seg-in_progress { background: var(--line-2, rgba(151,194,248,.28)); }
+
+.role-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.role-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.role-legend i {
+  width: 7px; height: 7px; border-radius: 2px;
+  flex: none;
+}
+
+/* --- Candidate table -------------------------------------------------- */
+
+.score-cell {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.score-strong { color: var(--accent-bright); }
+.score-mid    { color: var(--sky); }
+.score-low    { color: var(--text-faint); }
+.score-none   { color: var(--text-faint); font-size: var(--fs-body-sm); }
+
+/* Briefs run 3-4 sentences; clamp so a row stays one line tall and the full
+ * text lives in the drawer. */
+.brief-cell {
+  max-width: 460px;
+  color: var(--text-dim);
+  font-size: var(--fs-body-sm);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.badge-scored     { color: var(--accent-bright); border-color: var(--line-2); }
+.badge-pending    { color: var(--sky); border-color: var(--line-2); }
+.badge-rejected   { color: var(--text-faint); border-style: dashed; }
+.badge-inprogress { color: var(--text-faint); background: var(--surface-hover); }
+
+/* The pack's bands, same colours here as on the role page so a badge and the
+ * band strip it came from never read as two different scales. Best and Better
+ * share the accent -- they are one side of the bar; Best is filled so the top
+ * of a queue is findable without reading the words. */
+.badge-best       { color: var(--bg); background: var(--accent-bright);
+                    border-color: var(--accent-bright); }
+.badge-better     { color: var(--accent-bright); border-color: var(--accent-bright); }
+.badge-good       { color: var(--sky); border-color: var(--line-2); }
+.badge-okay       { color: var(--text-faint); border-style: dashed; }
+.badge-not-scored { color: #e4708a; border-color: #e4708a; }
+.badge-route      { color: var(--text-faint); font-family: var(--font-mono); }
+/* Where the candidate sits on the portal, not what we decided -- kept quiet so
+ * it reads as a note on the name rather than competing with the status column. */
+.badge-queue      { color: var(--text-faint); border-style: dashed; font-weight: 400; }
+.badge-derived    { color: var(--text-faint); border-style: dashed; }
+/* Graded with a required artefact missing. Warm rather than red: this is a
+ * fact about what was handed in, already priced inside the grid, not a verdict
+ * on the candidate and not a thing anyone needs to go and fix. */
+.badge-without    { color: #d8a657; border-color: #d8a657; border-style: dashed; }
+
+/* Verdicts recorded before the rubric pack. Advance / Hold / Reject are
+ * relabelled on display, but a record from further back can still reach a
+ * badge with its own word on it. */
+.badge-advance    { color: var(--accent-bright); border-color: var(--accent-bright); }
+.badge-hold       { color: var(--sky); border-color: var(--line-2); }
+.badge-reject     { color: var(--text-faint); border-style: dashed; }
+.badge-auto-fail  { color: #e4708a; border-color: #e4708a; }
+.badge-strong-yes { color: var(--accent-bright); border-color: var(--accent-bright); }
+.badge-yes        { color: var(--sky); border-color: var(--line-2); }
+.badge-maybe      { color: var(--text-dim); border-color: var(--line-2); }
+.badge-no         { color: var(--text-faint); border-style: dashed; }
+
+/* Artefact pips: filled = present, hollow = missing (the reject trigger). */
+.artefacts { display: inline-flex; gap: 6px; }
+.artefact {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .04em;
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  color: var(--text-faint);
+}
+.artefact.has { color: var(--sky); border-color: var(--line-2); }
+.artefact.missing { color: #e4708a; border-color: rgba(228, 112, 138, .4); }
+
+.row-click { cursor: pointer; }
+
+/* --- Hiring pipeline --------------------------------------------------
+ *
+ * The board and its badges. Deliberately a different family of colours from
+ * the score bands: a stage is something a person decided about a candidate,
+ * and painting "hired" in the same green as "Best" would read as the model
+ * having had an opinion about it.
+ */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 12px 18px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-faint);
+  background: none;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--r) var(--r) 0 0;
+  cursor: pointer;
+  transition: color var(--ds-dur) var(--ds-ease),
+              background var(--ds-dur) var(--ds-ease);
+}
+
+.tab:hover { color: var(--text); background: var(--surface-hover); }
+.tab:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: -2px; }
+
+/* The open tab reads as a continuation of the table below it: joined at the
+ * bottom edge, so the rows visibly belong to the word above them. */
+.tab.is-active {
+  color: var(--text);
+  background: var(--surface);
+  border-color: var(--line);
+  margin-bottom: -1px;
+  padding-bottom: 10px;
+}
+
+.tab-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--text-faint);
+  background: var(--surface-hover);
+  border: 1px solid var(--line);
+}
+.tab.is-active .tab-count { color: var(--sky); border-color: var(--line-2); }
+
+.badge-stage-interview { color: var(--sky); border-color: var(--sky); }
+.badge-stage-hired {
+  color: var(--bg);
+  background: var(--accent-bright);
+  border-color: var(--accent-bright);
+}
+.badge-stage-rejected { color: #e4708a; border-color: rgba(228, 112, 138, .5); }
+
+/* Row buttons: sized down so three of them do not out-shout the candidate's
+ * name at the other end of the row. */
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+.stage-actions { display: flex; gap: 6px; justify-content: flex-end; }
+
+/* Stage counts on a role card, under the status bar rather than in it -- see
+ * the comment in renderRoles(): these people are counted in the bar already. */
+.role-stages { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Owner chips sit on the card's floor rather than wherever the legend above
+ * them happened to end, so "which of these has nobody to send to" is one
+ * horizontal scan of a row instead of a hunt. */
+.role-card .role-stages:last-child { margin-top: auto; padding-top: 2px; }
+.stage-chip {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  color: var(--text-faint);
+}
+.stage-chip.stage-interview { color: var(--sky); border-color: var(--line-2); }
+.stage-chip.stage-hired { color: var(--accent-bright); border-color: var(--line-2); }
+.stage-chip.stage-rejected { border-style: dashed; }
+
+/* The move form in the drawer. */
+.stage-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+.stage-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-eyebrow);
+  color: var(--text-faint);
+}
+.stage-form label.wide { grid-column: 1 / -1; }
+.stage-form input {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  padding: 8px 11px;
+}
+.stage-form select {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  padding: 8px 11px;
+}
+.stage-form input::placeholder { color: var(--text-faint); }
+.stage-form input:focus-visible,
+.stage-form select:focus-visible { outline: none; border-color: var(--sky); }
+
+/* Which of the two free-text boxes the candidate can read. The labels are the
+ * only thing standing between an internal remark and the person it is about,
+ * so they are part of the field rather than a paragraph above the form. */
+.stage-form .field-hint {
+  font-size: 10.5px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-faint);
+  margin-top: -2px;
+}
+
+/* The interview, reported rather than offered. This page cannot create one --
+ * the hiring manager does that from their review link -- so what it shows is
+ * what they did: who invited them, any time suggested, and whether the
+ * invitation actually left. The last of those is its own line because a
+ * candidate can sit at this stage with an empty inbox after a failed send, and
+ * nothing else on the card would say so. */
+.stage-readout {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0 0 14px;
+  padding: 11px 13px;
+  background: var(--surface);
+  border-left: 3px solid var(--sky);
+  border-radius: 0 var(--r) var(--r) 0;
+  font-size: var(--fs-body-sm);
+  line-height: 1.45;
+}
+.stage-readout .dim { margin-right: 6px; }
+
+/* Where the interview buttons used to be. A sentence rather than a disabled
+ * control: a greyed-out button says "not now", and this is "not here". */
+.stage-locked {
+  margin: 12px 0 0;
+  padding: 10px 13px;
+  background: var(--surface);
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r);
+  font-size: var(--fs-body-sm);
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+/* Sending is the default, and the default gets the visual weight. */
+.stage-notify {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 14px;
+  padding: 11px 13px;
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  font-size: var(--fs-body-sm);
+  line-height: 1.45;
+  cursor: pointer;
+}
+.stage-notify input { margin-top: 3px; flex: none; }
+.stage-notify .dim { font-weight: 400; }
+
+/* What the candidate has already been told. Sits with the stage history for
+ * the same reason that list exists: "did they already get this" is asked with
+ * a finger over the button. */
+.stage-mails {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: var(--fs-body-sm);
+}
+.stage-mails li {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-dim);
+}
+.stage-mails li.is-failed { color: #e4708a; }
+
+/* Every move ever made on this candidate. Kept because "was booked in on the
+ * 12th and pulled back out" is a fact about the candidacy, not a mistake to
+ * be tidied away. */
+.stage-history {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: var(--fs-body-sm);
+}
+.stage-history li {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+
+/* --- Rejected list ---------------------------------------------------- */
+
+.hint {
+  padding: 0 18px 16px;
+  margin: 0;
+  color: var(--text-faint);
+  font-size: var(--fs-body-sm);
+  line-height: var(--lh-body);
+}
+
+.email-cell {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text-dim);
+  user-select: all;             /* one click selects the whole address */
+}
+
+.row-excluded { opacity: .4; }
+.row-excluded .email-cell { text-decoration: line-through; }
+
+/* --- Detail drawer ---------------------------------------------------- */
+
+.drawer { position: fixed; inset: 0; z-index: 60; }
+.drawer-scrim {
+  position: absolute; inset: 0;
+  background: rgba(0, 12, 40, .55);
+  backdrop-filter: blur(2px);
+}
+
+.drawer-panel {
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: min(760px, 100%);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-top);
+  border-left: 1px solid var(--line);
+  box-shadow: -24px 0 60px rgba(0, 0, 0, .35);
+  animation: drawer-in 260ms var(--ease-out);
+}
+
+@keyframes drawer-in { from { transform: translateX(24px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .drawer-panel { animation: none; }
+  .role-card:hover { transform: none; }
+}
+
+.drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 22px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.drawer-head h2 { font-size: 20px; letter-spacing: var(--tr-h4); margin: 2px 0 0; }
+
+.drawer-body { padding: 18px 22px 40px; overflow-y: auto; }
+
+.verdict-card {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 16px;
+  margin-bottom: 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+.verdict-score { font-family: var(--font-mono); font-size: 34px; line-height: 1; }
+.verdict-brief { color: var(--text-dim); font-size: var(--fs-body-sm); line-height: var(--lh-body); }
+
+/* --- Evaluation matrix ------------------------------------------------ */
+
+/* Four columns: category, bar, score, evidence. The bar is fixed-width so
+ * every row's fill starts at the same x and the column reads as a chart. */
+.matrix {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-body-sm);
+}
+
+.matrix thead th {
+  padding: 0 10px 7px 0;
+  font-size: var(--fs-eyebrow);
+  text-transform: uppercase;
+  letter-spacing: var(--tr-eyebrow);
+  color: var(--text-faint);
+  font-weight: 500;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+
+.matrix tbody th,
+.matrix tbody td {
+  padding: 10px 10px 10px 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.matrix tbody th {
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.matrix-weight {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-eyebrow);
+  font-weight: 400;
+  color: var(--text-faint);
+}
+
+.matrix-bar-cell { width: 116px; }
+
+.matrix-bar {
+  height: 6px;
+  margin-top: 5px;
+  background: var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.matrix-bar i {
+  display: block;
+  height: 100%;
+  background: currentColor;   /* inherits the score-strong/mid/low colour */
+  border-radius: 3px;
+}
+
+.matrix-score {
+  font-family: var(--font-mono);
+  font-size: var(--fs-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.matrix-evidence {
+  color: var(--text-dim);
+  line-height: var(--lh-body);
+  min-width: 220px;
+}
+
+.matrix-note {
+  margin-top: 9px;
+  font-size: var(--fs-eyebrow);
+  color: var(--text-faint);
+  line-height: var(--lh-body);
+}
+
+/* A score built from part of the rubric. It rides beside the number itself,
+ * every place the number is shown, because the number cannot carry the fact on
+ * its own -- renormalising a single marked row produces exactly 100.0. Muted
+ * and dashed rather than loud: it is a statement about our grading, not a
+ * judgement of the candidate. */
+.provisional-mark {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px dashed currentColor;
+  border-radius: var(--r-sm);
+  vertical-align: middle;
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  cursor: help;
+}
+.verdict-score .provisional-mark { font-size: 11px; margin-left: 10px; }
+
+/* --- The scored grid in the drawer ------------------------------------
+ *
+ * Grouped by block, with a subtotal on each block header, because the four
+ * blocks are the level at which two candidates in different families can be
+ * compared at all.
+ */
+
+.matrix.grid tbody th { white-space: normal; max-width: 240px; }
+
+.grid-block-row th {
+  padding-top: 16px !important;
+  font-size: var(--fs-eyebrow);
+  text-transform: uppercase;
+  letter-spacing: var(--tr-eyebrow);
+  font-weight: 500 !important;
+  color: var(--text-faint) !important;
+  border-bottom-color: var(--line-2) !important;
+}
+
+.grid-block-row .matrix-weight {
+  display: inline;
+  margin-left: 10px;
+  color: var(--accent-bright);
+}
+
+/* The mark is 1-5 and the points are what it contributed, so the points column
+ * stays quiet: it is arithmetic the reader can check, not a second judgment. */
+.matrix .points { font-family: var(--font-mono); font-size: 12.5px; white-space: nowrap; }
+.matrix .points .of { color: var(--text-faint); }
+.matrix-score[title] { cursor: help; border-bottom: 1px dotted var(--line-2); }
+
+.verdict-card.is-autofail { border-color: #e4708a; }
+
+.triage-checks { list-style: none; margin: 8px 0 0; padding: 0;
+                 font-size: var(--fs-body-sm); }
+
+.triage-checks li {
+  display: flex;
+  gap: 10px;
+  padding: 5px 0;
+  color: var(--text-dim);
+  line-height: var(--lh-body);
+}
+
+.triage-checks .tick { font-family: var(--font-mono); width: 14px; flex: none; }
+.triage-checks li.yes .tick { color: var(--accent-bright); }
+.triage-checks li.no .tick { color: #e4708a; }
+.triage-checks li.unknown .tick { color: var(--text-faint); }
+
+.rubric-fails-hit li::marker { color: #e4708a; }
+.rubric-fails-hit b { color: var(--text); }
+
+/* The drawer is narrow on a laptop; let the matrix scroll rather than
+ * squeezing the evidence column to one word per line. */
+.drawer-section:has(.matrix) { overflow-x: auto; }
+
+.drawer-section { margin-top: 22px; }
+.drawer-section h3 {
+  font-size: var(--fs-eyebrow);
+  text-transform: uppercase;
+  letter-spacing: var(--tr-eyebrow);
+  color: var(--text-faint);
+  margin-bottom: 10px;
+}
+
+.meta-grid {
+  display: grid;
+  grid-template-columns: 132px 1fr;
+  gap: 7px 14px;
+  font-size: var(--fs-body-sm);
+}
+.meta-grid dt { color: var(--text-faint); }
+.meta-grid dd { margin: 0; color: var(--text-dim); word-break: break-word; }
+
+/* The submission itself: monospace, scrollable, never reflowed -- reviewers
+ * need to see exactly what the candidate wrote. */
+.answer {
+  max-height: 60vh;
+  overflow: auto;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.drawer-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+
+/* --- Findings blocks in the drawer ------------------------------------
+ *
+ * What is left of the rubric's own stylesheet. The panel that showed the
+ * standard is gone -- see the rubric section of evaluations.js -- but the
+ * drawer still lists what a single candidate tripped: auto-fails, fraud
+ * tells, the CV consistency check and the GIA proxy read. Those are findings
+ * about one person, not the standard, so they stay.
+ */
+
+.rubric-block { margin-top: 20px; }
+
+.rubric-block h3 {
+  margin: 0 0 8px;
+  font-size: var(--fs-eyebrow);
+  text-transform: uppercase;
+  letter-spacing: var(--tr-eyebrow);
+  color: var(--text-faint);
+  font-weight: 500;
+}
+
+.rubric-block ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-dim);
+  font-size: var(--fs-body-sm);
+  line-height: var(--lh-body);
+  max-width: 90ch;
+}
+
+.rubric-block li { margin-bottom: 5px; }
+.rubric-fraud li::marker { color: #e4708a; }
+
+/* The GIA scales the drawer's proxy read names. */
+.gia-scales { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+
+.scale {
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.scale.primary { color: var(--sky); border-color: var(--line-2); }
+
+.warn { color: #e4708a; }
+
+
+/* --- Criterion columns in the candidate table -------------------------
+ *
+ * Off by default. Seven extra numeric columns make the table wide, but they
+ * are the only way to compare candidates one criterion at a time -- sort by
+ * Risk ranking and the table answers "who actually ranked the concentration
+ * first".
+ */
+
+th.cat-col, td.cat-col { width: 52px; }
+
+th.cat-col {
+  font-family: var(--font-mono);
+  cursor: help;
+}
+
+.cat-score {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Hiring managers and the shortlist hand-off -------------------------
+ *
+ * Two blocks in one panel, in the order the work happens: assign someone, then
+ * send them the list. They are not separate panels because neither is useful
+ * alone -- a manager with no shortlist is an address book, and a shortlist
+ * with no manager has nowhere to go.
+ */
+
+.mgr-block { padding: 4px 18px 20px; }
+.mgr-block + .mgr-block { border-top: 1px solid var(--line); padding-top: 18px; }
+.mgr-block .hint { padding: 0 0 12px; }
+
+.sub-head {
+  margin: 14px 0 6px;
+  font-size: var(--fs-eyebrow);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-eyebrow);
+  color: var(--sky);
+}
+.mgr-block:first-child .sub-head { margin-top: 4px; }
+
+/* Assigned managers, as removable chips. A list rather than a text field of
+ * comma-separated addresses: the send is per person, and a row you can delete
+ * is the only honest picture of that. */
+.mgr-list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mgr-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px 7px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  line-height: 1.3;
+}
+
+.mgr-chip-name { font-weight: 600; font-size: var(--fs-body-sm); }
+.mgr-chip-title { color: var(--text-faint); font-size: 12px; }
+.mgr-chip-email {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-dim);
+  user-select: all;
+}
+
+/* The manager's own cal.com page, and the gap where it should be. A missing
+ * link is shown as an action rather than hidden, because it is only noticed
+ * otherwise at the moment someone tries to book an interview and cannot. */
+.mgr-chip-cal {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--sky);
+  text-decoration: none;
+  border-bottom: 1px dotted currentColor;
+}
+.mgr-chip-cal:hover { color: var(--accent-bright); }
+button.mgr-chip-cal {
+  font-family: inherit;
+  background: none;
+  border: none;
+  border-bottom: 1px dashed currentColor;
+  padding: 0;
+  cursor: pointer;
+}
+.mgr-chip-cal.is-missing { color: var(--text-faint); }
+.mgr-chip-cal.is-missing:hover { color: var(--sky); }
+
+/* Removing a manager stops mail reaching a real person, so it gets a target
+ * you have to mean to hit rather than an x in the corner of the chip. */
+.mgr-remove {
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--text-faint);
+  background: none;
+  border: none;
+  border-left: 1px solid var(--line);
+  padding: 4px 4px 4px 10px;
+  cursor: pointer;
+  align-self: stretch;
+}
+.mgr-remove:hover { color: #e4708a; }
+.mgr-remove:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 2px; }
+
+.mgr-empty { color: var(--text-faint); font-size: var(--fs-body-sm); }
+
+.mgr-form {
+  display: grid;
+  /* Named tracks, not repeat(auto-fit, ...) + auto: auto-fit beside an
+   * intrinsically sized track is invalid, and the whole declaration is
+   * dropped, which put every field on its own row. */
+  grid-template-columns: minmax(130px, 1fr) minmax(180px, 1.2fr) minmax(120px, 0.9fr) minmax(170px, 1.1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+@media (max-width: 860px) {
+  .mgr-form { grid-template-columns: 1fr 1fr; }
+  .mgr-form-actions { grid-column: 1 / -1; }
+}
+/* Same display-outranks-[hidden] trap as .viewtab: applyAccountView() hides
+ * this form from a hiring manager, and a grid display meant it never went.
+ * The server refuses the POST behind it either way -- but a form that is
+ * offered and then rejected is a worse answer than one that was never there. */
+.mgr-form[hidden] { display: none; }
+
+.mgr-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-eyebrow);
+  color: var(--text-faint);
+}
+.mgr-form input,
+.note-field textarea {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  padding: 8px 11px;
+}
+.mgr-form input::placeholder,
+.note-field textarea::placeholder { color: var(--text-faint); }
+.mgr-form input:focus-visible,
+.note-field textarea:focus-visible { outline: none; border-color: var(--sky); }
+
+.opt { font-weight: 400; text-transform: none; letter-spacing: 0; opacity: .7; }
+
+.note-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 16px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-eyebrow);
+  color: var(--text-faint);
+}
+.note-field textarea { resize: vertical; min-height: 44px; }
+
+/* Rank, in the same mono as every other number on the page. The order IS the
+ * recommendation -- it is the only part of the marking the manager sees. */
+.rank-cell {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--accent-bright);
+  text-align: center;
+}
+
+.link-cell a { color: var(--sky); font-weight: 600; }
+.link-cell .none { color: var(--text-faint); }
+
+/* The rendered email. An iframe because the message is a full HTML document in
+ * its own colours -- letting it inherit the dashboard's dark tokens would show
+ * the recruiter something the manager will never see. */
+#mailFrame {
+  width: 100%;
+  min-height: 320px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: #ffffff;
+}
+
+.mgr-form-actions { display: flex; gap: 8px; align-items: end; }
+
+/* --- Review links ------------------------------------------------------ */
+
+.link-list { list-style: none; margin: 0; padding: 0; }
+
+.link-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+}
+.link-row:last-child { border-bottom: none; }
+
+.link-who { font-weight: 600; font-size: var(--fs-body-sm); }
+.link-meta { margin-top: 3px; font-size: 12px; color: var(--text-faint); }
+.link-actions { display: flex; gap: 6px; flex: none; }
+
+/* A dead link is still worth reading -- it carries the audit trail -- but it
+ * should not compete with the live ones. */
+.link-revoked, .link-expired { opacity: .55; }
+
+.badge-link-ok      { color: var(--accent-bright); border-color: var(--accent-bright); }
+.badge-link-revoked { color: #e4708a; border-color: rgba(228, 112, 138, .5); }
+.badge-link-expired { color: var(--text-faint); border-style: dashed; }
+
+/* Something the recruiter must act on, in a palette with no amber: emphasis
+ * does the work a warning colour would elsewhere. */
+.warn {
+  margin: 0 0 12px;
+  padding: 10px 13px;
+  background: var(--surface-hover);
+  border-left: 3px solid var(--sky);
+  border-radius: 0 var(--r) var(--r) 0;
+  font-size: var(--fs-body-sm);
+  line-height: var(--lh-body);
+  color: var(--text);
+}
+
+/* Marks a board row that a hiring manager moved rather than a recruiter. */
+.by-chip {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 7px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--sky);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+}
+
+/* --- The top N, and the invitation composer ----------------------------
+ *
+ * The shortlist a hiring manager works sits at the top of the Pipeline tab,
+ * one panel above the board it feeds. Everything here is that panel and the
+ * composer it opens.
+ */
+
+/* A picked row is the one thing on this table that has to be readable at a
+ * glance from across the panel -- the count in the send bar says how many,
+ * this says which. */
+.top-row.is-picked > td { background: var(--surface-hover); }
+.top-row td { vertical-align: middle; }
+.top-pick { width: 1%; }
+.top-pick input { cursor: pointer; }
+
+/* Already invited, still on the list because a reschedule or a resend is a
+ * real thing a manager comes back for. */
+.top-row.is-invited .cand-name { opacity: .8; }
+
+.warn-inline {
+  color: var(--sky);
+  font-size: 12px;
+}
+
+/* The send bar's own tick-all sits on the left, where the column of tickboxes
+ * it governs begins. */
+#topAllField { flex: none; }
+
+/* --- the composer -------------------------------------------------------
+ *
+ * Not here. It moved to styles.css when the dialog moved into invite.js, and
+ * both pages that mount it load that sheet. The copy that used to sit here was
+ * written for the drawer this page opened before the two were merged -- it
+ * still sized `.drawer-panel.is-wide` and still spaced `.note-field`, neither
+ * of which the shared markup uses -- and because this sheet loads after
+ * styles.css it quietly won every rule the two had in common. A second set of
+ * composer styling on one of the two pages is exactly the drift that sharing
+ * the dialog was meant to end.
+ */

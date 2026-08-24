@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Assessment Evaluations</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Fragment+Mono&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="auth.css">
+  <link rel="stylesheet" href="evaluations.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-left">
+    <p class="eyebrow brand">
+      <picture class="brand-logo">
+        <source srcset="/assets/ajaia-logo.png" media="(prefers-color-scheme: light)">
+        <img src="/assets/ajaia-logo-white.png" alt="Ajaia" width="62" height="15">
+      </picture>
+      <span>Recruiting Ops</span>
+    </p>
+    <h1>Assessment Evaluations</h1>
+    <p class="subtitle" id="runMeta">Loading&hellip;</p>
+  </div>
+  <div class="topbar-actions">
+    <a class="btn btn-ghost" href="/">Reminders</a>
+    <button class="btn" id="syncBtn" title="Re-download submissions from the portal">Sync portal</button>
+    <button class="btn" id="refreshBtn">Refresh</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- =====================================================================
+       VIEW 1 -- the overview. Two things only: how the whole funnel is doing,
+       and which role to open. Everything else on this page belongs to one
+       role, so it lives behind a role rather than below it.
+       ================================================================== -->
+  <section class="view" id="viewRoles">
+
+    <section class="stats" id="stats"></section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Roles</h2>
+        <div class="controls">
+          <input type="search" id="roleSearch" placeholder="Search roles" autocomplete="off">
+          <select id="roleFilter">
+            <option value="active">With submissions</option>
+            <option value="all">All roles</option>
+            <option value="published">Published only</option>
+          </select>
+        </div>
+      </div>
+      <div class="role-grid" id="roleGrid"></div>
+      <p class="empty" id="roleEmpty" hidden>No roles match these filters.</p>
+    </section>
+
+    <!-- =================================================================
+         Accounts. Admin-only, and hidden rather than disabled for a manager
+         -- a greyed-out "Accounts" panel tells them there is an admin tier
+         and invites the question of who is in it.
+
+         The roles column here is NOT editable. Which roles an account can
+         open is the hiring-manager list on each role, one screen along, and
+         a second place to set it would be a second place for it to be wrong.
+         ============================================================== -->
+    <section class="panel" id="accountsPanel" hidden>
+      <div class="panel-head">
+        <h2>Accounts</h2>
+        <div class="controls">
+          <button class="btn btn-ghost" id="accountsRefresh" type="button">Refresh</button>
+        </div>
+      </div>
+
+      <p class="hint">
+        Who can sign in, and what they see. <strong>Recruiting</strong> accounts
+        see every role and every button on these pages.
+        <strong>Hiring manager</strong> accounts see only the roles their address
+        is listed on under <em>Hiring managers</em> &mdash; add them there to give
+        them a role, remove them to take it away.
+      </p>
+
+      <form class="new-user-form" id="newUserForm">
+        <label>Email
+          <input type="email" id="newUserEmail" placeholder="anita@ajaia.ai"
+                 autocomplete="off" required>
+        </label>
+        <label>Name
+          <input type="text" id="newUserName" placeholder="Anita Desai"
+                 autocomplete="off">
+        </label>
+        <label>Access
+          <select id="newUserRole">
+            <option value="manager">Hiring manager</option>
+            <option value="admin">Recruiting team</option>
+          </select>
+        </label>
+        <button class="btn btn-primary" type="submit" id="newUserBtn">
+          Create account
+        </button>
+      </form>
+
+      <!-- A generated password appears here once and is then unrecoverable.
+           On the page rather than in a toast, which auto-dismisses. -->
+      <div class="secret" id="newUserSecret" hidden>
+        <strong id="secretWho"></strong>
+        <code id="secretPassword"></code>
+        <small>
+          Shown once &mdash; there is no screen that can show it again. Send it
+          to them now; they will be asked to change it when they first sign in.
+        </small>
+      </div>
+
+      <div class="table-wrap">
+        <table class="users-table">
+          <thead>
+            <tr>
+              <th>Account</th>
+              <th>Access</th>
+              <th>Roles they can open</th>
+              <th>Last sign-in</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="usersBody"></tbody>
+        </table>
+      </div>
+      <p class="empty" id="usersEmpty" hidden>No accounts yet.</p>
+    </section>
+
+  </section>
+
+  <!-- =====================================================================
+       VIEW 2 -- one role, on its own. The grid of other roles is gone rather
+       than scrolled past: a reviewer working one seat should not be reading
+       another seat's numbers by accident. Its four sections are tabs rather
+       than stacked panels, so what you came for is the first screen and there
+       is nothing underneath it to scroll through.
+       ================================================================== -->
+  <section class="view" id="viewRole" hidden>
+
+    <div class="role-hero">
+      <button class="backlink" id="backBtn" type="button">
+        <span class="back-arrow" aria-hidden="true"></span>All roles
+      </button>
+      <div class="role-hero-head">
+        <div>
+          <h2 id="roleTitle">Loading&hellip;</h2>
+          <p class="subtitle" id="roleSub"></p>
+        </div>
+        <!-- A hiring manager's own cal.com page. It is what a candidate is
+             sent when this manager books an interview, so a missing one is a
+             Send button that will refuse -- which is why it says so here
+             rather than at the point of sending. Drawn only for managers:
+             a recruiter edits everyone's link in the Shortlist tab. -->
+        <button class="btn btn-ghost hero-cal" type="button" id="heroCalBtn" hidden></button>
+      </div>
+      <!-- Only drawn for an assignment sat by two postings at different
+           seniorities: the switch between the two standards, and the button
+           that works out which posting each candidate came from. Hidden
+           entirely for every other role, which is all of them but one. -->
+      <div class="tier-bar" id="tierBar" hidden></div>
+      <div class="stats stats-compact" id="roleStats"></div>
+    </div>
+
+    <nav class="viewtabs" id="roleTabs" role="tablist" aria-label="Role sections">
+      <button class="viewtab is-active" type="button" role="tab" data-tab="candidates"
+              aria-selected="true">Candidates<span class="viewtab-count" id="tabCountCandidates"></span></button>
+      <!-- Recruiting team only, hidden by applyAccountView(). Assigning
+           managers and sending them this role's shortlist is the recruiter's
+           half of the hand-off; a manager arrives here from the mail that
+           section produced, and their two tabs are the ones either side of
+           it. -->
+      <button class="viewtab" type="button" role="tab" data-tab="shortlist"
+              id="tabShortlist"
+              aria-selected="false">Shortlist<span class="viewtab-count" id="tabCountShortlist"></span></button>
+      <button class="viewtab" type="button" role="tab" data-tab="pipeline"
+              aria-selected="false">Pipeline<span class="viewtab-count" id="tabCountPipeline"></span></button>
+    </nav>
+
+    <!-- ---------- Candidates ---------- -->
+    <div class="tabpane is-active" data-pane="candidates">
+      <section class="panel" id="candidatePanel">
+        <div class="panel-head">
+          <h2 id="candidateTitle">Candidates</h2>
+          <div class="controls">
+            <input type="search" id="candSearch" placeholder="Search name or email" autocomplete="off">
+            <!-- The shortlist, on the tab that already has the people on it.
+                 Same twenty the email sends and the same rule behind them --
+                 scored, not artefact-rejected, not already moved along the
+                 board -- so "the top 20" means one set of names wherever it is
+                 read. See topCandidateIds() for the rule it mirrors. -->
+            <select id="topN" title="Show only the best-scoring candidates who are still awaiting a decision">
+              <option value="0">Everyone</option>
+              <option value="5">Top 5</option>
+              <option value="10">Top 10</option>
+              <option value="20">Top 20</option>
+              <option value="30">Top 30</option>
+            </select>
+            <select id="statusFilter">
+              <option value="">All statuses</option>
+              <option value="scored">Scored</option>
+              <option value="pending">Pending evaluation</option>
+              <option value="rejected">Rejected &mdash; missing artefact</option>
+              <option value="in_progress">Not submitted</option>
+            </select>
+            <label class="toggle" title="Show a column per grid criterion, marked 1-5, so candidates can be compared one criterion at a time">
+              <input type="checkbox" id="matrixToggle">
+              Criterion columns
+            </label>
+          </div>
+        </div>
+
+        <div class="sendbar">
+          <span class="sendbar-count" id="gradeStatus">&mdash;</span>
+          <div class="sendbar-actions">
+            <!-- The hiring manager's way in. The shortlist and the composer
+                 both live in the Pipeline tab now -- the twenty people waiting
+                 on a decision sit directly above the board they are about to
+                 enter -- so this is a door to that section rather than a second
+                 copy of it. Drawn only for a manager who is named on this
+                 role; see renderInviteBtn(). -->
+            <button class="btn btn-primary" id="inviteBtn" hidden>
+              Top candidates &amp; invite
+            </button>
+            <label class="limit-field" id="gradeLimitField">
+              Batch
+              <input type="number" id="gradeLimit" min="1" max="25" step="1" value="5"
+                     title="How many pending submissions to grade in one click">
+            </label>
+            <button class="btn btn-primary" id="gradeBtn">Grade pending</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table id="candTable">
+            <thead>
+              <tr id="candHead">
+                <th data-sort="candidate_name">Candidate</th>
+                <th data-sort="score" class="num">Score</th>
+                <!-- Category columns are injected here when the toggle is on. -->
+                <th data-sort="recommendation">Verdict</th>
+                <th>Brief</th>
+                <th>Artefacts</th>
+                <th data-sort="submitted_at">Submitted</th>
+                <th data-sort="status">Status</th>
+              </tr>
+            </thead>
+            <tbody id="candBody"></tbody>
+          </table>
+          <p class="empty" id="candEmpty" hidden>No candidates match these filters.</p>
+        </div>
+      </section>
+    </div>
+
+    <!-- ---------- Shortlist and hiring managers ---------- -->
+    <!-- The hand-off: who owns this role, and the top-N that goes to them
+         once the marking is done. -->
+    <div class="tabpane" data-pane="shortlist">
+      <section class="panel" id="shortlistPanel">
+        <div class="panel-head">
+          <h2>Hiring managers &amp; shortlist <span class="dim" id="shortlistRole"></span></h2>
+          <div class="controls">
+            <span class="dim" id="shortlistSent"></span>
+          </div>
+        </div>
+
+        <div id="shortlistBody">
+
+          <!-- Managers first. Everything below it is disabled without one, and a
+               form whose button is greyed out should say why above the button. -->
+          <div class="mgr-block">
+            <h3 class="sub-head">Assigned managers</h3>
+            <p class="hint">
+              Who this role&rsquo;s shortlist is emailed to, and who can move its
+              candidates to Interview or Rejected. Stored per role and never
+              touched by a portal sync.
+            </p>
+            <p class="hint">
+              A manager&rsquo;s <strong>booking link</strong> is their own cal.com
+              page. It is what a candidate is sent when that manager schedules an
+              interview, so paste it once and every invitation after that is a
+              single click.
+            </p>
+            <ul class="mgr-list" id="mgrList"></ul>
+
+            <form class="mgr-form" id="mgrForm">
+              <label>Name
+                <input type="text" id="mgrName" placeholder="Anita Desai"
+                       list="mgrKnown" autocomplete="off">
+              </label>
+              <label>Email
+                <input type="email" id="mgrEmail" placeholder="anita@ajaia.ai"
+                       autocomplete="off" required>
+              </label>
+              <label><span>Title <span class="opt">optional</span></span>
+                <input type="text" id="mgrTitle" placeholder="VP Engineering"
+                       autocomplete="off">
+              </label>
+              <label><span>Booking link <span class="opt">cal.com &mdash; sent to candidates</span></span>
+                <input type="text" id="mgrCal" placeholder="cal.com/anita/interview"
+                       autocomplete="off">
+              </label>
+              <div class="mgr-form-actions">
+                <button class="btn" type="submit" id="mgrAdd">Add manager</button>
+                <!-- Hidden until the list is edited: a save button that is always
+                     there invites a click that does nothing. -->
+                <button class="btn btn-primary" type="button" id="mgrSave" hidden>Save</button>
+              </div>
+            </form>
+            <datalist id="mgrKnown"></datalist>
+          </div>
+
+          <!-- The links those managers were mailed. A review link is a credential,
+               so this lists what exists and offers revoke -- it is not a place to
+               collect URLs from. -->
+          <div class="mgr-block">
+            <h3 class="sub-head">Review links</h3>
+            <p class="hint">
+              Created when you send. Each manager gets their own, scoped to this
+              role and the exact candidates they were sent, and it expires on its
+              own. Revoke one when someone leaves or forwards it.
+            </p>
+            <p class="warn" id="linkWarn" hidden></p>
+            <ul class="link-list" id="linkList"></ul>
+          </div>
+
+          <!-- What would actually be sent. The same rows, from the same function,
+               that build the email and the spreadsheet -- no scores anywhere. -->
+          <div class="mgr-block">
+            <h3 class="sub-head">Top candidates</h3>
+            <p class="hint" id="shortlistHint"></p>
+            <!-- Candidates the ranking could not honestly include: the AI
+                 stopped part-way through their rubric, so their renormalised
+                 total is not comparable with anyone else's. Hidden when there
+                 are none, which is the normal case. -->
+            <p class="warn" id="shortlistHeldBack" hidden></p>
+
+            <div class="sendbar">
+              <span class="sendbar-count" id="shortlistCount">&mdash;</span>
+              <div class="sendbar-actions">
+                <label class="limit-field">
+                  Top
+                  <input type="number" id="shortlistLimit" min="1" max="100" step="1"
+                         value="20" title="How many candidates go in the hand-off">
+                </label>
+                <!-- The one number this hand-off normally withholds, offered
+                     per send rather than as a config flag somebody has to
+                     restart the server to move. It reaches the SPREADSHEET
+                     only -- the attachment and the download are the same file
+                     -- and never the email body: see the note in
+                     shortlist.py's header for why the mail is the wrong
+                     surface for a number. -->
+                <label class="toggle" id="shortlistScoresField"
+                       title="Put the AI's mark out of 100 in the spreadsheet the manager gets. The email body stays names and links either way.">
+                  <input type="checkbox" id="shortlistScores">
+                  AI score
+                </label>
+                <button class="btn" id="shortlistXlsxBtn">Download Excel</button>
+                <button class="btn" id="shortlistPreviewBtn">Preview email</button>
+                <button class="btn btn-primary" id="shortlistSendBtn">Send to managers</button>
+              </div>
+            </div>
+
+            <label class="note-field">
+              <span>Note to the manager <span class="opt">optional &mdash; appears above the table</span></span>
+              <textarea id="shortlistNote" rows="2"
+                        placeholder="Strong batch this round &mdash; happy to set up calls with any of the top five."></textarea>
+            </label>
+
+            <div class="table-wrap">
+              <table id="shortlistTable">
+                <thead>
+                  <tr>
+                    <th class="shrink">#</th>
+                    <th>Candidate</th>
+                    <th class="num" id="shortlistScoreHead" hidden>AI score</th>
+                    <th>Email</th>
+                    <th>Resume</th>
+                    <th>Assessment</th>
+                    <th>Video</th>
+                    <th>Submitted</th>
+                  </tr>
+                </thead>
+                <tbody id="shortlistBodyRows"></tbody>
+              </table>
+              <p class="empty" id="shortlistEmpty" hidden></p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ---------- Pipeline ---------- -->
+    <!-- What happened after the score: who is booked in, who was hired, who
+         was turned down having been seen. Scoped to this role on arrival; the
+         select widens it back out when someone wants the whole calendar. -->
+    <div class="tabpane" data-pane="pipeline">
+
+      <!-- ---------- The top N, and the invitation ----------
+           The shortlist lives here rather than on the Candidates tab because
+           this is where it goes next: the twenty people still awaiting a
+           decision sit directly above the board they are about to enter, and
+           moving one is a tick and a message rather than a trip to another
+           page. Drawn only for a hiring manager named on this role -- the
+           invitation is signed with their name and points at their calendar,
+           so the server refuses to mint this workspace for anybody else. -->
+      <section class="panel" id="topPanel" hidden>
+        <div class="panel-head">
+          <h2>Top candidates <span class="dim" id="topRole"></span></h2>
+          <div class="controls">
+            <input type="search" id="topSearch" placeholder="Search name or email"
+                   autocomplete="off">
+            <select id="topLimit" title="How many of the best-scoring candidates to work through">
+              <option value="5">Top 5</option>
+              <option value="10">Top 10</option>
+              <option value="20" selected>Top 20</option>
+              <option value="30">Top 30</option>
+              <option value="50">Top 50</option>
+            </select>
+            <button class="btn btn-ghost" id="topRefresh" type="button">Refresh</button>
+          </div>
+        </div>
+
+        <p class="hint" id="topHint">
+          The best-scoring candidates on this role who are still waiting on a
+          decision, strongest first. Tick the people you want to meet and send
+          them an invitation over your own calendar &mdash; you write it and
+          read it before it goes. Once invited they leave this list and appear
+          under Interview below.
+        </p>
+        <p class="warn" id="topWarn" hidden></p>
+
+        <div class="sendbar">
+          <label class="toggle" id="topAllField">
+            <input type="checkbox" id="topAll">
+            <span id="topAllLabel">Select all</span>
+          </label>
+          <span class="sendbar-count" id="topCount">Loading&hellip;</span>
+          <div class="sendbar-actions">
+            <button class="btn btn-primary" id="topInviteBtn" type="button" disabled>
+              Invite to interview
+            </button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table id="topTable">
+            <thead>
+              <tr>
+                <th class="shrink"></th>
+                <th class="shrink">#</th>
+                <th>Candidate</th>
+                <th class="num">Score</th>
+                <th>Artefacts</th>
+                <th>Submitted</th>
+                <th>State</th>
+              </tr>
+            </thead>
+            <tbody id="topBody"></tbody>
+          </table>
+          <p class="empty" id="topEmpty" hidden></p>
+        </div>
+      </section>
+
+      <section class="panel" id="pipelinePanel">
+        <div class="panel-head">
+          <h2>Hiring pipeline</h2>
+          <div class="controls">
+            <select id="pipelineRole"><option value="">All roles</option></select>
+            <button class="btn btn-ghost" id="pipelineRefresh">Refresh board</button>
+          </div>
+        </div>
+
+        <div class="tabs" id="pipelineTabs" role="tablist">
+          <button class="tab is-active" type="button" data-stage="interview" role="tab"
+                  aria-selected="true">
+            Interview <span class="tab-count" data-count="interview">0</span>
+          </button>
+          <button class="tab" type="button" data-stage="hired" role="tab" aria-selected="false">
+            Hired <span class="tab-count" data-count="hired">0</span>
+          </button>
+          <button class="tab" type="button" data-stage="rejected" role="tab" aria-selected="false">
+            Rejected <span class="tab-count" data-count="rejected">0</span>
+          </button>
+        </div>
+
+        <div class="sendbar">
+          <span class="sendbar-count" id="pipelineStatus">Loading&hellip;</span>
+          <div class="sendbar-actions">
+            <button class="btn" id="pipelineCopyBtn">Copy addresses</button>
+            <button class="btn" id="pipelineCsvBtn">Download CSV</button>
+          </div>
+        </div>
+
+        <p class="hint" id="pipelineHint"></p>
+
+        <div class="table-wrap">
+          <table id="pipelineTable">
+            <thead><tr id="pipelineHead"></tr></thead>
+            <tbody id="pipelineBody"></tbody>
+          </table>
+          <p class="empty" id="pipelineEmpty" hidden></p>
+        </div>
+      </section>
+
+      <section class="panel" id="rejectedPanel">
+        <div class="panel-head">
+          <h2>Rejected &mdash; ready for rejection emails</h2>
+          <div class="controls">
+            <select id="rejectedRole"><option value="">All roles</option></select>
+            <button class="btn btn-ghost" id="rejectedToggle">Hide list</button>
+          </div>
+        </div>
+
+        <div class="sendbar">
+          <span class="sendbar-count" id="rejectedCount">Loading&hellip;</span>
+          <div class="sendbar-actions">
+            <button class="btn" id="copyEmailsBtn">Copy addresses</button>
+            <button class="btn" id="copyBccBtn" title="Semicolon-separated, for the BCC field">Copy for BCC</button>
+            <button class="btn" id="exportCsvBtn">Download CSV</button>
+          </div>
+        </div>
+
+        <p class="hint" id="rejectedHint"></p>
+
+        <div class="table-wrap" id="rejectedWrap">
+          <table id="rejectedTable">
+            <thead>
+              <tr>
+                <th class="shrink"><input type="checkbox" id="rejectedAll" checked
+                                          title="Select all"></th>
+                <th>Candidate</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Reason</th>
+                <th>Submitted</th>
+              </tr>
+            </thead>
+            <tbody id="rejectedBody"></tbody>
+          </table>
+          <p class="empty" id="rejectedEmpty" hidden>No rejected candidates.</p>
+        </div>
+      </section>
+    </div>
+
+  </section>
+
+</main>
+
+<div class="drawer" id="drawer" hidden>
+  <div class="drawer-scrim" data-close></div>
+  <aside class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawerName">
+    <div class="drawer-head">
+      <div>
+        <p class="eyebrow" id="drawerRole"></p>
+        <h2 id="drawerName"></h2>
+        <p class="subtitle" id="drawerEmail"></p>
+      </div>
+      <button class="btn btn-ghost" data-close aria-label="Close">Close</button>
+    </div>
+    <div class="drawer-body" id="drawerBody"></div>
+  </aside>
+</div>
+
+<!-- The interview invitation, written by the manager who is going to take
+     the meeting. Two columns: what they are typing on the left, what the
+     candidate will actually receive on the right, re-rendered by the server as
+     they type -- the same builder that sends it, so a preview drawn from a
+     second template can never disagree with the mail.
+
+     The booking button, the fallback URL and the signature are not in the
+     editable box. They are appended to whatever is typed, every time, so an
+     invitation cannot go out with no way to book. -->
+
+<!-- The shortlist email exactly as the manager would receive it, rendered by
+     the same function that sends it. A preview built from a different template
+     is a preview of nothing. -->
+<div class="drawer" id="mailPreview" hidden>
+  <div class="drawer-scrim" data-mail-close></div>
+  <aside class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="mailSubject">
+    <div class="drawer-head">
+      <div>
+        <p class="eyebrow">Email preview</p>
+        <h2 id="mailSubject"></h2>
+        <p class="subtitle" id="mailTo"></p>
+      </div>
+      <button class="btn btn-ghost" data-mail-close aria-label="Close">Close</button>
+    </div>
+    <div class="drawer-body">
+      <iframe id="mailFrame" title="Email preview"></iframe>
+    </div>
+  </aside>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<!-- session.js first: it wraps window.fetch so every request below
+     carries its CSRF token and knows where to go when the session
+     has expired. -->
+<script src="session.js"></script>
+<!-- The composer, shared with the review page: it renders its own
+     markup, so this page carries none of it. Loaded first, because
+     evaluations.js hands it its configuration on the way past. -->
+<script src="invite.js"></script>
+<script src="evaluations.js"></script>
+</body>
+</html>

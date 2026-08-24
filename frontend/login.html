@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in &middot; Ajaia Recruiting</title>
+  <!-- The credential is typed on this page. Nothing here should be cached by
+       a shared proxy, and nothing here should be indexed. -->
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Fragment+Mono&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="auth.css">
+</head>
+<body class="auth-body">
+
+<main class="auth-shell">
+  <div class="auth-card">
+
+    <p class="eyebrow brand">
+      <picture class="brand-logo">
+        <source srcset="/assets/ajaia-logo.png" media="(prefers-color-scheme: light)">
+        <img src="/assets/ajaia-logo-white.png" alt="Ajaia" width="62" height="15">
+      </picture>
+      <span>Recruiting Ops</span>
+    </p>
+
+    <!-- ===================================================================
+         Signing in. The two forms are one card rather than two pages: a
+         first-time password change follows a successful sign-in by about a
+         second, and a full page load in between reads as having been kicked
+         back out to the start.
+         ================================================================ -->
+    <section id="signInView">
+      <h1>Sign in</h1>
+      <p class="auth-lede" id="signInLede">
+        Hiring managers see the roles they own. The recruiting team sees
+        everything.
+      </p>
+
+      <form id="signInForm" autocomplete="on" novalidate>
+        <label class="auth-field">
+          <span>Work email</span>
+          <input type="email" id="email" name="email" autocomplete="username"
+                 required autofocus spellcheck="false" placeholder="you@ajaia.ai">
+        </label>
+
+        <label class="auth-field">
+          <span>Password</span>
+          <input type="password" id="password" name="password"
+                 autocomplete="current-password" required>
+        </label>
+
+        <p class="auth-error" id="signInError" role="alert" hidden></p>
+
+        <button class="btn btn-primary auth-submit" type="submit" id="signInBtn">
+          Sign in
+        </button>
+      </form>
+
+      <p class="auth-foot">
+        No account, or locked out? Ask the recruiting team — they can create one
+        or reset your password.
+      </p>
+    </section>
+
+    <!-- ===================================================================
+         Setting a new password. Reached two ways: straight after signing in
+         with a temporary password, and from the account menu. The server
+         refuses everything else until this is done, so there is deliberately
+         no way past it on this screen either.
+         ================================================================ -->
+    <section id="changeView" hidden>
+      <h1>Set your password</h1>
+      <p class="auth-lede" id="changeLede">
+        This account is using a password somebody else chose for it. Pick your
+        own before you carry on.
+      </p>
+
+      <form id="changeForm" autocomplete="on" novalidate>
+        <input type="email" id="changeEmail" autocomplete="username"
+               hidden aria-hidden="true" tabindex="-1">
+
+        <label class="auth-field">
+          <span>Current password</span>
+          <input type="password" id="currentPassword"
+                 autocomplete="current-password" required>
+        </label>
+
+        <label class="auth-field">
+          <span>New password</span>
+          <input type="password" id="newPassword" autocomplete="new-password"
+                 required>
+          <small class="auth-hint" id="pwHint">At least 12 characters.</small>
+        </label>
+
+        <label class="auth-field">
+          <span>New password again</span>
+          <input type="password" id="confirmPassword"
+                 autocomplete="new-password" required>
+        </label>
+
+        <p class="auth-error" id="changeError" role="alert" hidden></p>
+
+        <button class="btn btn-primary auth-submit" type="submit" id="changeBtn">
+          Save and continue
+        </button>
+      </form>
+
+      <p class="auth-foot">
+        <button type="button" class="linkbtn" id="signOutBtn">Sign out instead</button>
+      </p>
+    </section>
+
+  </div>
+</main>
+
+<script src="login.js"></script>
+</body>
+</html>
