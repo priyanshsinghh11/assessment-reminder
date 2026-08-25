@@ -1328,3 +1328,145 @@ button.mgr-chip-cal {
  * composer styling on one of the two pages is exactly the drift that sharing
  * the dialog was meant to end.
  */
+
+
+/* --- rejections ---------------------------------------------------------
+ *
+ * The composer here reuses .compose-grid, .compose-edit, .compose-preview,
+ * .chips and .field from styles.css rather than restating them -- it is the
+ * same two-column "write on the left, read it on the right" shape as the
+ * interview invitation, and a second copy of those rules is the drift the note
+ * at the bottom of this file is about. What is below is only what this page
+ * has that the invitation does not.
+ */
+
+/* The picture of the email. White, always, for the reason #previewFrame is:
+ * this is a rendering of a message, not part of the dark page around it. */
+#rejectFrame {
+  width: 100%;
+  height: 560px;
+  border: 0;
+  background: #ffffff;
+}
+
+/* What a pasted list turns out to contain, before anything happens to it.
+ * Four numbers side by side rather than a sentence, because the one that
+ * matters -- how many are genuinely new -- has to be readable at a glance by
+ * somebody whose finger is already over Send. */
+.reject-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+.reject-summary[hidden] { display: none; }
+
+.reject-tally {
+  flex: 1 1 150px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+.reject-tally-value {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  letter-spacing: var(--tr-h4);
+}
+.reject-tally-label {
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-eyebrow);
+  color: var(--text-faint);
+}
+/* The number the send actually acts on. */
+.reject-tally.is-live { border-color: var(--line-2); }
+.reject-tally.is-live .reject-tally-value { color: var(--accent-bright); }
+.reject-tally.is-zero .reject-tally-value { color: var(--text-faint); }
+
+/* Lines with no address in them. Shown rather than swallowed: a mistyped
+ * address is a person who never hears from us at all, and that is invisible
+ * unless the page says so. */
+.reject-unreadable {
+  flex: 1 1 100%;
+  padding: 12px 14px;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r);
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: var(--lh-body);
+}
+.reject-unreadable code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--sky);
+}
+
+/* The two buttons, held apart on purpose. One files people away and emails
+ * nobody; the other emails everybody. Side by side in equal boxes so neither
+ * reads as the small print of the other, and with a rule between them on a
+ * wide screen so the eye cannot slide from one to the next. */
+.reject-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.reject-action { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.reject-action + .reject-action {
+  padding-left: 24px;
+  border-left: 1px solid var(--line);
+}
+.reject-action h3 {
+  margin: 0;
+  font-size: var(--fs-body-sm);
+  font-weight: 600;
+  letter-spacing: var(--tr-h4);
+}
+.reject-action .hint { margin: 0; }
+
+/* How far through a batch of several hundred we are. A bar rather than a
+ * spinner because the honest answer to "is it stuck" is a number, and a
+ * three-minute spinner is indistinguishable from a hang. */
+.progress { margin-top: 20px; }
+.progress[hidden] { display: none; }
+.progress-track {
+  height: 6px;
+  background: var(--surface-hover);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.progress-bar {
+  height: 100%;
+  width: 0;
+  background: var(--sky);
+  border-radius: 999px;
+  transition: width 240ms var(--ease-out);
+}
+.progress-bar.is-done { background: var(--accent-bright); }
+.progress-bar.is-failed { background: var(--muted-2); }
+.progress .hint { margin: 8px 0 0; }
+
+/* How each person heard, in the record. `failed` is the one worth spotting
+ * from across the table: that candidate is still waiting. */
+.badge-sent { color: var(--accent-bright); border-color: var(--line-2); }
+.badge-recorded { color: var(--sky); border-color: var(--line-2); }
+.badge-failed { color: var(--text); border-style: dashed; border-color: var(--line-2); }
+
+.ledger-note {
+  max-width: 260px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .reject-actions { grid-template-columns: minmax(0, 1fr); }
+  .reject-action + .reject-action {
+    padding: 20px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+  #rejectFrame { height: 380px; }
+}

@@ -1225,51 +1225,485 @@ recruiter's side.
 
 ### Sending rejection emails
 
-The **Rejected — ready for rejection emails** panel collects every rejected
-candidate's address in one place, filterable to a single role. Copy them
-comma-separated, copy them semicolon-separated for a BCC field, or download a
-CSV for a mail merge. Untick anyone you want to leave out first.
+Two surfaces, because there are two different rejections and confusing them is
+the mistake worth designing against.
 
-Addresses are de-duplicated across roles: someone who sat two assessments and
-was rejected from both appears once, so a mail merge cannot send them two
-rejections in the same minute.
+**The considered turn-down** goes to one person a hiring manager has just read,
+from the Send button in their card on the pipeline board. Fixed company
+wording, signed by the hiring team. That is [Telling the candidate: interview
+invitations and rejections](#telling-the-candidate-interview-invitations-and-rejections).
 
-This deliberately stops at the clipboard. Sending is done in your own mail
-tool, so nothing here can email 335 people by accident — and rejections go out
-under a real person's account rather than the reminder system's sender.
-**Paste into BCC, never To**, or every candidate sees every other address.
+**The bulk turn-down** goes to everyone else — typically several hundred a
+round, most of whom were rejected at the CV screen or inside Workable and never
+sat an assessment at all. That is the **Rejections** page, reached from the
+button in the header, and it is recruiting-team only.
+
+#### The record is the point
+
+There is one collection in MongoDB — `rejections`, keyed by email address —
+that answers a single question: *have we already told this person no?*
+
+It is keyed by address rather than by submission because most of the people in
+it have no submission. They were turned down before they ever handed anything
+in, so there is no row to hang a flag on. Every rejection path reads it before
+sending and writes to it after — the bulk send, and the board's own rejection
+in [candidate_mail.py](backend/notifications/candidate_mail.py) — so a
+candidate rejected on the board in March is not rejected again by a paste in
+August.
+
+It is a **ledger, not a suppression list**. `unsubscribes` is the suppression
+list and it means something else entirely ("stop mailing me"). Somebody in the
+rejection ledger has been mailed exactly once, on purpose, and is welcome to
+hear from us about the next opening.
+
+#### The two buttons
+
+They are the two most different things on the dashboard and they are kept
+apart, in separate boxes, with separate verbs:
+
+**Record as already rejected** files people away and **emails nobody**. This is
+the one for the four hundred you have already mailed by hand out of a BCC
+field: paste them in, press it, and every send from then on skips them. It is
+the migration path from doing this in a mail client.
+
+**Send rejections** sends. One personalised message per candidate, never a BCC
+— which costs four hundred API calls instead of one and is worth every one of
+them: a BCC carries no name, no unsubscribe link the reader can use without
+exposing the other 399, and is scored as bulk by every filter that sees it. It
+asks you to type `SEND`, because a dialog you dismiss with Enter is not a
+decision.
+
+#### Pasting the list
+
+Paste addresses however they come out of whatever you had open — one per line,
+straight out of a BCC field, or a name-and-address column dragged from a
+spreadsheet. Names are picked up where they are there and used in the greeting.
+
+**Check this list** reads it and tells you what is in it before anything
+happens to it: how many addresses, how many are genuinely new, how many have
+already been told, how many have opted out, and which lines had no address in
+them at all. That last one is shown rather than swallowed — a mistyped address
+is a person who never hears from us, and it is invisible unless the page says
+so. Both buttons stay disabled until this has run, and go back to disabled the
+moment the box is edited, so there is no path from an edited list to a send
+that never re-read it.
+
+**Add the rejected queue** appends everyone this dashboard has already marked
+rejected (the missing-artefact pile), so the two lists can go out together.
+
+#### Writing the message
+
+The recruiting team writes this one, unlike the board's rejection. The reason
+somebody did not go further changes every round — "we filled the role", "we are
+looking for more Django than your CV shows" — and a fixed template cannot say
+it. `{first_name}`, `{name}` and `{role}` fill in per candidate; anything else
+in braces is left exactly as typed, so a typo comes back to you rather than
+going out as one.
+
+What you cannot edit is the shell: the Ajaia header, the hiring-team sign-off
+and the unsubscribe line are appended to whatever you write, every time. A bulk
+message with no way out of the list is the one thing that must not leave this
+page.
+
+The preview on the right is rendered by the same function that sends, against a
+real person off your list once there is one — so the greeting and the
+unsubscribe link under it are the ones that recipient will actually get.
+
+#### While it runs
+
+A send of several hundred is started, not awaited: the request returns a job id
+and the page draws a progress bar off it. Each candidate is written to the
+ledger **as they are sent**, not batched at the end — if the process dies at
+message 300, those 300 are already recorded and the re-run skips them.
+
+One bad address does not stop a batch. Twenty failures in a row does
+(`REJECTION_ABORT_AFTER`): that is not a bad address, that is the API key or
+the network, and finding out 400 messages later helps nobody. Failures are
+recorded too, with status `failed`, because a rejection that bounced is a
+candidate still waiting to hear.
+
+Messages are paced at `REJECTION_SEND_DELAY` (0.35s, so ~3 minutes for 500).
+Brevo tolerates much more; a burst that size from a domain which normally sends
+thirty a day is the shape a spam filter watches for.
+
+#### The record, and taking people out of it
+
+The **Already told** table at the bottom is everyone the system believes has
+been rejected, searchable, with how they heard — sent from here, recorded by
+hand, or failed. `failed` is the row worth spotting: that person is still owed
+a reply.
+
+**Remove from record** un-sends nothing. It makes this system forget they were
+told, which puts them back in front of the next send. It is the undo for a
+paste that caught the wrong addresses.
+
+#### One thing that changed
+
+A rejection now respects the opt-out list, and carries `List-Unsubscribe`. It
+is the one candidate message that is genuinely bulk-shaped — the same words to
+everyone who did not make it — so it gets the header that makes it deliverable
+and it is skipped for anyone who has asked us to stop. An interview invitation
+does neither, deliberately: that is a message about a meeting the candidate is
+being offered, and withholding it over a reminder they once opted out of would
+cost them the interview. The unsubscribe page says which is which.
+
+## Reminder dedupe
+
+Whether a candidate has already been chased is decided by the `reminders`
+collection in MongoDB, keyed by `state_key()` — the lowercased email scoped to
+the **portal assignment**, not the Workable shortcode, because fifteen postings
+can feed one assignment and a shortcode key would mail the same person five
+identical links.
+
+### Claim, then send
+
+The gate is `claim_reminder()`, and it decides **and** records in one
+conditional update:
+
+```python
+number = claim_reminder(email, group, ...)   # None means: do not send
+if number is not None:
+    send(...)
+```
+
+`should_send_reminder()` still exists and is still used — for the dashboard, the
+dry run and the log line — but it is **advisory**. Anything that checks and then
+acts has a gap in the middle, and a second process fits through it. Two runs
+calling `claim_reminder()` at the same moment produce exactly one number and one
+`None`.
+
+The compare-and-swap is on `last_reminder_at`: it moves on every successful
+claim, and it is the value the business-day gap decision was made from, so it is
+exactly the right thing to test. The gap check itself stays in Python, because
+business days are not something a Mongo query can express and approximating them
+with a calendar cutoff would quietly change who is eligible around every weekend.
+
+A claim is taken *before* the send. That matches what `send_batch()` already did
+within a run — a transport failure must not leave the row available as a second
+attempt at the same person — and `release_reminder()` hands the claim back when
+the transport refuses outright and the candidate has genuinely had nothing.
+
+### Suppression is a real flag now
+
+After the 2026-08-10 incident, 192 records were blocked from a second reminder by
+hand-editing `reminders_sent` up to the cap — the only lever the file format
+offered. It worked, and it was invisible: anything that recomputed or normalised
+counts would have silently un-suppressed all 192.
+
+The migration promoted that to `suppressed: true`, which `claim()` checks
+explicitly, and carried `blocked_reason` across. The block no longer rides on a
+number that looks like corruption to whoever reads it next.
+
+### Migrating
+
+```bash
+python migrate_reminder_log.py --dry-run   # report, change nothing
+python migrate_reminder_log.py             # migrate
+python migrate_reminder_log.py --verify    # compare the two, field by field
+```
+
+Idempotent, and it never touches `state/reminder_log.json` — that file stays on
+disk as the rollback. `reminders_sent` is copied **verbatim, never recomputed**,
+for the reason above.
+
+## Tests
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+pytest
+```
+
+No database, no network, no credentials — window arithmetic, the
+dedupe key, portal job-id matching, unsubscribe tokens, the exposure guards,
+the background send, and the bulk rejection (parsing a pasted list, rendering
+the message, and deciding who is actually mailed). They run on every commit in
+CI.
+
+The rejection suite exists for one failure in particular: sending somebody a
+second rejection. It is unrecoverable and invisible from our side — nothing
+bounces, no count is wrong, the candidate simply reads it twice — so every test
+about `plan()` and `send_bulk()` is really about that.
+
+`tests/test_access.py` is **not** collected by pytest, and that is deliberate
+(see [pytest.ini](pytest.ini)). It is the access-rule regression test, it is the
+most important test here, and it needs a real populated MongoDB — it borrows an
+existing hiring manager's address and a role they do not own. Collected
+automatically it would either fail on a machine with no database or, worse,
+skip its way to green against an empty one. Run it by hand against staging:
+
+```bash
+python test_access.py
+```
+
+## Candidate opt-outs
+
+Reminder emails carry a `List-Unsubscribe` header — the header Gmail, Yahoo and
+Outlook read to decide whether we are a sender worth delivering. A few hundred
+near-identical reminders is the most bulk-shaped thing this system does, and
+bulk mail without one is scored down.
+
+The header is only half of it. An unsubscribe link that records nothing means
+the next run mails that person again, which is worse than never offering one:
+they asked, we said yes, and then we did it anyway. So
+[unsubscribe.py](backend/notifications/unsubscribe.py) owns the token, the
+suppression list and the check, and `send_batch` filters the opt-out list in
+bulk before the loop while `send_reminder_email` checks again per candidate — a
+run is minutes long, and somebody who unsubscribes mid-batch must not be mailed
+by the tail of it.
+
+A few things worth knowing:
+
+- **The link only appears over https.** A one-click endpoint on plain http is
+  an unsubscribe anyone on the path can forge, and a loopback `PUBLIC_BASE_URL`
+  builds a link that opens on nobody's machine but ours. Until TLS is in front
+  of this, `UNSUBSCRIBE_MAILTO` is the only way out a candidate has — so it has
+  to be a mailbox somebody reads.
+- **`GET` asks, `POST` acts.** Mail clients and scanners follow links in
+  messages to see where they go, and an opt-out caused by a prefetch is a
+  decision the candidate never made. That is why RFC 8058 one-click is a POST.
+- **`/unsubscribe/` is served in review-only mode too.** That is the process
+  `PUBLIC_BASE_URL` points at, so it is the host every link in every candidate
+  email resolves to.
+- **Opting out stops reminders and rejections, not the application.** Both are
+  bulk-shaped — the same words to a few hundred people — so both carry the
+  header and both are skipped for anyone on the list. An interview invitation
+  is not: that is a message about a meeting the candidate is being offered, and
+  withholding it would cost them the interview. The unsubscribe page says which
+  is which.
+- **The suppression check fails closed.** Every other database read here fails
+  open, because the cost of an unreachable Mongo is a page that does not draw.
+  The cost here is mailing somebody who asked us to stop, which cannot be taken
+  back.
+
+## Sending is a background job
+
+`POST /api/run` with `mode=live` answers **202** with a job id, and the page
+polls `GET /api/run/status/<id>`. It used to run the whole batch inside the
+request, which meant the recruiter's browser waited minutes and any proxy in
+between gave up first — showing a failure while the send carried on, because a
+dropped client connection stops nothing. "Failed" on screen and hundreds of
+emails delivered is the worst pairing available, and the obvious reaction is to
+click send again.
+
+`preview` and `dry-run` stay synchronous: neither touches the network. The run
+lock is acquired by the request and released by the worker, so a second click
+still gets the same 409 it always did.
+
+## Deploying
+
+`python server.py` ends in Werkzeug's development server, and Werkzeug prints a
+warning into the log saying not to use it for anything else. It means it: one
+request at a time, no queue, no request timeouts, and no way to restart a
+worker that has wedged. It is the right thing on a laptop and the wrong thing
+anywhere a hiring manager can reach.
+
+Anything that is not a laptop runs gunicorn against `wsgi:app` instead:
+
+```bash
+gunicorn -c gunicorn.conf.py wsgi:app
+```
+
+`wsgi.py` exists because the startup work — logging, account indexes, seeding
+the first admin, choosing the mode — lives in `server.py`'s `main()`, next to
+the argparse, and a WSGI server never calls `main()`. Importing
+`backend.web.server:app` directly gets you a dashboard with no logging
+configured and no admin account. `wsgi.py` is `main()` minus the argparse and
+minus `app.run()`, so both ways of starting the process agree on everything
+except who owns the socket.
+
+### Two processes, not one
+
+The split that `--review-only` exists for does not go away in a container; it
+becomes the deployment shape. The mode is an environment variable, because
+there is nowhere to type a flag at a container:
+
+| `REVIEW_ONLY` | What it serves | Where it belongs |
+|---|---|---|
+| `0` (default) | The full dashboard: every role, every candidate's address, every send button | Private. Loopback, a VPN, or behind a proxy you configured on purpose |
+| `1` | Only `/review/<token>`, its API, and the files those pages are built from. Everything else 404s | This is the one that may face the internet — behind TLS |
+
+`PUBLIC_BASE_URL` must point at the review process, and `DASHBOARD_BASE_URL` at
+the dashboard one. They are different hostnames once this is split, and the
+review server does not serve `evaluations.html`.
+
+### With Docker
+
+```bash
+cp .env.example .env          # fill it in first
+docker compose up -d --build
+docker compose exec dashboard python manage_users.py add you@ajaia.ai --admin
+```
+
+That brings up both processes and a Mongo, with the dashboard bound to the
+host's loopback on `:5000` and the review surface on `:5051`. One image, two
+containers, one environment variable apart.
+
+### One worker. Not negotiable yet.
+
+`gunicorn.conf.py` pins `workers = 1`, and that is a correctness constraint
+rather than a tuning default. Two things depend on there being exactly one
+process:
+
+- **`_run_lock`** (`backend/web/server.py:88`) is a `threading.Lock`, and its
+  own comment says what it is for: *"Only one scan or send may run at a time.
+  Without this, two clicks could double-send: both would pass the dedupe check
+  before either recorded it."* A lock inside one process cannot see a second
+  process. Two workers means two locks, each certain it holds the only one.
+- **The reminder dedupe log** is a JSON file written with a truncate-then-
+  rewrite that has no lock and no atomic swap (`backend/core/utils.py:73-75`).
+  Two writers lose each other's records silently, and a lost record is a
+  candidate who gets emailed again on the next run.
+
+Concurrency comes from threads inside the single worker, where the lock still
+means something. CI fails the build if `workers` is not 1. Raise it only after
+the reminder state is in Mongo behind an atomic upsert **and** the run lock is
+something both processes can see.
+
+### The dedupe state is in Mongo, not on disk
+
+`state/` used to hold `reminder_log.json` — the only thing standing between a
+candidate and a second copy of the same email — as an unlocked JSON file. That
+made the container filesystem a correctness problem: every instance kept its own
+divergent copy and a redeploy started from an empty one, which made everybody in
+the window eligible again.
+
+It now lives in the `reminders` collection behind an atomic claim (see
+[Reminder dedupe](#reminder-dedupe) below), so the database is what has to be
+durable and `state/` holds only a cached portal scan the next Sync rebuilds. A
+volume is still worth mounting so the Logs panel survives a restart; nothing
+about correctness depends on it.
+
+### Long requests
+
+Portal sync, batch sends and grading all run synchronously inside the request —
+a grading sweep over a full role is minutes, not seconds, at
+`LLM_CONCURRENCY=1`. `gunicorn.conf.py` sets a 30-minute timeout for that
+reason.
+
+Gunicorn is not the only clock. Most platform proxies impose their own request
+ceiling — App Service is around 230 seconds, and Cloud Run's is configurable up
+to 60 minutes but defaults far below a full grading run. A sweep that outlives
+the proxy is killed after the LLM has been billed and before the result is
+written back. Grade in smaller batches, or move grading out of the request
+path, before pointing a platform proxy at it.
+
+### Health
+
+`GET /healthz` answers `{"status": "ok"}` with no session and no token, in both
+modes. It is liveness only, and deliberately does not check Mongo: the app is
+built to stay up and explain a database outage on the page rather than fall
+over in one, and a probe that reported unhealthy on the same condition would
+have the platform restart the container instead — turning a database that is
+briefly unreachable into a crash-loop that cannot tell anyone why.
+
+### What CI checks
+
+`.github/workflows/ci.yml` compiles the tree, imports the app with nothing
+configured (a module that reads a credential at import time turns a missing
+secret into a container that will not start), asserts both exposure modes still
+fail closed, asserts `workers == 1`, builds the image, starts it without a
+Mongo to confirm it comes up anyway, and greps the built image for a leaked
+`.env` or candidate CSV.
+
+It does **not** run `tests/test_access.py`. That suite wants a populated Mongo —
+it borrows a real hiring manager's address and a role they do not own — and
+against an empty database it would skip exactly the checks worth running and
+report green. Run it by hand against staging before a release.
+
+## Project layout
+
+The Python modules live in `backend/`, grouped by the job they do. The commands
+are unchanged: each CLI keeps a thin launcher at the root, so `python
+reminder.py --scan-only` and the crontab entry still work exactly as before.
+
+```
+assessment-reminder/
+├── reminder.py  server.py  ingest.py  grade.py  regrade.py
+├── calibrate.py  manage_users.py  migrate_db.py  test_access.py
+│       └── launchers. Three lines each; the code is in backend/.
+│
+├── backend/
+│   ├── core/            config.py, utils.py
+│   │                    Config, job definitions, timing rules, PROJECT_ROOT.
+│   │                    Imports nothing else in the project — which is what
+│   │                    keeps the dependency graph acyclic.
+│   ├── database/        mongo_store.py, migrate_db.py
+│   │                    The only modules that talk to MongoDB.
+│   ├── scraping/        portal_scraper.py, portal_crawler.py,
+│   │                    workable_client.py, workable_scanner.py,
+│   │                    resume_reader.py
+│   │                    Everything that reads the outside world — and so
+│   │                    everything that can fail because someone else's
+│   │                    service is down.
+│   ├── grading/         rubric_pack.py, evaluator.py, tier_resolver.py
+│   │                    Decides what a submission is worth. Not when to
+│   │                    score one — that is pipeline/.
+│   ├── pipeline/        ingest.py, grade.py, regrade.py, calibrate.py
+│   │                    The stages that get run.
+│   ├── notifications/   brevo_client.py, reminder.py, candidate_mail.py,
+│   │                    shortlist.py, rejections.py, unsubscribe.py
+│   │                    If a message leaves this system, it leaves from here.
+│   │                    One directory to read before changing anything a real
+│   │                    person receives.
+│   ├── accounts/        auth.py, manage_users.py
+│   │                    Who may sign in, and which roles they see.
+│   └── web/             server.py
+│                        The Flask dashboard and every endpoint behind it.
+│
+├── wsgi.py              What a real server imports. server.py is the laptop.
+├── gunicorn.conf.py     Worker config — read the one-worker note before editing
+├── Dockerfile  docker-compose.yml  Procfile  .dockerignore
+│       └── deployment. One image, two processes: dashboard and review-only.
+│
+├── frontend/            Both dashboards — plain HTML/CSS/JS, no build step
+├── assessments/         Crawled assessments and derived grids
+├── tests/               test_access.py — the access-rule regression test
+├── tools/               Scratch tools. Nothing in the pipeline imports them.
+├── state/               Runtime state (auto-created, gitignored)
+└── logs/                Run logs (auto-created, gitignored)
+```
+
+Every path in the project is resolved from `config.PROJECT_ROOT`, never from
+the current working directory, so cron, a systemd unit and a shell sitting
+anywhere all find the same `.env`, `assessments/` and `state/`.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `reminder.py` | Main orchestration: portal, Workable window, cross-reference, send |
-| `server.py` | Dashboard backend: serves `frontend/` plus the reminder and evaluation endpoints, and enforces who may see which role |
-| `auth.py` | Accounts, password hashing, sessions, and `visible_job_ids()` — the whole access rule |
-| `manage_users.py` | CLI for accounts: the first admin, and the way back in when nobody can sign in |
+| `backend/core/config.py` | All configuration, job definitions, timing rules, and `PROJECT_ROOT` |
+| `backend/core/utils.py` | Business day math, reminder state tracking |
+| `backend/notifications/unsubscribe.py` | Opt-out tokens, the suppression list, and the `List-Unsubscribe` headers |
+| `backend/database/mongo_store.py` | MongoDB access; keeps portal-owned and our-own fields apart |
+| `backend/database/migrate_db.py` | Copies an older database into the one `MONGO_DB` points at |
+| `backend/scraping/portal_scraper.py` | Logs into the portal and downloads the CSV export |
+| `backend/scraping/portal_crawler.py` | Crawls roles and their live assessment markdown |
+| `backend/scraping/workable_client.py` | Workable API: auth, rate limiting, 429 back-off, pagination |
+| `backend/scraping/workable_scanner.py` | Selects candidates inside the reminder window |
+| `backend/scraping/resume_reader.py` | Fetches a candidate's resume file and extracts its text (PDF/DOCX) |
+| `backend/grading/rubric_pack.py` | The Ajaia Assessment Scoring Rubrics pack as data: 17 grids, validated to 100 points each |
+| `backend/grading/evaluator.py` | Grid resolution, anchor scoring, auto-fails and triage, provider-agnostic |
+| `backend/grading/tier_resolver.py` | Which of two postings a candidate applied to, where that decides which tier of a family's rubric marks them |
+| `backend/pipeline/ingest.py` | Portal → MongoDB, and the missing-artefact screening rule |
+| `backend/pipeline/grade.py` | CLI for grading a role or the whole backlog |
+| `backend/pipeline/regrade.py` | Re-scores submissions that already carry a verdict |
+| `backend/pipeline/calibrate.py` | Checks the grader is using the whole scale, not just detecting missing sections |
+| `backend/notifications/reminder.py` | Main orchestration: portal, Workable window, cross-reference, send |
+| `backend/notifications/brevo_client.py` | Sends reminder emails via Brevo, and the transport under the shortlist send |
+| `backend/notifications/candidate_mail.py` | The two candidate-facing outcome emails: the interview invitation with the manager's cal.com link, and the rejection after a human review |
+| `backend/notifications/shortlist.py` | Builds a role's top-N hand-off: the rows, the email and the spreadsheet, and sends it to its hiring managers |
+| `backend/accounts/auth.py` | Accounts, password hashing, sessions, and `visible_job_ids()` — the whole access rule |
+| `backend/accounts/manage_users.py` | CLI for accounts: the first admin, and the way back in when nobody can sign in |
+| `backend/web/server.py` | Dashboard backend: serves `frontend/` plus the reminder and evaluation endpoints, and enforces who may see which role |
+| `wsgi.py` | WSGI entry point — what gunicorn imports; `server.py`'s `main()` without the argparse or `app.run()` |
+| `gunicorn.conf.py` | Worker, timeout and logging config. `workers = 1` is a correctness constraint, not a default |
+| `Dockerfile` / `docker-compose.yml` / `Procfile` | Deployment. One image, two processes: dashboard and review-only |
+| `tests/test_access.py` | Regression test for the access rules — run it after adding any route that names a role |
+| `tools/llm_latency_bench.py` | Scratch LLM latency benchmark. Spends real tokens; run it deliberately, never imported |
 | `frontend/login.html` | Sign-in, and the first-time password change |
 | `frontend/session.js` | The signed-in account on both dashboards: CSRF header, expiry handling, the account chip |
-| `frontend/` | Both dashboards — plain HTML/CSS/JS, no build step |
-| `config.py` | All configuration, job definitions, timing rules |
-| `workable_client.py` | Workable API: auth, rate limiting, 429 back-off, pagination |
-| `workable_scanner.py` | Selects candidates inside the reminder window |
-| `portal_scraper.py` | Logs into the portal and downloads the CSV export |
-| `brevo_client.py` | Sends reminder emails via Brevo, and the transport under the shortlist send |
-| `candidate_mail.py` | The two candidate-facing outcome emails: the interview invitation with the manager's cal.com link, and the rejection after a human review |
-| `candidate_mail.py` | The two candidate-facing outcome emails: the interview invitation and the considered rejection |
 | `frontend/review.html` | The hiring manager's review page — token-scoped, deliberately no login, no scores |
-| `shortlist.py` | Builds a role's top-N hand-off: the rows, the email and the spreadsheet, and sends it to its hiring managers |
-| `utils.py` | Business day math, reminder state tracking |
-| `ingest.py` | Portal → MongoDB, and the missing-artefact screening rule |
-| `portal_crawler.py` | Crawls roles and their live assessment markdown |
-| `mongo_store.py` | MongoDB access; keeps portal-owned and our-own fields apart |
-| `resume_reader.py` | Fetches a candidate's resume file and extracts its text (PDF/DOCX) |
-| `evaluator.py` | Grid resolution, anchor scoring, auto-fails and triage, provider-agnostic |
-| `rubric_pack.py` | The Ajaia Assessment Scoring Rubrics pack as data: 17 grids, validated to 100 points each |
-| `tier_resolver.py` | Which of two postings a candidate applied to, where that decides which tier of a family's rubric marks them |
-| `grade.py` | CLI for grading a role or the whole backlog |
-| `migrate_db.py` | Copies an older database into the one `MONGO_DB` points at |
-| `test_access.py` | Regression test for the access rules — run it after adding any route that names a role |
+| `frontend/` | Both dashboards — plain HTML/CSS/JS, no build step |
 | `assessments/` | Crawled assessments (`<slug>.md`) and grids derived for roles the pack does not cover (`grid-<slug>.json`) |
 | `state/reminder_log.json` | Tracks which reminders have been sent (auto-created) |
 | `logs/reminder.log` | Run logs (auto-created) |

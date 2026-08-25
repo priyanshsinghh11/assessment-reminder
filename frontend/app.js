@@ -5,6 +5,8 @@
  *   GET  /api/state          everything needed to render
  *   GET  /api/logs?limit=200 tail of logs/reminder.log
  *   POST /api/run            {mode, limit, emails}
+ *                            mode=live answers 202 {job} and the page polls
+ *   GET  /api/run/status/:id how a background send is going
  *
  * If the API is unreachable it falls back to MOCK so the page still renders.
  *
@@ -150,8 +152,18 @@ async function runMode(mode, { emails = null, limit = null, confirmMsg = null } 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mode, emails, limit }),
     });
-    const data = await res.json();
+    let data = await res.json();
     if (!res.ok) throw new Error(data.error || res.status);
+
+    // A live send comes back 202 with a job id rather than a result: the batch
+    // is minutes of Brevo calls, and holding the request open for it meant any
+    // proxy in between timed out and showed a failure while the emails kept
+    // going. Everything else still answers in one round trip.
+    if (res.status === 202 && data.job) {
+      toast(data.message || "Sending…");
+      data = await waitForRun(data.job);
+    }
+
     toast(data.message || "Done");
     // No reload here. Reloading meant a second full scan on top of the one the
     // run itself did, for a table whose only change we already know about:
@@ -166,6 +178,43 @@ async function runMode(mode, { emails = null, limit = null, confirmMsg = null } 
     toast(`Failed: ${err.message}`);
   } finally {
     setBusy(false);
+  }
+}
+
+/**
+ * Poll a background send until it finishes, and resolve to its result.
+ *
+ * Throws on a failed run so the caller's existing catch reports it the same
+ * way a synchronous failure was always reported.
+ *
+ * Every third poll refreshes the log pane, so a long send shows progress
+ * rather than a spinner and a promise that something is happening.
+ */
+async function waitForRun(jobId) {
+  const INTERVAL_MS = 2000;
+  let ticks = 0;
+
+  for (;;) {
+    await new Promise((r) => setTimeout(r, INTERVAL_MS));
+
+    let job;
+    try {
+      const res = await fetch(`${API}/api/run/status/${encodeURIComponent(jobId)}`);
+      job = await res.json();
+      if (!res.ok) throw new Error(job.error || res.status);
+    } catch (err) {
+      // A dropped poll is not a failed send -- the run is on the server, not
+      // in this tab. Keep asking; a genuinely gone job answers 404 above and
+      // throws out of here with a message that says so.
+      continue;
+    }
+
+    if (job.state === "running") {
+      if (++ticks % 3 === 0) await loadLogs();
+      continue;
+    }
+    if (job.state === "failed") throw new Error(job.error || "The send stopped early.");
+    return job;
   }
 }
 

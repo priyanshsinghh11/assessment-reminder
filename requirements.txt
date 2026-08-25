@@ -9,3 +9,13 @@ pypdf>=4.0.0
 python-docx>=1.1.0
 # Hiring-manager shortlist spreadsheets.
 openpyxl>=3.1.0
+
+# WSGI server. `python server.py` runs Werkzeug's development server, which
+# says so in the log and means it: single worker, no request queue, no
+# timeouts. Anything that is not a laptop runs `gunicorn -c gunicorn.conf.py
+# wsgi:app` instead -- see gunicorn.conf.py, and read the workers note there
+# before changing it.
+#
+# Skipped on Windows, where gunicorn installs but cannot run (it needs fcntl).
+# Develop there with `python server.py`; the container is Linux.
+gunicorn>=21.2.0; sys_platform != "win32"

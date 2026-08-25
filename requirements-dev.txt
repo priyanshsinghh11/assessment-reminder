@@ -1,0 +1,15 @@
+# Test-only dependencies. NOT installed into the image -- the Dockerfile
+# installs requirements.txt alone, so a test runner never ships to production.
+#
+#   pip install -r requirements.txt -r requirements-dev.txt
+#   pytest
+#
+# What `pytest` collects is the pure logic: window arithmetic, the dedupe key,
+# portal matching, unsubscribe tokens, the exposure guards, and the background
+# send. No database, no network, no credentials.
+#
+# tests/test_access.py is deliberately NOT collected -- see pytest.ini. It is
+# the access-rule regression test, it needs a real populated MongoDB, and it is
+# run by hand against staging:  python test_access.py
+-r requirements.txt
+pytest>=8.0.0

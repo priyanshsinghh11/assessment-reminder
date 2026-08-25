@@ -1,0 +1,135 @@
+# What this checks, and what it deliberately does not.
+#
+# CHECKS: the tree compiles, the unit suite passes, the app imports with nothing
+# configured, the two exposure modes still fail closed, and the image builds and
+# serves.
+#
+# DOES NOT RUN tests/test_access.py. That suite is the real access-rule
+# regression test and it wants a POPULATED Mongo -- it borrows an existing
+# hiring manager's address and a role they do not own to have something real to
+# be refused. Against an empty database it would skip exactly the checks worth
+# running and report green, which is worse than not running it. It belongs on a
+# staging database, not here. Run it by hand before a release:
+#
+#     python test_access.py
+#
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Compile every module
+        run: python -m compileall -q backend tests tools *.py
+
+      - name: Unit tests
+        # The pure logic -- window arithmetic, the dedupe key, portal job-id
+        # matching, unsubscribe tokens, the exposure guards, the background
+        # send. No database, no network, no credentials, so it runs here.
+        run: python -m pytest
+
+      - name: Import the app with nothing configured
+        # No .env, no Mongo, no API keys. Import must not need any of them --
+        # a module that reads a credential at import time turns a missing
+        # secret into a container that will not start, with a traceback
+        # instead of the log line that would say which secret.
+        run: python -c "from backend.web.server import app; print(app.name)"
+
+      - name: The exposure modes still fail closed
+        run: |
+          python - <<'PY'
+          from backend.web.server import app
+          c = app.test_client()
+
+          app.config["REVIEW_ONLY"] = False
+          assert c.get("/healthz").status_code == 200, "probe must answer unauthenticated"
+          assert c.get("/api/state").status_code in (302, 401), "dashboard API must demand a session"
+          assert c.get("/api/logs").status_code in (302, 401), "logs must demand a session"
+
+          app.config["REVIEW_ONLY"] = True
+          assert c.get("/healthz").status_code == 200, "probe must answer in review-only mode"
+          assert c.get("/evaluations.html").status_code == 404, "dashboard must not exist in review-only mode"
+          assert c.get("/app.js").status_code == 404, "dashboard JS names every endpoint; must not be served"
+          assert c.get("/api/state").status_code == 404, "dashboard API must not exist in review-only mode"
+          print("guards ok")
+          PY
+
+      - name: One gunicorn worker
+        # This is a correctness constraint, not a tuning default: the run lock
+        # is a threading.Lock and the reminder dedupe log is an unlocked JSON
+        # file, so a second worker means concurrent sends. Fail the build
+        # rather than find out in production.
+        run: |
+          python - <<'PY'
+          import runpy
+          cfg = runpy.run_path("gunicorn.conf.py")
+          workers = cfg["workers"]
+          assert workers == 1, (
+              f"gunicorn workers={workers}. _run_lock cannot see across "
+              "processes and state/reminder_log.json has no lock -- this "
+              "double-sends. See the note in gunicorn.conf.py.")
+          print("workers = 1")
+          PY
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t assessment-reminder:ci .
+
+      - name: It starts and serves
+        # No Mongo here on purpose. The app is written to come up and explain a
+        # database outage rather than exit, so a container that dies without
+        # Mongo is a regression this catches.
+        run: |
+          docker run -d --name ci -p 8080:8080 \
+            -e AUTH_ENABLED=1 \
+            -e MONGO_URI=mongodb://127.0.0.1:27017 \
+            assessment-reminder:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+              echo "healthy after ${i}s"
+              curl -fsS http://127.0.0.1:8080/healthz; echo
+              docker rm -f ci >/dev/null
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "did not become healthy:"
+          docker logs ci
+          docker rm -f ci >/dev/null
+          exit 1
+
+      - name: The image carries no secrets
+        # .dockerignore excludes .env and the portal's CSV exports, which are
+        # candidate PII. A layer is forever and a registry is shared, so this
+        # is checked rather than trusted.
+        run: |
+          docker run --rm --entrypoint sh assessment-reminder:ci -c '
+            found=0
+            [ -f /app/.env ] && { echo "LEAK: .env is in the image"; found=1; }
+            if ls /app/*.csv >/dev/null 2>&1; then echo "LEAK: candidate CSV in the image"; found=1; fi
+            [ -d /app/venv ] && { echo "venv copied into the image"; found=1; }
+            [ "$found" = 0 ] && echo "clean"
+            exit $found
+          '

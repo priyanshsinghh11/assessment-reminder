@@ -37,6 +37,9 @@ const state = {
   candidates: [],
   rejected: [],
   rejectedReasons: {},
+  // How many of `rejected` the ledger says have already had their email. The
+  // difference between this list and the one people are still owed.
+  rejectedTold: 0,
   sort: { key: 'score', dir: 'desc' },
   // The open role's grid. Never rendered as a standard -- it is here so the
   // criterion columns can label themselves and the drawer can quote the pack's
@@ -97,6 +100,25 @@ const state = {
     manager: null,
     empty: '',
     loading: false,
+  },
+  // The rejections view: the pasted list, the message written for it, and the
+  // record of everyone who has already been told no.
+  //
+  // `checked` is the server's reading of what is currently in the paste box --
+  // how many addresses, how many are new, who has opted out. It is set to null
+  // the moment that box is edited, because a tally drawn against a list that
+  // has since changed is a number somebody would press Send on. Both buttons
+  // are disabled while it is null, so there is no path from an edited list to
+  // a send that never re-read it.
+  rejections: {
+    loaded: false,
+    checked: null,
+    defaults: null,
+    rows: [],
+    matching: 0,
+    stats: {},
+    mail: { enabled: true, max_per_send: 600 },
+    lastSend: null,
   },
   knownManagers: [],
   shortlistSize: 20,
@@ -415,11 +437,14 @@ async function loadRoles() {
 
     renderRejectedRoleOptions();
     renderPipelineRoleOptions();
+    renderRejectRoleOptions();
 
     // Restore the role -- and the section of it -- named in the URL.
     const params = new URLSearchParams(location.hash.slice(1));
     const linked = Number(params.get('role'));
-    if (linked && state.activeRoleId === null) {
+    if (location.hash === '#rejections') {
+      openRejections(false);
+    } else if (linked && state.activeRoleId === null) {
       const tab = allowedTab(params.get('tab'));
       openRole(linked, false, tab, params.get('tier') || null);
     } else if (state.activeRoleId !== null) {
@@ -462,6 +487,14 @@ function applyAccountView() {
   // read the list; they do not write it.
   setHidden('mgrForm', !admin);
   setHidden('accountsPanel', !admin);
+
+  // One click in there mails several hundred people, which puts it in the same
+  // bracket as the reminder run. Every route behind it refuses a manager
+  // anyway -- this only stops them being offered a page that would 403 on
+  // arrival. If a manager is somehow standing on it (a pasted #rejections),
+  // walk them back out rather than leaving them on a view with no data.
+  setHidden('rejectionsBtn', !admin);
+  if (!admin && !($('viewRejections') || {}).hidden) backToRoles(false);
 
   // The whole Shortlist section, not just its editor. What is left of it for a
   // manager is a list they cannot change and a table of the same people the
@@ -897,7 +930,22 @@ function renderRoles() {
 
 // Addresses excluded by unticking a row. Kept as a Set of emails rather than
 // row indexes so it survives a re-render or a role-filter change.
+//
+// ANYONE ALREADY TOLD IS PUT IN HERE ON EVERY LOAD, by loadRejected(). This
+// list is "who the assessment rejected", which is not the same question as
+// "who is still owed an email" -- and the difference only shows up later, when
+// twenty new people land in a list of two hundred who were mailed last month.
+// Ticking all of that and copying it is a second rejection for two hundred
+// people, out of a list that looked right.
+//
+// A row can still be re-ticked by hand: a genuine resend is a real thing, and
+// the tick is how you ask for it. It goes back to unticked on the next load,
+// which is the safe direction for that to drift in.
 const excluded = new Set();
+
+/* Everyone in the list who has NOT already heard. What the buttons act on by
+ * default, and what "select all" means. */
+const stillWaiting = () => (state.rejected || []).filter((c) => !c.already_told);
 
 function renderRejectedRoleOptions() {
   const select = $('rejectedRole');
@@ -917,6 +965,11 @@ async function loadRejected() {
     const data = await api('/api/evaluations/rejected' + (jobId ? `?job_id=${jobId}` : ''));
     state.rejected = data.candidates;
     state.rejectedReasons = data.reasons;
+    state.rejectedTold = data.already_told || 0;
+    // Off by default, every time this list is read. See the note on `excluded`.
+    for (const c of state.rejected) {
+      if (c.already_told) excluded.add(c.candidate_email);
+    }
     renderRejected();
   } catch (err) {
     $('rejectedCount').textContent = 'Could not load rejected candidates.';
@@ -942,23 +995,46 @@ function renderRejected() {
     .map(([reason, n]) => `${n} ${REASON_PHRASE[reason] || reason}`)
     .join(', ');
 
-  $('rejectedCount').textContent = all.length
-    ? `${chosen.length} of ${all.length} addresses selected`
-    : 'No rejected candidates.';
-  $('rejectedHint').textContent = all.length
-    ? `${reasons}. Addresses are de-duplicated, so a candidate who sat more ` +
-      `than one assessment appears once. Untick anyone you want to leave out, ` +
-      `then copy — paste into BCC, never To.`
-    : 'Nothing to send. Candidates land here when a submission arrives without '
-      + 'a video or resume.';
+  const told = state.rejectedTold || 0;
+  const waiting = all.length - told;
 
-  for (const id of ['copyEmailsBtn', 'copyBccBtn', 'exportCsvBtn']) {
-    $(id).disabled = chosen.length === 0;
+  $('rejectedCount').textContent = all.length
+    ? `${chosen.length} selected`
+      + ` · ${waiting} still to tell`
+      + (told ? ` · ${told} already told` : '')
+    : 'No rejected candidates.';
+
+  // The held-back count leads, because it is the thing that stops this list
+  // being what it looks like. Somebody reading "235 rejected" and copying it
+  // has to be told, in the same breath, that 235 of them already got the email.
+  $('rejectedHint').textContent = !all.length
+    ? 'Nothing to send. Candidates land here when a submission arrives without '
+      + 'a video or resume.'
+    : (told
+      ? `${told} of these ${all.length} have already had a rejection, so they `
+        + `start unticked and "select all" leaves them out. ${reasons}. `
+        + `Tick one by hand only if you mean to write to them a second time.`
+      : `${reasons}. Addresses are de-duplicated, so a candidate who sat more `
+        + `than one assessment appears once. Untick anyone you want to leave `
+        + `out, then copy — paste into BCC, never To.`);
+
+  for (const id of ['copyEmailsBtn', 'copyBccBtn', 'exportCsvBtn',
+                    'rejectedSendBtn']) {
+    const btn = $(id);
+    if (btn) btn.disabled = chosen.length === 0;
   }
 
   $('rejectedEmpty').hidden = all.length > 0;
   $('rejectedBody').innerHTML = all.map((c) => {
     const off = excluded.has(c.candidate_email);
+    // "Told" is a fact about the person, not about the tick. A row that has
+    // been deliberately re-ticked for a resend still says they have heard --
+    // that is exactly when it most needs saying.
+    const stamp = c.told_at ? ` on ${shortDate(c.told_at)}` : '';
+    const mark = c.already_told
+      ? `<span class="badge badge-recorded" title="Rejection email already `
+        + `sent${esc(stamp)}. Unticked by default.">Already told${esc(stamp)}</span>`
+      : '';
     return `
       <tr class="${off ? 'row-excluded' : ''}">
         <td class="shrink"><input type="checkbox" data-email="${esc(c.candidate_email)}"
@@ -968,6 +1044,7 @@ function renderRejected() {
         <td class="dim">${esc(c.job_title || '—')}</td>
         <td class="dim">${esc(REASON_LABEL[c.decision?.reason] || c.decision?.reason || '—')}</td>
         <td class="nowrap dim">${shortDate(c.submitted_at)}</td>
+        <td>${mark}</td>
       </tr>`;
   }).join('');
 
@@ -978,7 +1055,37 @@ function renderRejected() {
       renderRejected();
     });
   }
-  $('rejectedAll').checked = chosen.length === all.length && all.length > 0;
+  // Ticked when everyone who is still owed an email is selected -- not when
+  // every row is. The already-told rows are not part of what this box governs.
+  const waitingRows = stillWaiting();
+  $('rejectedAll').checked = waitingRows.length > 0
+    && waitingRows.every((c) => !excluded.has(c.candidate_email));
+}
+
+/* Hand this role's outstanding rejections to the Rejections page, ready to
+ * send, instead of to the clipboard.
+ *
+ * The whole panel used to stop at the clipboard because there was nowhere for
+ * the addresses to go. Now there is, and carrying them across by hand -- copy,
+ * switch page, paste -- is a step that exists only because these two things
+ * were built a week apart. */
+function sendRejectedFromHere() {
+  const chosen = selectedRejected();
+  if (!chosen.length) return;
+  const box = $('rejectText');
+  box.value = chosen
+    .map((c) => (c.candidate_name
+      ? `${c.candidate_name} <${c.candidate_email}>` : c.candidate_email))
+    .join('\n');
+  // The role travels with them, so {role} fills in and every ledger row this
+  // batch writes is filed under the seat they applied to.
+  const jobId = $('rejectedRole').value || String(state.activeRoleId || '');
+  if (jobId && [...$('rejectRole').options].some((o) => o.value === jobId)) {
+    $('rejectRole').value = jobId;
+  }
+  openRejections();
+  clearCheck();
+  checkList();
 }
 
 async function copyToClipboard(text, label) {
@@ -1043,6 +1150,545 @@ function exportCsv() {
   const role = $('rejectedRole').selectedOptions[0]?.textContent || 'all-roles';
   saveCsv(rows, `rejected-${slugify(role)}.csv`);
   toast(`Downloaded ${chosen.length} candidate(s).`);
+}
+
+/* --- rejections --------------------------------------------------------
+ *
+ * Its own view, not a tab under a role -- see the comment over #viewRejections
+ * for why. Three things happen here and they are kept apart deliberately:
+ *
+ *   CHECK    read the pasted list and say what is in it. Sends nothing,
+ *            records nothing, and is the number the recruiter reads before
+ *            deciding anything.
+ *   RECORD   file people as already rejected. EMAILS NOBODY. This is the one
+ *            for the four hundred somebody already mailed out of a BCC field.
+ *   SEND     one personalised message each, in the background, recorded as it
+ *            goes.
+ *
+ * The two buttons at the bottom are the two most different things on this
+ * dashboard, so nothing here ever collapses them into one control with a
+ * checkbox. They are separate boxes with separate verbs, and only the sending
+ * one is primary.
+ *
+ * THE SERVER DECIDES WHO IS ACTUALLY MAILED. The tallies below are what
+ * /api/rejections/parse answered a moment ago, and the send re-runs exactly
+ * the same rule at the moment it fires -- so a list that went stale while
+ * somebody was writing the message cannot turn into a second rejection.
+ */
+
+const REJECT_HOW = {
+  sent: 'Sent from here',
+  recorded: 'Recorded by hand',
+  failed: 'Failed — still owed a reply',
+};
+
+/* Poll interval for a running batch. Five hundred messages at the server's
+ * default pace is about three minutes, so a second and a half is a bar that
+ * visibly moves without asking the server two hundred times a minute. */
+const REJECT_POLL_MS = 1500;
+
+function renderRejectStats() {
+  const s = state.rejections.stats || {};
+  const cards = [
+    ['Told', s.total || 0, false, 'Everyone this system believes has been rejected'],
+    ['Sent from here', s.sent || 0, true, 'Mailed by this dashboard'],
+    ['Recorded by hand', s.recorded || 0, false,
+      'Mailed somewhere else and typed in, so they are skipped from now on'],
+    ['Failed', s.failed || 0, false,
+      'The message bounced. These people are still waiting to hear.'],
+  ];
+  $('rejectStats').innerHTML = cards.map(([label, value, accent, title]) => `
+    <div class="stat${accent && value ? ' is-accent' : ''}${value ? '' : ' is-zero'}"
+         title="${esc(title)}">
+      <div class="stat-value">${value.toLocaleString()}</div>
+      <div class="stat-label">${esc(label)}</div>
+    </div>`).join('');
+}
+
+/* Every role, not only the ones with rejections on them -- unlike the queue's
+ * own select. Most of the people pasted into this page never reached a
+ * submission, so a role with nothing in the rejected queue is still exactly
+ * the role their batch should be filed under. */
+function renderRejectRoleOptions() {
+  const select = $('rejectRole');
+  if (!select) return;
+  const current = select.value;
+  select.innerHTML = '<option value="">No particular role</option>'
+    + state.roles.map((r) =>
+      `<option value="${r.id}">${esc(r.title)}</option>`).join('');
+  select.value = current;
+}
+
+/* The role a batch is tagged with, or null. It does two things: it fills in
+ * {role} in the message, and it goes on every ledger row the batch writes, so
+ * "who did we turn down for the Strategist seat" is answerable later. */
+const rejectJobId = () => Number($('rejectRole').value) || null;
+
+async function openRejections(push = true) {
+  if (!state.isAdmin) return;
+  state.activeRoleId = null;
+  state.activeTier = null;
+  showView('rejections');
+  if (push && location.hash !== '#rejections') {
+    history.pushState(null, '', '#rejections');
+  }
+  renderRejectRoleOptions();
+  if (!state.rejections.loaded) {
+    state.rejections.loaded = true;
+    // Defaults come from the server so the box a recruiter edits starts as
+    // exactly the message the server would send if they edited nothing.
+    await loadLedger();
+    resetWording();
+    renderRejectChips();
+    previewRejection();
+  }
+}
+
+function resetWording() {
+  const d = state.rejections.defaults || {};
+  $('rejectSubject').value = d.subject || '';
+  $('rejectMessage').value = d.message || '';
+}
+
+function renderRejectChips() {
+  const list = state.rejections.defaults?.placeholders || [];
+  $('rejectChips').innerHTML = list
+    .map((p) => `<button class="chip" type="button" data-ph="${esc(p)}">{${esc(p)}}</button>`)
+    .join('');
+  for (const chip of $('rejectChips').querySelectorAll('.chip')) {
+    chip.addEventListener('click', () => insertPlaceholder(chip.dataset.ph));
+  }
+}
+
+/* Drop a placeholder in at the cursor rather than at the end. Somebody
+ * clicking {first_name} is nearly always mid-sentence. */
+function insertPlaceholder(name) {
+  const box = $('rejectMessage');
+  const token = `{${name}}`;
+  const at = box.selectionStart ?? box.value.length;
+  const to = box.selectionEnd ?? at;
+  box.value = box.value.slice(0, at) + token + box.value.slice(to);
+  box.focus();
+  box.setSelectionRange(at + token.length, at + token.length);
+  schedulePreview();
+}
+
+/* --- the list --------------------------------------------------------- */
+
+/* What the page is holding, as the server last read it. Cleared whenever the
+ * text box changes, because a tally drawn against a list that has since been
+ * edited is worse than no tally: it is a number somebody would press Send on.
+ */
+function clearCheck(silent = false) {
+  state.rejections.checked = null;
+  $('rejectSummary').hidden = true;
+  $('rejectImportBtn').disabled = true;
+  $('rejectSendBtn').disabled = true;
+  const text = $('rejectText').value.trim();
+  if (!silent) {
+    $('rejectCount').textContent = text
+      ? 'Edited since the last check — check the list again.'
+      : 'Nothing pasted yet.';
+  }
+}
+
+async function checkList() {
+  const text = $('rejectText').value.trim();
+  if (!text) {
+    toast('Paste some addresses first.', true);
+    return;
+  }
+  const btn = $('rejectCheckBtn');
+  btn.disabled = true;
+  $('rejectCount').textContent = 'Reading the list…';
+  try {
+    const data = await postJson('/api/rejections/parse', {
+      text,
+      resend: $('rejectResend').checked,
+    });
+    state.rejections.checked = data;
+    renderCheck(data);
+    // The preview is rendered against a real person off the list once there
+    // is one, so the unsubscribe link under it is that person's own.
+    previewRejection();
+  } catch (err) {
+    clearCheck(true);
+    $('rejectCount').textContent = err.message;
+    toast(err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderCheck(data) {
+  const tally = (value, label, cls = '') => `
+    <div class="reject-tally ${value ? cls : 'is-zero'}">
+      <div class="reject-tally-value">${value.toLocaleString()}</div>
+      <div class="reject-tally-label">${esc(label)}</div>
+    </div>`;
+
+  let html = tally(data.total, 'addresses read')
+    + tally(data.mailable, 'would be emailed', 'is-live')
+    + tally(data.already, 'already told')
+    + tally(data.unsubscribed, 'opted out');
+
+  if (data.unreadable_total) {
+    html += `
+      <div class="reject-unreadable">
+        <strong>${data.unreadable_total.toLocaleString()} line(s) had no address
+        in them</strong> and will be ignored. Worth a look — a mistyped address
+        is somebody who never hears from us at all.<br>
+        ${data.unreadable.map((u) => `<code>${esc(u)}</code>`).join(' &middot; ')}
+      </div>`;
+  }
+  if (data.over_cap) {
+    html += `
+      <div class="reject-unreadable">
+        <strong>That is over the ${data.max_per_send.toLocaleString()} cap for one
+        send.</strong> Recording them all is fine; sending is not, until the
+        list is split or the cap is raised on the server.
+      </div>`;
+  }
+
+  $('rejectSummary').innerHTML = html;
+  $('rejectSummary').hidden = false;
+
+  $('rejectCount').textContent =
+    `${data.total.toLocaleString()} address(es) read — `
+    + `${data.mailable.toLocaleString()} would be emailed.`;
+
+  // Recording is about the whole list, so it stays available even when
+  // everybody on it has already been told -- re-filing them is harmless and
+  // updates the role and the note. Sending is not: with nobody new on the
+  // list there is no message to send, and the server refuses it anyway.
+  $('rejectImportBtn').disabled = data.total === 0;
+  $('rejectSendBtn').disabled = data.mailable === 0 || data.over_cap
+    || !state.rejections.mail.enabled;
+}
+
+/* Everyone the evaluations side has already marked rejected, appended to the
+ * box. Appended rather than substituted: the ordinary use is a pasted list
+ * PLUS the auto-rejected queue, and replacing what somebody just pasted would
+ * be the one thing this button must not do. */
+async function pullRejectedQueue() {
+  const btn = $('rejectPullBtn');
+  btn.disabled = true;
+  try {
+    const jobId = rejectJobId();
+    const data = await api('/api/evaluations/rejected'
+      + (jobId ? `?job_id=${jobId}` : ''));
+    const rows = (data.candidates || [])
+      .filter((c) => c.candidate_email)
+      .map((c) => (c.candidate_name
+        ? `${c.candidate_name} <${c.candidate_email}>` : c.candidate_email));
+    if (!rows.length) {
+      toast('Nothing in the rejected queue for that role.');
+      return;
+    }
+    const box = $('rejectText');
+    box.value = (box.value.trim() ? box.value.trim() + '\n' : '') + rows.join('\n');
+    clearCheck();
+    toast(`Added ${rows.length} from the rejected queue. Check the list.`);
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* --- the message ------------------------------------------------------ */
+
+/* Re-rendered as they type, but not on every keystroke: the preview is a round
+ * trip, and one per character would be a request per character. */
+function schedulePreview() {
+  clearTimeout(schedulePreview._t);
+  schedulePreview._t = setTimeout(previewRejection, 450);
+}
+
+async function previewRejection() {
+  // Against a real person off the list wherever there is one, so the greeting
+  // and the unsubscribe link are the ones that recipient will actually get.
+  const first = state.rejections.checked?.recipients?.[0] || null;
+  try {
+    const data = await postJson('/api/rejections/preview', {
+      subject: $('rejectSubject').value,
+      message: $('rejectMessage').value,
+      job_id: rejectJobId(),
+      name: first?.name || '',
+      email: first?.email || '',
+    });
+    $('rejectPreviewSubject').textContent = data.email.subject;
+    $('rejectPreviewTo').textContent = data.to
+      ? `to ${data.to}` : 'sample recipient';
+    // srcdoc rather than a document.write: the frame stays sandboxed from the
+    // page, and the email's own styles cannot leak into the dashboard.
+    $('rejectFrame').srcdoc = data.email.html;
+  } catch (err) {
+    $('rejectPreviewSubject').textContent = 'Could not render the preview';
+    $('rejectPreviewTo').textContent = err.message;
+  }
+}
+
+/* --- record, and send ------------------------------------------------- */
+
+async function importRejections() {
+  const data = state.rejections.checked;
+  if (!data) return;
+
+  const total = data.total.toLocaleString();
+  if (!confirm(
+    `Record ${total} candidate(s) as already rejected?\n\n`
+    + 'No email is sent. They will be skipped by every rejection send from '
+    + 'here on.')) return;
+
+  const btn = $('rejectImportBtn');
+  btn.disabled = true;
+  const previous = btn.textContent;
+  btn.textContent = 'Recording…';
+  try {
+    const result = await postJson('/api/rejections/import', {
+      text: $('rejectText').value,
+      job_id: rejectJobId(),
+      note: $('rejectNote').value,
+    });
+    toast(result.message);
+    state.rejections.stats = result.stats;
+    renderRejectStats();
+    await loadLedger();
+    // The list has been dealt with. Leaving it in the box invites a second
+    // click, and the second click would be the send button.
+    $('rejectText').value = '';
+    clearCheck();
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    btn.textContent = previous;
+    // NOT unconditionally re-enabled. On the way through here the list was
+    // emptied and clearCheck() switched this off; turning it back on would
+    // leave a live Record button over an empty box, and the click after that
+    // is a 400 the recruiter has to interpret. The tally is the authority on
+    // whether there is anything to record.
+    btn.disabled = !state.rejections.checked;
+  }
+}
+
+async function sendRejections() {
+  const data = state.rejections.checked;
+  if (!data || !data.mailable) return;
+
+  const n = data.mailable.toLocaleString();
+  // Typed, not ticked. This is the button that reaches several hundred real
+  // people and cannot be taken back, and a dialog you dismiss by pressing
+  // Enter is not a decision.
+  const typed = prompt(
+    `This will email ${n} candidate(s) their rejection, one message each.\n\n`
+    + 'Read the preview first. Type SEND to confirm.');
+  if ((typed || '').trim().toUpperCase() !== 'SEND') {
+    toast('Nothing sent.');
+    return;
+  }
+
+  const btn = $('rejectSendBtn');
+  btn.disabled = true;
+  $('rejectImportBtn').disabled = true;
+  showProgress(0, data.mailable, 'Starting…');
+  try {
+    const started = await postJson('/api/rejections/send', {
+      text: $('rejectText').value,
+      subject: $('rejectSubject').value,
+      message: $('rejectMessage').value,
+      job_id: rejectJobId(),
+      note: $('rejectNote').value,
+      resend: $('rejectResend').checked,
+    });
+    toast(started.message);
+    watchSend(started.job, started.queued);
+  } catch (err) {
+    hideProgress();
+    toast(err.message, true);
+    btn.disabled = false;
+    $('rejectImportBtn').disabled = false;
+  }
+}
+
+function showProgress(done, total, text, cls = '') {
+  const wrap = $('rejectProgress');
+  wrap.hidden = false;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  const bar = $('rejectBar');
+  bar.style.width = `${pct}%`;
+  bar.className = `progress-bar${cls ? ' ' + cls : ''}`;
+  $('rejectProgressText').textContent = text;
+}
+
+function hideProgress() { $('rejectProgress').hidden = true; }
+
+/* Poll a running batch until it stops.
+ *
+ * Errors on a poll are shown and swallowed rather than ending the watch: a
+ * single failed status request is a blip, and giving up on it would leave a
+ * send running with nothing on screen saying so. Only a terminal state from
+ * the server stops the loop. */
+function watchSend(jobId, queued) {
+  let misses = 0;
+  const tick = async () => {
+    try {
+      const job = await api(`/api/rejections/send/${jobId}`);
+      misses = 0;
+      if (job.state === 'running') {
+        showProgress(job.done, job.total || queued, job.message);
+        setTimeout(tick, REJECT_POLL_MS);
+        return;
+      }
+      const failed = job.state === 'failed';
+      showProgress(job.total || queued, job.total || queued,
+                   failed ? (job.error || job.message) : job.message,
+                   failed ? 'is-failed' : 'is-done');
+      toast(failed ? (job.error || job.message) : job.message, failed);
+      await finishSend(job);
+    } catch (err) {
+      // A swept job, or a server that went away. Three strikes, so a restart
+      // mid-batch does not leave the bar spinning for ever.
+      if (++misses >= 3) {
+        showProgress(1, 1, `Lost track of the send: ${err.message}. `
+          + 'Check the record below for who was reached.', 'is-failed');
+        await finishSend(null);
+        return;
+      }
+      setTimeout(tick, REJECT_POLL_MS);
+    }
+  };
+  setTimeout(tick, REJECT_POLL_MS);
+}
+
+async function finishSend(job) {
+  state.rejections.lastSend = job;
+  await loadLedger();
+  // The list is deliberately left in the box: everyone who was reached is now
+  // in the record, so re-checking it re-reads it against that record -- which
+  // is what makes a second click after a half-finished batch send only the
+  // ones left over rather than the whole list again.
+  //
+  // checkList() is also what re-enables the two buttons, by way of the tally.
+  // They are not switched back on directly, because "the send finished" and
+  // "there is somebody left to send to" are different facts.
+  if ($('rejectText').value.trim()) await checkList();
+  else clearCheck();
+  // The board and the role cards can both be showing these people.
+  loadRoles().catch(() => { /* the record above is what mattered */ });
+}
+
+/* --- the record ------------------------------------------------------- */
+
+const ledgerPicked = new Set();
+
+async function loadLedger() {
+  $('ledgerCount').textContent = 'Loading…';
+  const params = new URLSearchParams();
+  const search = $('ledgerSearch').value.trim();
+  const status = $('ledgerStatus').value;
+  if (search) params.set('search', search);
+  if (status) params.set('status', status);
+  try {
+    const data = await api('/api/rejections'
+      + (params.toString() ? `?${params}` : ''));
+    state.rejections.rows = data.rejections || [];
+    state.rejections.stats = data.stats || {};
+    state.rejections.matching = data.matching || 0;
+    state.rejections.mail = data.mail || state.rejections.mail;
+    // Only on the first load: re-reading the record must not overwrite a
+    // message somebody has spent five minutes editing.
+    if (!state.rejections.defaults) state.rejections.defaults = data.defaults;
+    // A row that has scrolled out of a filtered view is not a row somebody
+    // meant to keep selected.
+    const visible = new Set(state.rejections.rows.map((r) => r.email));
+    for (const email of [...ledgerPicked]) {
+      if (!visible.has(email)) ledgerPicked.delete(email);
+    }
+    renderLedger();
+    renderRejectStats();
+  } catch (err) {
+    $('ledgerCount').textContent = err.message;
+  }
+}
+
+function renderLedger() {
+  const rows = state.rejections.rows || [];
+  const matching = state.rejections.matching || 0;
+
+  $('ledgerTotal').textContent = matching
+    ? `— ${matching.toLocaleString()}` : '';
+  $('ledgerCount').textContent = !rows.length
+    ? 'Nobody matches those filters.'
+    : (ledgerPicked.size
+      ? `${ledgerPicked.size} of ${rows.length} selected`
+      : `${rows.length.toLocaleString()} shown`)
+      + (matching > rows.length
+        ? ` of ${matching.toLocaleString()} — narrow the search to see the rest.`
+        : '');
+
+  $('ledgerEmpty').hidden = rows.length > 0;
+  $('ledgerBody').innerHTML = rows.map((r) => {
+    const how = r.status || 'recorded';
+    return `
+      <tr>
+        <td class="shrink"><input type="checkbox" data-email="${esc(r.email)}"
+              ${ledgerPicked.has(r.email) ? 'checked' : ''}></td>
+        <td><div class="cand-name">${esc(r.name || '—')}</div></td>
+        <td class="email-cell">${esc(r.email)}</td>
+        <td class="dim">${esc(r.job_title || '—')}</td>
+        <td><span class="badge badge-${esc(how)}">${esc(REJECT_HOW[how] || how)}</span>
+            ${r.error ? `<div class="dim" style="font-size:11px">${esc(String(r.error).slice(0, 120))}</div>` : ''}</td>
+        <td class="nowrap dim">${shortDate(r.rejected_at)}</td>
+        <td class="ledger-note">${esc(r.note || '')}</td>
+      </tr>`;
+  }).join('');
+
+  for (const box of $('ledgerBody').querySelectorAll('input[type=checkbox]')) {
+    box.addEventListener('change', () => {
+      if (box.checked) ledgerPicked.add(box.dataset.email);
+      else ledgerPicked.delete(box.dataset.email);
+      renderLedger();
+    });
+  }
+  $('ledgerAll').checked = rows.length > 0 && ledgerPicked.size === rows.length;
+  $('ledgerRemoveBtn').disabled = ledgerPicked.size === 0;
+}
+
+async function removeFromLedger() {
+  const emails = [...ledgerPicked];
+  if (!emails.length) return;
+  if (!confirm(
+    `Remove ${emails.length} person(s) from the record?\n\n`
+    + 'This un-sends nothing. It makes this system forget they were told, '
+    + 'so the next send will include them again.')) return;
+  try {
+    const result = await postJson('/api/rejections/remove', { emails });
+    toast(result.message);
+    ledgerPicked.clear();
+    await loadLedger();
+    // Taking somebody out of the record changes who is mailable, so the tally
+    // above is now wrong -- and it is the tally the Send button is enabled by.
+    // Re-read rather than leaving a stale "3 already told" over a list where
+    // those three have just become sendable again.
+    if ($('rejectText').value.trim()) await checkList();
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+function exportLedgerCsv() {
+  const rows = state.rejections.rows || [];
+  if (!rows.length) return;
+  saveCsv(
+    [['Name', 'Email', 'Role', 'How they heard', 'When', 'Recorded by', 'Note']]
+      .concat(rows.map((r) => [
+        r.name || '', r.email, r.job_title || '',
+        REJECT_HOW[r.status] || r.status || '', r.rejected_at || '',
+        r.by || '', r.note || '',
+      ])),
+    'rejections.csv');
+  toast(`Downloaded ${rows.length} row(s).`);
 }
 
 /* --- hiring pipeline ---------------------------------------------------
@@ -2354,6 +3000,7 @@ const allowedTab = (tab) =>
 function showView(name, scroll = true) {
   $('viewRoles').hidden = name !== 'roles';
   $('viewRole').hidden = name !== 'role';
+  setHidden('viewRejections', name !== 'rejections');
   // A new view starts at its own top. Re-reading the view you are already on
   // does not -- a background refresh that yanks the page up loses your place.
   if (scroll) window.scrollTo({ top: 0, behavior: 'auto' });
@@ -2459,10 +3106,18 @@ function writeHash(push = false) {
 
 // Back/forward, including the ones a keyboard or a mouse thumb button sends.
 window.addEventListener('popstate', () => {
+  if (location.hash === '#rejections') {
+    openRejections(false);
+    return;
+  }
   const params = new URLSearchParams(location.hash.slice(1));
   const linked = Number(params.get('role'));
   if (!linked) {
-    if (state.activeRoleId !== null) backToRoles(false);
+    // Also the way back OUT of the rejections view, which pushed a hash of its
+    // own: whatever is on screen, an empty hash means the role grid.
+    if (state.activeRoleId !== null || !($('viewRejections') || {}).hidden) {
+      backToRoles(false);
+    }
     return;
   }
   const tab = allowedTab(params.get('tab'));
@@ -3803,13 +4458,17 @@ function toggleRejectedList(show) {
 
 $('rejectedToggle').addEventListener('click', () => toggleRejectedList());
 
+// "Select all" means everyone still owed an email, never everyone in the list.
+// Clearing `excluded` outright is what would put two hundred already-mailed
+// people back into a copied BCC field.
 $('rejectedAll').addEventListener('change', (e) => {
   excluded.clear();
-  if (!e.target.checked) {
-    for (const c of state.rejected) excluded.add(c.candidate_email);
+  for (const c of state.rejected) {
+    if (c.already_told || !e.target.checked) excluded.add(c.candidate_email);
   }
   renderRejected();
 });
+$('rejectedSendBtn')?.addEventListener('click', sendRejectedFromHere);
 for (const tab of $('pipelineTabs').querySelectorAll('.tab')) {
   tab.addEventListener('click', () => selectStage(tab.dataset.stage));
 }
@@ -3887,6 +4546,53 @@ $('topN').addEventListener('change', () => {
   renderCandidates();
 });
 
+// --- rejections ---
+$('rejectionsBtn')?.addEventListener('click', () => openRejections());
+$('rejectBackBtn')?.addEventListener('click', () => backToRoles());
+// Any edit to the list invalidates the tally the buttons are enabled by, so
+// both are switched off until the server has read it again. See clearCheck().
+$('rejectText').addEventListener('input', () => clearCheck());
+$('rejectCheckBtn').addEventListener('click', checkList);
+$('rejectClearBtn').addEventListener('click', () => {
+  $('rejectText').value = '';
+  clearCheck();
+});
+$('rejectPullBtn').addEventListener('click', pullRejectedQueue);
+// The role fills in {role} and tags every row the batch writes, so changing it
+// changes both the message and the record -- re-render, and re-check, since
+// "already told" is answered per role for nobody but is worth re-reading.
+$('rejectRole').addEventListener('change', previewRejection);
+$('rejectSubject').addEventListener('input', schedulePreview);
+$('rejectMessage').addEventListener('input', schedulePreview);
+$('rejectPreviewBtn').addEventListener('click', previewRejection);
+$('rejectResetBtn').addEventListener('click', () => {
+  resetWording();
+  previewRejection();
+});
+// Including people already told changes who is mailable, which is the number
+// the Send button is enabled by -- so the list is re-read rather than the
+// tally being patched here.
+$('rejectResend').addEventListener('change', () => {
+  if ($('rejectText').value.trim()) checkList();
+});
+$('rejectImportBtn').addEventListener('click', importRejections);
+$('rejectSendBtn').addEventListener('click', sendRejections);
+$('ledgerSearch').addEventListener('input', () => {
+  clearTimeout($('ledgerSearch')._t);
+  $('ledgerSearch')._t = setTimeout(loadLedger, 300);
+});
+$('ledgerStatus').addEventListener('change', loadLedger);
+$('ledgerRefresh').addEventListener('click', loadLedger);
+$('ledgerCsvBtn').addEventListener('click', exportLedgerCsv);
+$('ledgerRemoveBtn').addEventListener('click', removeFromLedger);
+$('ledgerAll').addEventListener('change', (e) => {
+  ledgerPicked.clear();
+  if (e.target.checked) {
+    for (const r of state.rejections.rows) ledgerPicked.add(r.email);
+  }
+  renderLedger();
+});
+
 // --- moving between the two views ---
 $('backBtn').addEventListener('click', backToRoles);
 $('heroCalBtn')?.addEventListener('click', editHeroCal);
@@ -3899,7 +4605,11 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (!$('mailPreview').hidden || !$('drawer').hidden
       || InviteComposer.isOpen()) return;
-  if (state.activeRoleId !== null) backToRoles();
+  // Not while somebody is typing a rejection into a box: Escape there should
+  // do nothing, not throw away a message they have been writing for a minute.
+  if (/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '')) return;
+  if (state.activeRoleId !== null
+      || !($('viewRejections') || {}).hidden) backToRoles();
 });
 
 // The candidate header is rebuilt whenever the category columns are toggled,

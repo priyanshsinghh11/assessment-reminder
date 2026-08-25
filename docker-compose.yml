@@ -1,0 +1,88 @@
+# Self-hosted deployment: the dashboard, the manager review surface, and Mongo.
+#
+#   cp .env.example .env   # fill it in first
+#   docker compose up -d --build
+#   docker compose exec dashboard python manage_users.py add you@ajaia.ai --admin
+#
+# TWO CONTAINERS FROM ONE IMAGE, and that is the whole point of the file. The
+# dashboard shows every role, every candidate's address and every send button;
+# the review surface shows one manager the one shortlist their token names.
+# They are different exposure decisions, so they are different processes with
+# different port bindings -- exactly the split server.py's --review-only flag
+# exists for.
+#
+# THE DEDUPE STATE IS IN MONGO, not in a volume. It used to be a JSON file
+# under state/, which meant this compose file's volume was load-bearing for
+# correctness and a volume-less platform (Cloud Run, App Service) simply could
+# not run this safely. It now lives in the `reminders` collection behind an
+# atomic claim, so the mongo service below is what has to be durable and state/
+# is a convenience.
+
+services:
+  dashboard:
+    build: .
+    image: assessment-reminder:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      REVIEW_ONLY: "0"
+      PORT: "8080"
+      MONGO_URI: mongodb://mongo:27017
+    # BOUND TO THE HOST'S LOOPBACK, matching server.py's own default. This is
+    # the process with the send buttons on it. Reaching it from another machine
+    # should mean an SSH tunnel or a VPN, or a reverse proxy you configured on
+    # purpose with TLS and SESSION_COOKIE_SECURE=1 -- not editing this line to
+    # 0.0.0.0 because it was quicker.
+    ports:
+      - "127.0.0.1:5000:8080"
+    volumes:
+      - state:/app/state
+      - logs:/app/logs
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  review:
+    build: .
+    image: assessment-reminder:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      REVIEW_ONLY: "1"
+      PORT: "8080"
+      MONGO_URI: mongodb://mongo:27017
+      # The token in the URL is the credential, so this must be reachable by a
+      # manager on their phone AND must be https. Terminate TLS in front of
+      # this port; plain HTTP hands the token to the network.
+      SESSION_COOKIE_SECURE: "1"
+    ports:
+      - "5051:8080"
+    volumes:
+      # Read-only: this process reviews, it never sends anything, so it has no
+      # business writing the cached scan the dashboard depends on.
+      - state:/app/state:ro
+      - logs:/app/logs
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    # NOT PUBLISHED. Reachable from the two app containers over the compose
+    # network and from nowhere else. It holds every submission, evaluation and
+    # session in the system and has no authentication configured here -- if you
+    # publish this port, configure auth in the same edit.
+    volumes:
+      - mongo:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  state:
+  logs:
+  mongo:

@@ -14,5 +14,9 @@
 
 # Run the assessment reminder every weekday at 9:00 AM ET (13:00 UTC)
 # Logs go to assessment-reminder/logs/reminder.log
+#
+# The command below is unchanged by the move into backend/: reminder.py at the
+# repository root is a launcher for backend/notifications/reminder.py, and every
+# path the run needs is resolved from the repository root rather than from cwd.
 
 # 0 13 * * 1-5 cd /opt/assessment-reminder && /usr/bin/env python3 reminder.py >> logs/cron.log 2>&1
