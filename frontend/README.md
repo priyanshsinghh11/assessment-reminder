@@ -429,6 +429,80 @@ on. 409 for a role with nothing scored, 503 if `openpyxl` is missing.
 **Admin only.** A full re-crawl of the portal on behalf of the whole company —
 not a per-role action a manager fires from their own seat.
 
+### `GET /api/evaluations/rejected?job_id=`
+
+Every rejected candidate, de-duplicated by address, for the queue on the
+Pipeline tab.
+
+**Each row carries `already_told`, plus `told_at` and `told_how`,** answered
+from the rejection ledger in one query — and the response splits the totals
+into `already_told` and `waiting`. This is not decoration. The list answers
+"who did the assessment reject", it gets read as "who is still owed an email",
+and those coincide exactly once. The month after, ticking all of it would mail
+two hundred people a second rejection out of a list that looked correct. The
+page unticks on this flag and leaves those rows out of *select all*.
+
+A `failed` ledger row is **not** `already_told`: we tried, it bounced, that
+candidate has heard nothing.
+
+### `GET /api/rejections?search=&status=&job_id=&limit=`
+
+**Admin only**, like every route in this group — one click here mails several
+hundred real people. The ledger, plus `stats`, plus the default subject and
+message body the composer starts from.
+
+> The three routes below — `/parse`, `/preview` and `/send` — are the bulk
+> sender. **Nothing in the dashboard calls them.** Rejections are sent from the
+> recruiter's own mail client; the UI only records who. Kept because rebuilding
+> it is the expensive part. See the note above `_reject_jobs` in server.py.
+
+### `POST /api/rejections/parse`
+
+`{text | recipients, resend?}` → what a send *would* do, without doing any of
+it. `{total, mailable, already, unsubscribed, unreadable[], over_cap}`.
+
+Sends nothing, records nothing. The dashboard disables both action buttons
+until this has answered, and re-disables them the moment the paste box is
+edited — so there is no path from an edited list to a send that never re-read
+it.
+
+### `POST /api/rejections/import`
+
+`{text | recipients, job_id?, note?}` → records them as already rejected.
+**Emails nobody.** This is *Mark as emailed →* on the rejection panel, and the
+migration path for the hundreds already mailed by hand out of a BCC field.
+Idempotent on the address, so marking the same people twice is the same as
+marking them once.
+
+### `POST /api/rejections/send`
+
+`{text | recipients, subject?, message?, job_id?, note?, resend?}` → **202** and
+a job id; poll `GET /api/rejections/send/<job>` for `{state, done, total,
+totals}`.
+
+Started, not awaited, for the reason `/api/run` is. One personalised message
+per candidate, never a BCC. Opt-outs and the ledger are applied inside
+`rejections.send_bulk()` rather than here, so a CLI or a scheduled run cannot
+reach a different answer. **409** when nobody on the list is new — with the
+reason, rather than the lock's "a send is already in progress", which would be
+a lie about why nothing happened.
+
+Each candidate is written to the ledger as they are sent, not batched at the
+end: a process that dies at message 300 leaves those 300 recorded, and the
+re-run sends only the rest.
+
+### `POST /api/rejections/preview`
+
+`{subject?, message?, job_id?, name?, email?}` → the message as one candidate
+would receive it, rendered by the same builder that sends. Given a real
+`email`, the unsubscribe link in the footer is that recipient's own.
+
+### `POST /api/rejections/remove`
+
+`{emails: []}` → drops them from the ledger. *← Move back* on the rejection
+panel. Un-sends nothing; it makes the system forget they were told, which puts
+them back in the left column.
+
 ### `POST /api/shortlist/send`
 
 ```json

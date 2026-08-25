@@ -142,7 +142,20 @@ def build_record(candidate: dict, job_id: int, job_title: str,
         "auto_submitted": False,
         # Resume fields, written the same way ingest.py writes them so
         # mongo_store.set_resume and the resume stats read both paths alike.
-        "resume_link": resume_url,
+        #
+        # The two links are different on purpose, and it is the S3 one that
+        # cannot be `resume_link`. The dashboard renders `resume_link` as "Open
+        # resume" for a reviewer to click, and the presigned URL carries an
+        # X-Amz-Expires that runs out in hours -- so by the time anybody reads
+        # a score, the link beside it would 403. The Workable profile does not
+        # expire, is where the resume is viewable anyway, and carries the rest
+        # of the application with it.
+        #
+        # The S3 URL is kept as `resume_source_link` because that field is
+        # provenance rather than navigation: it records where these bytes were
+        # actually read from. It is expected to be dead on arrival, which is
+        # fine for a thing nobody clicks.
+        "resume_link": candidate.get("profile_url") or resume_url,
         "resume_source_link": resume_url,
         "resume_filename": metadata.get("filename") or "",
         "resume_filetype": metadata.get("filetype") or "",

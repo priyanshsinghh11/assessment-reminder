@@ -137,6 +137,25 @@ def setup_logging(level=logging.INFO):
         "%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     file_handler.setFormatter(formatter)
 
+    # The console, reconfigured to UTF-8 where it will allow it.
+    #
+    # A Windows console defaults to cp1252, and a log line carrying a character
+    # it cannot encode does not print a mangled line -- logging raises, prints
+    # the whole UnicodeEncodeError with a call stack, and carries on. The run
+    # survives, but a single quote from a candidate's CV turns one INFO line
+    # into forty lines of traceback.
+    #
+    # It shows up wherever candidate text reaches the log, and CV grading is
+    # the worst of it: resumes are full of non-breaking hyphens, curly quotes
+    # and em dashes, none of which are in cp1252. errors="replace" is the
+    # backstop for a stream that cannot be reconfigured at all -- a question
+    # mark in place of a dash is a fair trade for a legible log.
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            pass
+
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(formatter)
 

@@ -28,7 +28,7 @@ from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from typing import Optional
 
 from backend.core.config import LLM_CONCURRENCY, LLM_MODEL
-from backend.grading import evaluator
+from backend.grading import evaluator, grader
 from backend.database import mongo_store as store
 from backend.grading import tier_resolver
 from backend.notifications.reminder import setup_logging
@@ -81,7 +81,7 @@ def _grade_role(role: dict, limit: int, force_rubric: bool,
     exhausted: Optional[evaluator.QuotaExhausted] = None
 
     def one(sub):
-        return sub, evaluator.evaluate_and_store(sub, role, grid)
+        return sub, grader.grade_and_store(sub, role, grid)
 
     with ThreadPoolExecutor(max_workers=max(1, LLM_CONCURRENCY)) as pool:
         futures = [pool.submit(one, sub) for sub in pending]

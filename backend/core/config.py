@@ -805,6 +805,34 @@ EMAIL_LOGO_URL = (os.environ.get("EMAIL_LOGO_URL", "").strip()
 AUTH_ENABLED = (os.environ.get("AUTH_ENABLED", "1")
                 .strip().lower() not in ("0", "false", "no", "off"))
 
+# Whether a signed-in hiring manager reads the AI score on the DASHBOARD.
+#
+# This is the one surface where they do. The three others are unchanged and
+# deliberately so, because they are not the same act:
+#
+#   the shortlist email      SHORTLIST_SHOW_SCORES, still off by default. A
+#                            number in an inbox is quoted back at us in a
+#                            debrief with none of the grid around it.
+#   the spreadsheet          the recruiting team's per-send "AI score" tick,
+#                            still theirs alone -- see server.py _scores_arg().
+#   the review link          never. That page has no sign-in at all: the token
+#                            IS the credential, and a forwarded email must not
+#                            become a way to read our marking.
+#
+# The dashboard is different from all three. The reader is authenticated, they
+# are on the role, and the score does not arrive on its own -- the grid, the
+# per-criterion anchors, the brief, the CV read and the partial-grading mark
+# are all one click away in the same drawer. The objection to a bare "78" is
+# that it decides the interview before anyone has read a word of the work; a
+# 78 you can open and argue with is the opposite of that.
+#
+# Set to 0 to put the dashboard back to rank-and-work-only. What it controls is
+# the PAYLOAD, not the page -- server.py builds a manager's submission from an
+# allowlist and this decides whether `evaluation` is on it, so a manager
+# reading the JSON directly sees exactly what their screen does.
+MANAGER_DASHBOARD_SCORES = (os.environ.get("MANAGER_DASHBOARD_SCORES", "1")
+                            .strip().lower() not in ("0", "false", "no", "off"))
+
 # Bootstrap admins. Accounts are stored in Mongo and managed from the dashboard
 # (or manage_users.py); these two settings exist for the very first login, when
 # there is no account to log in with and therefore no way to create one.

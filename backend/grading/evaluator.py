@@ -2595,7 +2595,14 @@ def rubric_detail(role: dict, tier: Optional[str] = None) -> dict:
             # them apart: the CV is not scored at all, or it is scored in the
             # grid instead of beside it.
             "background_criterion": (background_row or {}).get("key"),
-            "background_points": (background_row or {}).get("weight"),
+            # The BLOCK's points, not the row's. Identical for the three grids
+            # that put a single background row inside the 100 -- 40 and 40 and
+            # 10 -- and the only correct answer for grid 15, where the record
+            # is marked across seven rows and the first one's 25 would tell a
+            # role page the CV is worth a quarter of a seat it decides
+            # entirely.
+            "background_points": (block_points["background"]
+                                  if background_row else None),
         },
         "source": grid.get("source") if grid else None,
         # The tiers this role can be marked at, and which one is being shown.

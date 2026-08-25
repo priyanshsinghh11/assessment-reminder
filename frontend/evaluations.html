@@ -4,6 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Assessment Evaluations</title>
+  <!-- The tab icon. The square Ajaia mark, cut from the wordmark in
+       assets/ajaia-logo.png so the two can never drift apart, on the
+       brand navy: a white-on-transparent mark would vanish into a
+       light tab strip, which is where this is actually read. -->
+  <link rel="icon" type="image/png" href="/assets/ajaia-mark.png">
+  <link rel="apple-touch-icon" href="/assets/ajaia-mark.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Fragment+Mono&display=swap" rel="stylesheet">
@@ -27,10 +33,6 @@
   </div>
   <div class="topbar-actions">
     <a class="btn btn-ghost" href="/">Reminders</a>
-    <!-- Recruiting team only, hidden by applyAccountView(). The button mails
-         several hundred people; a hiring manager has no business near it. -->
-    <button class="btn btn-ghost" id="rejectionsBtn" type="button"
-            title="Tell the people who did not make it, and keep a record of who has been told">Rejections</button>
     <button class="btn" id="syncBtn" title="Re-download submissions from the portal">Sync portal</button>
     <button class="btn" id="refreshBtn">Refresh</button>
   </div>
@@ -512,292 +514,142 @@
         </div>
       </section>
 
+      <!-- ---------- Rejected, in two columns ----------
+
+           TWO LISTS, NOT ONE, because there are two questions and one list
+           cannot answer both. The left is who the assessment rejected; the
+           right is who has heard about it. They start out the same and then
+           diverge for ever, and the moment they diverge a single list becomes
+           actively dangerous: next month twenty new people land in it beside
+           two hundred who were mailed last month, "select all" picks up all
+           two hundred and twenty, and two hundred people get a second
+           rejection out of a list that looked correct.
+
+           Moving somebody across is the whole interaction. It sends nothing
+           and it un-sends nothing -- it records what you did in your own mail
+           client, so this page stops offering them. -->
       <section class="panel" id="rejectedPanel">
         <div class="panel-head">
-          <h2>Rejected &mdash; ready for rejection emails</h2>
+          <h2>Rejection emails</h2>
           <div class="controls">
             <select id="rejectedRole"><option value="">All roles</option></select>
+            <button class="btn btn-ghost" id="rejectedRefresh" type="button">Refresh</button>
             <button class="btn btn-ghost" id="rejectedToggle">Hide list</button>
           </div>
         </div>
 
-        <div class="sendbar">
-          <span class="sendbar-count" id="rejectedCount">Loading&hellip;</span>
-          <div class="sendbar-actions">
-            <button class="btn" id="copyEmailsBtn">Copy addresses</button>
-            <button class="btn" id="copyBccBtn" title="Semicolon-separated, for the BCC field">Copy for BCC</button>
-            <button class="btn" id="exportCsvBtn">Download CSV</button>
-            <!-- Where these addresses are meant to go now. Copying them into a
-                 mail client still works and is still here, but it is the route
-                 that leaves no record -- and no record is what puts the same
-                 people in this list again next month. -->
-            <button class="btn btn-primary" id="rejectedSendBtn"
-                    title="Take the ticked candidates to the Rejections page and send from there">
-              Send these from here
-            </button>
+        <div class="reject-cols" id="rejectedWrap">
+
+          <!-- LEFT: still owed an email -->
+          <div class="reject-col">
+            <div class="reject-col-head">
+              <h3>Still to tell <span class="dim" id="waitingCount"></span></h3>
+              <!-- Starts EMPTY, unlike the single list this replaced.
+                   That list only fed a clipboard, so nothing was lost by
+                   having everything pre-ticked. This one has "Mark as
+                   emailed" under it, and a pre-ticked list plus one stray
+                   click marks the whole company as already told. One click
+                   to select all is the right price for that. -->
+              <label class="toggle">
+                <input type="checkbox" id="waitingAll">
+                Select all
+              </label>
+            </div>
+
+            <p class="hint" id="rejectedHint"></p>
+
+            <div class="sendbar">
+              <span class="sendbar-count" id="rejectedCount">Loading&hellip;</span>
+              <div class="sendbar-actions">
+                <button class="btn" id="copyEmailsBtn">Copy addresses</button>
+                <button class="btn" id="copyBccBtn"
+                        title="Semicolon-separated, for the BCC field">Copy for BCC</button>
+                <button class="btn" id="exportCsvBtn">Download CSV</button>
+              </div>
+            </div>
+
+            <div class="table-wrap reject-scroll">
+              <table id="rejectedTable">
+                <thead>
+                  <tr>
+                    <th class="shrink"></th>
+                    <th>Candidate</th>
+                    <th>Email</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody id="rejectedBody"></tbody>
+              </table>
+              <p class="empty" id="rejectedEmpty" hidden>
+                Nobody here is waiting on a rejection email.
+              </p>
+            </div>
+
+            <div class="reject-move">
+              <button class="btn btn-primary" id="markMailedBtn" type="button" disabled>
+                Mark as emailed &rarr;
+              </button>
+              <span class="hint">
+                Records that you have already written to the ticked candidates.
+                Nothing is sent from here.
+              </span>
+            </div>
           </div>
-        </div>
 
-        <p class="hint" id="rejectedHint"></p>
+          <!-- RIGHT: already heard -->
+          <div class="reject-col is-done">
+            <div class="reject-col-head">
+              <h3>Already got the email <span class="dim" id="mailedCount"></span></h3>
+              <label class="toggle">
+                <input type="checkbox" id="mailedAll">
+                Select all
+              </label>
+            </div>
 
-        <div class="table-wrap" id="rejectedWrap">
-          <table id="rejectedTable">
-            <thead>
-              <tr>
-                <th class="shrink"><input type="checkbox" id="rejectedAll" checked
-                                          title="Select all"></th>
-                <th>Candidate</th>
-                <th>Email</th>
-                <th>Role</th>
-                <th>Reason</th>
-                <th>Submitted</th>
-                <th>Told?</th>
-              </tr>
-            </thead>
-            <tbody id="rejectedBody"></tbody>
-          </table>
-          <p class="empty" id="rejectedEmpty" hidden>No rejected candidates.</p>
+            <p class="hint">
+              These are left out of the list on the left, and out of its
+              &ldquo;select all&rdquo;, so they cannot be mailed twice by
+              accident.
+            </p>
+
+            <div class="sendbar">
+              <span class="sendbar-count" id="mailedStatus">&mdash;</span>
+              <div class="sendbar-actions">
+                <button class="btn" id="mailedCsvBtn">Download CSV</button>
+              </div>
+            </div>
+
+            <div class="table-wrap reject-scroll">
+              <table id="mailedTable">
+                <thead>
+                  <tr>
+                    <th class="shrink"></th>
+                    <th>Candidate</th>
+                    <th>Email</th>
+                    <th>Emailed</th>
+                  </tr>
+                </thead>
+                <tbody id="mailedBody"></tbody>
+              </table>
+              <p class="empty" id="mailedEmpty" hidden>
+                Nobody moved across yet. Tick the candidates you have already
+                written to on the left, then press &ldquo;Mark as emailed&rdquo;.
+              </p>
+            </div>
+
+            <div class="reject-move">
+              <button class="btn" id="unmarkBtn" type="button" disabled>
+                &larr; Move back
+              </button>
+              <span class="hint">
+                Puts them back on the left. It does not un-send anything.
+              </span>
+            </div>
+          </div>
+
         </div>
       </section>
     </div>
-
-  </section>
-
-  <!-- =====================================================================
-       VIEW 3 -- rejections.
-
-       ITS OWN VIEW RATHER THAN A TAB UNDER A ROLE, because most of the people
-       it deals with do not belong to a role this dashboard knows about. They
-       were turned down at the CV screen or inside Workable, and arrive here as
-       four hundred addresses pasted out of the BCC field they were mailed
-       from. There is no role to hang them under and no submission to tick.
-
-       Three panels, in the order the work is done:
-
-         WHO      paste the list, and be told what is in it before anything
-                  happens to it -- how many are new, how many were already
-                  told, how many have opted out.
-         WHAT     write the message, and read it as the candidate will.
-         THEN     two buttons that do very different things, kept apart and
-                  labelled as such: record what you sent elsewhere, or send it
-                  from here.
-
-       And below them the ledger: everyone this system believes has been told
-       no, however they were told. That list is the whole point of the page --
-       it is what stops the next round mailing somebody a second rejection.
-       ================================================================== -->
-  <section class="view" id="viewRejections" hidden>
-
-    <div class="role-hero">
-      <button class="backlink" id="rejectBackBtn" type="button">
-        <span class="back-arrow" aria-hidden="true"></span>All roles
-      </button>
-      <div class="role-hero-head">
-        <div>
-          <h2>Rejections</h2>
-          <p class="subtitle">
-            Tell the people who did not make it, once each &mdash; and keep a
-            record, so the next round does not tell them again.
-          </p>
-        </div>
-      </div>
-      <div class="stats stats-compact" id="rejectStats"></div>
-    </div>
-
-    <!-- ---------- 1. Who ---------- -->
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Who you are writing to</h2>
-        <div class="controls">
-          <select id="rejectRole" title="Tag these rejections with a role, and fill in {role} in the message">
-            <option value="">No particular role</option>
-          </select>
-          <button class="btn btn-ghost" id="rejectPullBtn" type="button"
-                  title="Add everyone this dashboard has already marked rejected">
-            Add the rejected queue
-          </button>
-          <button class="btn btn-ghost" id="rejectClearBtn" type="button">Clear</button>
-        </div>
-      </div>
-
-      <p class="hint">
-        Paste addresses however they come &mdash; one per line, or straight out
-        of a BCC field, or a name-and-address column dragged out of a
-        spreadsheet. Names are picked up where they are there, and used in the
-        greeting. Anything that is not an address is listed back to you rather
-        than dropped.
-      </p>
-
-      <label class="field">
-        Addresses
-        <textarea id="rejectText" rows="7" spellcheck="false"
-                  placeholder="asha@example.com&#10;Ravi Menon &lt;ravi@example.io&gt;&#10;priya.nair@example.co.in"></textarea>
-      </label>
-
-      <div class="sendbar">
-        <span class="sendbar-count" id="rejectCount">Nothing pasted yet.</span>
-        <div class="sendbar-actions">
-          <button class="btn" id="rejectCheckBtn" type="button">Check this list</button>
-        </div>
-      </div>
-
-      <div class="reject-summary" id="rejectSummary" hidden></div>
-    </section>
-
-    <!-- ---------- 2. What ---------- -->
-    <section class="panel">
-      <div class="panel-head">
-        <h2>The message</h2>
-        <div class="controls">
-          <button class="btn btn-ghost" id="rejectResetBtn" type="button"
-                  title="Go back to the standard wording">Reset wording</button>
-          <button class="btn btn-ghost" id="rejectPreviewBtn" type="button">Refresh preview</button>
-        </div>
-      </div>
-
-      <div class="compose-grid">
-        <div class="compose-edit">
-          <label class="field">
-            Subject
-            <input type="text" id="rejectSubject" autocomplete="off">
-          </label>
-
-          <label class="field">
-            Message
-            <textarea id="rejectMessage" rows="14" spellcheck="true"></textarea>
-          </label>
-
-          <p class="chips-line">
-            <span class="field" style="margin:0">Insert</span>
-            <span class="chips" id="rejectChips"></span>
-          </p>
-
-          <!-- The boundary, said where the writing happens. Same rule as the
-               interview composer: prose is theirs, the shell is not. -->
-          <p class="locked-note">
-            The Ajaia header, the sign-off from the hiring team and the
-            unsubscribe line are added to whatever you write. They are not
-            editable &mdash; a bulk message with no way out of the list is the
-            one thing that must not leave this page.
-          </p>
-
-          <label class="field">
-            Note for the record <span class="opt">&mdash; internal, never emailed</span>
-            <input type="text" id="rejectNote" autocomplete="off"
-                   placeholder="e.g. CV screen, August round">
-          </label>
-        </div>
-
-        <div class="compose-preview">
-          <div class="preview-head">
-            <strong id="rejectPreviewSubject">&mdash;</strong>
-            <span class="dim" id="rejectPreviewTo">&mdash;</span>
-          </div>
-          <iframe id="rejectFrame" title="Rejection email preview"></iframe>
-        </div>
-      </div>
-    </section>
-
-    <!-- ---------- 3. Then ----------
-         TWO BUTTONS THAT MUST NEVER BE CONFUSED FOR EACH OTHER. One files
-         people away and emails nobody; the other emails everybody. They are
-         separated, worded as verbs, and the sending one is the only primary
-         button on the page. -->
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Send, or just record</h2>
-      </div>
-
-      <div class="reject-actions">
-        <div class="reject-action">
-          <h3>I already emailed them myself</h3>
-          <p class="hint">
-            Writes everyone above into the record as already rejected.
-            <strong>Nothing is emailed.</strong> This is the one to use for the
-            four hundred you sent by hand &mdash; after it, they are skipped by
-            every send from here on.
-          </p>
-          <button class="btn" id="rejectImportBtn" type="button" disabled>
-            Record as already rejected
-          </button>
-        </div>
-
-        <div class="reject-action">
-          <h3>Send it from here</h3>
-          <p class="hint">
-            One personalised message each, not a BCC. Anyone who has already
-            been told, and anyone who has opted out, is skipped before the
-            first message goes.
-          </p>
-          <label class="toggle" title="Send again to people the record says have already been told">
-            <input type="checkbox" id="rejectResend">
-            Include people already told
-          </label>
-          <button class="btn btn-primary" id="rejectSendBtn" type="button" disabled>
-            Send rejections
-          </button>
-        </div>
-      </div>
-
-      <div class="progress" id="rejectProgress" hidden>
-        <div class="progress-track"><div class="progress-bar" id="rejectBar"></div></div>
-        <p class="hint" id="rejectProgressText">Starting&hellip;</p>
-      </div>
-    </section>
-
-    <!-- ---------- The record ---------- -->
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Already told <span class="dim" id="ledgerTotal"></span></h2>
-        <div class="controls">
-          <input type="search" id="ledgerSearch" placeholder="Search name or address"
-                 autocomplete="off">
-          <select id="ledgerStatus">
-            <option value="">However they heard</option>
-            <option value="sent">Sent from here</option>
-            <option value="recorded">Recorded by hand</option>
-            <option value="failed">Failed &mdash; still owed a reply</option>
-          </select>
-          <button class="btn btn-ghost" id="ledgerRefresh" type="button">Refresh</button>
-        </div>
-      </div>
-
-      <div class="sendbar">
-        <span class="sendbar-count" id="ledgerCount">Loading&hellip;</span>
-        <div class="sendbar-actions">
-          <button class="btn" id="ledgerCsvBtn" type="button">Download CSV</button>
-          <button class="btn" id="ledgerRemoveBtn" type="button" disabled
-                  title="Stop treating these people as already rejected">
-            Remove from record
-          </button>
-        </div>
-      </div>
-
-      <p class="hint">
-        Removing somebody here un-sends nothing. It makes this system forget
-        they were told, which puts them back in front of the next send.
-      </p>
-
-      <div class="table-wrap">
-        <table id="ledgerTable">
-          <thead>
-            <tr>
-              <th class="shrink"><input type="checkbox" id="ledgerAll" title="Select all"></th>
-              <th>Candidate</th>
-              <th>Email</th>
-              <th>Role</th>
-              <th>How they heard</th>
-              <th>When</th>
-              <th>Note</th>
-            </tr>
-          </thead>
-          <tbody id="ledgerBody"></tbody>
-        </table>
-        <p class="empty" id="ledgerEmpty" hidden>
-          Nobody has been recorded as rejected yet.
-        </p>
-      </div>
-    </section>
 
   </section>
 

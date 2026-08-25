@@ -66,6 +66,12 @@ def ensure_indexes() -> None:
     db.submissions.create_index([("candidate_email", ASCENDING)])
     db.submissions.create_index([("decision.status", ASCENDING)])
     db.submissions.create_index([("submission_status", ASCENDING)])
+    # CV-only records are keyed on the Workable candidate id rather than on a
+    # portal submission number, so every upsert in that path looks one up.
+    # Sparse: the field exists on a few dozen documents out of eight thousand,
+    # and a full index would be almost entirely nulls.
+    db.submissions.create_index([("workable_candidate_id", ASCENDING)],
+                                sparse=True)
     # The dashboard's default ordering: best score first within a role.
     db.submissions.create_index(
         [("job_id", ASCENDING), ("evaluation.score", DESCENDING)]

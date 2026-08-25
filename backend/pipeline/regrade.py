@@ -20,7 +20,7 @@ import argparse
 import logging
 import sys
 
-from backend.grading import evaluator
+from backend.grading import evaluator, grader
 from backend.database import mongo_store as store
 from backend.notifications.reminder import setup_logging
 
@@ -116,7 +116,7 @@ def main() -> int:
     log.info("Grading %s (submission %s, %s) against the %s grid...",
              name, args.submission_id, role.get("title"), grid.get("unit"))
     try:
-        verdict = evaluator.evaluate_and_store(submission, role, grid)
+        verdict = grader.grade_and_store(submission, role, grid)
     except evaluator.QuotaExhausted as exc:
         log.warning("Daily token budget reached. %s", exc)
         return 3

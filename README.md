@@ -302,6 +302,20 @@ So there are two kinds of account, and the difference is enforced on the server:
 | **Recruiting** (`admin`) | every role | everything: portal sync, reminder sends, grading, who owns which seat, accounts |
 | **Hiring manager** (`manager`) | only the roles their address is listed on | read those roles, move their candidates, send their shortlist, set their own booking link |
 
+**A hiring manager reads the AI score on the dashboard**, along with the grid
+behind it, the per-criterion marks, the verdict and the brief — the same
+Candidates table and the same drawer a recruiter opens, narrowed to their own
+roles. `MANAGER_DASHBOARD_SCORES=0` takes it back out, of the page *and* of the
+payload.
+
+That is a different answer from the one the **shortlist email** gives, and
+deliberately: a number in an inbox arrives alone, with nothing around it to
+argue with, and gets quoted back at us in a debrief. A number on the dashboard
+opens into the rubric that produced it, one click away, for a reader who is
+signed in and named on the role. The email, the spreadsheet and the token-only
+[review page](#review-links-are-separate-and-still-have-no-login) are unchanged — see
+[the hand-off](#hiring-managers-and-the-top-20-hand-off).
+
 **Which roles a manager sees is not configured anywhere.** It is the
 **Hiring managers** list on each role — the same list the shortlist email goes
 to. Add somebody there and they can open that role; take them off and they
@@ -993,14 +1007,20 @@ four first?" is the point of the message. Send shares the run lock with
 grading, ingest and grid derivation, so two clicks cannot put the same twenty
 people in an inbox twice.
 
-**The manager does not see the score.** Not the number, not the band, not the
-verdict, not the per-criterion marks. They get rank position, the candidate's
+**The email does not carry the score.** Not the number, not the band, not the
+verdict, not the per-criterion marks. It carries rank position, the candidate's
 name and email, and links to the CV, the submitted answers and the video —
 everything needed to form an independent view. The rank is included because the
 order *is* the recommendation and hiding it would make the list arbitrary; the
-magnitude is not, because a "78" beside a name decides the interview before the
-manager has read a word of the work. `SHORTLIST_SHOW_SCORES=true` reverses
-that, and it is a policy change rather than a display tweak.
+magnitude is not, because a "78" beside a name in an inbox — with no grid, no
+anchors and nothing to open — decides the interview before the manager has read
+a word of the work. `SHORTLIST_SHOW_SCORES=true` reverses that, and it is a
+policy change rather than a display tweak.
+
+**The dashboard is the other answer**, and the difference is the point: a
+manager who signs in reads the score with the whole rubric under it. See
+[Accounts](#accounts-who-sees-which-roles). The two surfaces are set
+independently, and the token-only review page carries no score under either.
 
 The assessment link is the submission's own page on the portal
 (`/admin/submissions/<id>`), so a manager reads the real answers rather than a
@@ -1225,186 +1245,52 @@ recruiter's side.
 
 ### Sending rejection emails
 
-Two surfaces, because there are two different rejections and confusing them is
-the mistake worth designing against.
+The **Rejection emails** panel (Pipeline tab) is two lists side by side:
 
-**The considered turn-down** goes to one person a hiring manager has just read,
-from the Send button in their card on the pipeline board. Fixed company
-wording, signed by the hiring team. That is [Telling the candidate: interview
-invitations and rejections](#telling-the-candidate-interview-invitations-and-rejections).
+| Still to tell | Already got the email |
+|---|---|
+| Rejected, and has not heard | Rejected, and has |
 
-**The bulk turn-down** goes to everyone else — typically several hundred a
-round, most of whom were rejected at the CV screen or inside Workable and never
-sat an assessment at all. That is the **Rejections** page, reached from the
-button in the header, and it is recruiting-team only.
+**They are the same list exactly once — the first time.** After that they
+diverge, and one list becomes actively dangerous: next month twenty new people
+land beside two hundred who were mailed last month, "select all" takes all two
+hundred and twenty, and two hundred people get a second rejection out of a list
+that looked correct. There is no undo for that.
 
-#### The record is the point
+The work is unchanged: tick the left column, **Copy for BCC**, send from your
+own mail client. Then press **Mark as emailed →** and they move across, out of
+the left list and out of its "select all". **← Move back** is the undo.
 
-There is one collection in MongoDB — `rejections`, keyed by email address —
-that answers a single question: *have we already told this person no?*
+Nothing on this panel sends or un-sends anything. It records who you have
+already written to.
 
-It is keyed by address rather than by submission because most of the people in
-it have no submission. They were turned down before they ever handed anything
-in, so there is no row to hang a flag on. Every rejection path reads it before
-sending and writes to it after — the bulk send, and the board's own rejection
-in [candidate_mail.py](backend/notifications/candidate_mail.py) — so a
-candidate rejected on the board in March is not rejected again by a paste in
-August.
+#### Where that record lives
 
-It is a **ledger, not a suppression list**. `unsubscribes` is the suppression
-list and it means something else entirely ("stop mailing me"). Somebody in the
-rejection ledger has been mailed exactly once, on purpose, and is welcome to
-hear from us about the next opening.
+One collection, `rejections`, keyed by email address — not by submission,
+because most of these people never sat an assessment and there is no row to
+flag. Every rejection path reads it before sending and writes to it after,
+**including the pipeline board's own rejection**, so someone marked here will
+not be offered a turn-down from the board months later either.
 
-#### The two buttons
+A `failed` row is *not* treated as told: we tried, it bounced, and that
+candidate is still waiting.
 
-They are the two most different things on the dashboard and they are kept
-apart, in separate boxes, with separate verbs:
+#### The left column starts empty
 
-**Record as already rejected** files people away and **emails nobody**. This is
-the one for the four hundred you have already mailed by hand out of a BCC
-field: paste them in, press it, and every send from then on skips them. It is
-the migration path from doing this in a mail client.
+Deliberately. The single list this replaced only fed a clipboard, so nothing
+was lost by pre-ticking everything. This one has *Mark as emailed* under it,
+and one stray click on a pre-ticked list marks the whole company as already
+told. One click on **Select all** is the right price for that.
 
-**Send rejections** sends. One personalised message per candidate, never a BCC
-— which costs four hundred API calls instead of one and is worth every one of
-them: a BCC carries no name, no unsubscribe link the reader can use without
-exposing the other 399, and is scored as bulk by every filter that sees it. It
-asks you to type `SEND`, because a dialog you dismiss with Enter is not a
-decision.
+#### There is a bulk sender, and nothing calls it
 
-#### Pasting the list
-
-Paste addresses however they come out of whatever you had open — one per line,
-straight out of a BCC field, or a name-and-address column dragged from a
-spreadsheet. Names are picked up where they are there and used in the greeting.
-
-**Check this list** reads it and tells you what is in it before anything
-happens to it: how many addresses, how many are genuinely new, how many have
-already been told, how many have opted out, and which lines had no address in
-them at all. That last one is shown rather than swallowed — a mistyped address
-is a person who never hears from us, and it is invisible unless the page says
-so. Both buttons stay disabled until this has run, and go back to disabled the
-moment the box is edited, so there is no path from an edited list to a send
-that never re-read it.
-
-**Add the rejected queue** appends everyone this dashboard has already marked
-rejected (the missing-artefact pile), so the two lists can go out together.
-
-#### Writing the message
-
-The recruiting team writes this one, unlike the board's rejection. The reason
-somebody did not go further changes every round — "we filled the role", "we are
-looking for more Django than your CV shows" — and a fixed template cannot say
-it. `{first_name}`, `{name}` and `{role}` fill in per candidate; anything else
-in braces is left exactly as typed, so a typo comes back to you rather than
-going out as one.
-
-What you cannot edit is the shell: the Ajaia header, the hiring-team sign-off
-and the unsubscribe line are appended to whatever you write, every time. A bulk
-message with no way out of the list is the one thing that must not leave this
-page.
-
-The preview on the right is rendered by the same function that sends, against a
-real person off your list once there is one — so the greeting and the
-unsubscribe link under it are the ones that recipient will actually get.
-
-#### While it runs
-
-A send of several hundred is started, not awaited: the request returns a job id
-and the page draws a progress bar off it. Each candidate is written to the
-ledger **as they are sent**, not batched at the end — if the process dies at
-message 300, those 300 are already recorded and the re-run skips them.
-
-One bad address does not stop a batch. Twenty failures in a row does
-(`REJECTION_ABORT_AFTER`): that is not a bad address, that is the API key or
-the network, and finding out 400 messages later helps nobody. Failures are
-recorded too, with status `failed`, because a rejection that bounced is a
-candidate still waiting to hear.
-
-Messages are paced at `REJECTION_SEND_DELAY` (0.35s, so ~3 minutes for 500).
-Brevo tolerates much more; a burst that size from a domain which normally sends
-thirty a day is the shape a spam filter watches for.
-
-#### The record, and taking people out of it
-
-The **Already told** table at the bottom is everyone the system believes has
-been rejected, searchable, with how they heard — sent from here, recorded by
-hand, or failed. `failed` is the row worth spotting: that person is still owed
-a reply.
-
-**Remove from record** un-sends nothing. It makes this system forget they were
-told, which puts them back in front of the next send. It is the undo for a
-paste that caught the wrong addresses.
-
-#### One thing that changed
-
-A rejection now respects the opt-out list, and carries `List-Unsubscribe`. It
-is the one candidate message that is genuinely bulk-shaped — the same words to
-everyone who did not make it — so it gets the header that makes it deliverable
-and it is skipped for anyone who has asked us to stop. An interview invitation
-does neither, deliberately: that is a message about a meeting the candidate is
-being offered, and withholding it over a reminder they once opted out of would
-cost them the interview. The unsubscribe page says which is which.
-
-## Reminder dedupe
-
-Whether a candidate has already been chased is decided by the `reminders`
-collection in MongoDB, keyed by `state_key()` — the lowercased email scoped to
-the **portal assignment**, not the Workable shortcode, because fifteen postings
-can feed one assignment and a shortcode key would mail the same person five
-identical links.
-
-### Claim, then send
-
-The gate is `claim_reminder()`, and it decides **and** records in one
-conditional update:
-
-```python
-number = claim_reminder(email, group, ...)   # None means: do not send
-if number is not None:
-    send(...)
-```
-
-`should_send_reminder()` still exists and is still used — for the dashboard, the
-dry run and the log line — but it is **advisory**. Anything that checks and then
-acts has a gap in the middle, and a second process fits through it. Two runs
-calling `claim_reminder()` at the same moment produce exactly one number and one
-`None`.
-
-The compare-and-swap is on `last_reminder_at`: it moves on every successful
-claim, and it is the value the business-day gap decision was made from, so it is
-exactly the right thing to test. The gap check itself stays in Python, because
-business days are not something a Mongo query can express and approximating them
-with a calendar cutoff would quietly change who is eligible around every weekend.
-
-A claim is taken *before* the send. That matches what `send_batch()` already did
-within a run — a transport failure must not leave the row available as a second
-attempt at the same person — and `release_reminder()` hands the claim back when
-the transport refuses outright and the candidate has genuinely had nothing.
-
-### Suppression is a real flag now
-
-After the 2026-08-10 incident, 192 records were blocked from a second reminder by
-hand-editing `reminders_sent` up to the cap — the only lever the file format
-offered. It worked, and it was invisible: anything that recomputed or normalised
-counts would have silently un-suppressed all 192.
-
-The migration promoted that to `suppressed: true`, which `claim()` checks
-explicitly, and carried `blocked_reason` across. The block no longer rides on a
-number that looks like corruption to whoever reads it next.
-
-### Migrating
-
-```bash
-python migrate_reminder_log.py --dry-run   # report, change nothing
-python migrate_reminder_log.py             # migrate
-python migrate_reminder_log.py --verify    # compare the two, field by field
-```
-
-Idempotent, and it never touches `state/reminder_log.json` — that file stays on
-disk as the rollback. `reminders_sent` is copied **verbatim, never recomputed**,
-for the reason above.
+`backend/notifications/rejections.py` plus `/api/rejections/parse`,
+`/preview` and `/send` will mail everyone one personalised copy in the
+background, respecting the ledger and the opt-out list, recording each as it
+goes. It is complete and tested and **no part of the UI reaches it** — sending
+happens in your own mail client, and the dashboard's job is only to remember
+who. It is left in place because rebuilding it from nothing is the expensive
+part; delete it with `tests/test_rejections.py` if it is not wanted.
 
 ## Tests
 
@@ -1619,7 +1505,7 @@ reminder.py --scan-only` and the crontab entry still work exactly as before.
 ```
 assessment-reminder/
 ├── reminder.py  server.py  ingest.py  grade.py  regrade.py
-├── calibrate.py  manage_users.py  migrate_db.py  test_access.py
+├── calibrate.py  cv_role.py  manage_users.py  migrate_db.py  test_access.py
 │       └── launchers. Three lines each; the code is in backend/.
 │
 ├── backend/
@@ -1631,14 +1517,16 @@ assessment-reminder/
 │   │                    The only modules that talk to MongoDB.
 │   ├── scraping/        portal_scraper.py, portal_crawler.py,
 │   │                    workable_client.py, workable_scanner.py,
-│   │                    resume_reader.py
+│   │                    workable_candidates.py, resume_reader.py
 │   │                    Everything that reads the outside world — and so
 │   │                    everything that can fail because someone else's
 │   │                    service is down.
-│   ├── grading/         rubric_pack.py, evaluator.py, tier_resolver.py
+│   ├── grading/         rubric_pack.py, evaluator.py, cv_evaluator.py,
+│   │                    tier_resolver.py
 │   │                    Decides what a submission is worth. Not when to
 │   │                    score one — that is pipeline/.
-│   ├── pipeline/        ingest.py, grade.py, regrade.py, calibrate.py
+│   ├── pipeline/        ingest.py, grade.py, regrade.py, calibrate.py,
+│   │                    cv_role.py
 │   │                    The stages that get run.
 │   ├── notifications/   brevo_client.py, reminder.py, candidate_mail.py,
 │   │                    shortlist.py, rejections.py, unsubscribe.py
@@ -1681,11 +1569,14 @@ anywhere all find the same `.env`, `assessments/` and `state/`.
 | `backend/scraping/workable_client.py` | Workable API: auth, rate limiting, 429 back-off, pagination |
 | `backend/scraping/workable_scanner.py` | Selects candidates inside the reminder window |
 | `backend/scraping/resume_reader.py` | Fetches a candidate's resume file and extracts its text (PDF/DOCX) |
+| `backend/scraping/workable_candidates.py` | Builds gradeable records from a Workable posting that has no assessment |
 | `backend/grading/rubric_pack.py` | The Ajaia Assessment Scoring Rubrics pack as data: 17 grids, validated to 100 points each |
 | `backend/grading/evaluator.py` | Grid resolution, anchor scoring, auto-fails and triage, provider-agnostic |
+| `backend/grading/cv_evaluator.py` | Marks a candidate on their record alone, for roles with no work sample |
 | `backend/grading/tier_resolver.py` | Which of two postings a candidate applied to, where that decides which tier of a family's rubric marks them |
 | `backend/pipeline/ingest.py` | Portal → MongoDB, and the missing-artefact screening rule |
 | `backend/pipeline/grade.py` | CLI for grading a role or the whole backlog |
+| `backend/pipeline/cv_role.py` | CLI for a CV-only role: fetch from Workable, read the resumes, grade |
 | `backend/pipeline/regrade.py` | Re-scores submissions that already carry a verdict |
 | `backend/pipeline/calibrate.py` | Checks the grader is using the whole scale, not just detecting missing sections |
 | `backend/notifications/reminder.py` | Main orchestration: portal, Workable window, cross-reference, send |
@@ -1700,10 +1591,12 @@ anywhere all find the same `.env`, `assessments/` and `state/`.
 | `Dockerfile` / `docker-compose.yml` / `Procfile` | Deployment. One image, two processes: dashboard and review-only |
 | `tests/test_access.py` | Regression test for the access rules — run it after adding any route that names a role |
 | `tools/llm_latency_bench.py` | Scratch LLM latency benchmark. Spends real tokens; run it deliberately, never imported |
+| `tools/make_favicon.py` | Cuts the tab icon out of the wordmark. Re-run it if `assets/ajaia-logo.png` is ever replaced — nothing else keeps the two in step |
 | `frontend/login.html` | Sign-in, and the first-time password change |
 | `frontend/session.js` | The signed-in account on both dashboards: CSRF header, expiry handling, the account chip |
 | `frontend/review.html` | The hiring manager's review page — token-scoped, deliberately no login, no scores |
 | `frontend/` | Both dashboards — plain HTML/CSS/JS, no build step |
+| `frontend/assets/` | The wordmark in both themes, and `ajaia-mark.png` — the square mark every page uses as its tab icon |
 | `assessments/` | Crawled assessments (`<slug>.md`) and grids derived for roles the pack does not cover (`grid-<slug>.json`) |
 | `state/reminder_log.json` | Tracks which reminders have been sent (auto-created) |
 | `logs/reminder.log` | Run logs (auto-created) |

@@ -53,6 +53,7 @@ from backend.core.config import (
     DAYS_BETWEEN_REMINDERS,
     LLM_CONCURRENCY,
     LOG_FILE,
+    MANAGER_DASHBOARD_SCORES,
     MAX_REMINDERS_PER_CANDIDATE,
     REMINDER_AFTER_BUSINESS_DAYS,
     REMINDER_UNTIL_BUSINESS_DAYS,
@@ -79,6 +80,7 @@ from backend.notifications.reminder import gather_state, send_batch, setup_loggi
 from backend.accounts import auth
 from backend.notifications import candidate_mail
 from backend.grading import evaluator
+from backend.grading import grader
 from backend.pipeline import ingest
 from backend.database import mongo_store as store
 from backend.grading import rubric_pack
@@ -148,12 +150,19 @@ REVIEW_FILES = ("review.html", "review.js", "review.css", "styles.css",
                 # a 401 here is a dialog that never appears rather than
                 # a dialog that appears broken.
                 "invite.js",
-                # The wordmark in the page header, both themes. Two image
-                # files, listed by name like everything else here -- opening
-                # "assets/" as a directory would be the one wildcard on this
-                # allowlist, and the next asset dropped in there would be
+                # The wordmark in the page header, both themes, and the
+                # square mark this page's <link rel="icon"> asks for. Three
+                # image files, listed by name like everything else here --
+                # opening "assets/" as a directory would be the one wildcard on
+                # this allowlist, and the next asset dropped in there would be
                 # public without anybody deciding it should be.
-                "assets/ajaia-logo.png", "assets/ajaia-logo-white.png")
+                #
+                # The favicon has to be here or a manager's tab shows the
+                # browser's blank page icon and the log fills with 404s for it
+                # on every open. It gives nothing away: it is the same mark
+                # that is already at the top of the page they are reading.
+                "assets/ajaia-logo.png", "assets/ajaia-logo-white.png",
+                "assets/ajaia-mark.png")
 
 
 def _review_only() -> bool:
@@ -621,11 +630,20 @@ def _scope() -> set[int] | None:
 # the field nobody remembered; this one can only ever leak a field somebody
 # typed here on purpose.
 #
-# WHY MANAGERS DO NOT GET SCORES. shortlist.py's header puts it best: a "78"
-# next to a name decides the interview before the manager has read a word of
-# the work. Rank is the recommendation; the magnitude is ours. This rule was
-# enforced by the review page projecting `evaluation` out at the database, and
-# it has to survive managers arriving through the dashboard instead.
+# SCORES ARE A SETTING ON THIS SURFACE, and only on this one. The objection to
+# handing a manager a bare "78" -- it decides the interview before they have
+# read a word of the work -- is an objection to the number arriving ALONE, in
+# an inbox or a spreadsheet, with nothing behind it to argue with. On the
+# dashboard it never does: the reader is signed in, they are named on the role,
+# and the grid, its per-criterion anchors, the brief, the CV read and the
+# partial-grading mark are all in the drawer under the number.
+#
+# So MANAGER_DASHBOARD_SCORES (default on) adds `evaluation` to the allowlist
+# below, and nothing else changes: the shortlist email still obeys
+# SHORTLIST_SHOW_SCORES, the spreadsheet still obeys the recruiting team's
+# per-send tick in _scores_arg(), and the review page -- the one surface with
+# no sign-in, where the token IS the credential -- still never sees a score at
+# all. See _review_row.
 #
 # `submission_markdown` and `resume_text` ARE here on purpose. The work itself
 # is exactly what a manager is being asked to read.
@@ -641,10 +659,27 @@ MANAGER_SUBMISSION_FIELDS = (
     "auto_submitted", "pipeline", "submission_markdown", "resume_text",
 )
 
+# Every score there is, in one field. `rubric_score`, the grid rows, the band,
+# the recommendation, the triage, the GIA overlay and the CV read all live
+# inside `evaluation` -- so this is one entry rather than eight, and a grader
+# that adds a ninth needs no edit here. It is added to the tuple above, not
+# checked at read time, so the allowlist stays the single place that says what
+# a manager's payload can contain.
+MANAGER_SCORE_FIELDS = ("evaluation",)
+
 
 def _manager_submission(sub: dict) -> dict:
-    """One submission as a hiring manager may see it: no score, anywhere."""
-    out = {k: sub[k] for k in MANAGER_SUBMISSION_FIELDS if k in sub}
+    """
+    One submission as a hiring manager may see it.
+
+    Carries the AI verdict while MANAGER_DASHBOARD_SCORES is on, which is how
+    it ships; with it off, no score anywhere -- not the number, not the band,
+    not a criterion mark.
+    """
+    fields = MANAGER_SUBMISSION_FIELDS
+    if MANAGER_DASHBOARD_SCORES:
+        fields += MANAGER_SCORE_FIELDS
+    out = {k: sub[k] for k in fields if k in sub}
     # Whether the AI finished the rubric, without a word about what it
     # concluded. The same single fact the review page carries, and for the same
     # reason: rank with no number beside it is unreadable if a part-filled grid
@@ -660,9 +695,10 @@ def _manager_submission(sub: dict) -> dict:
     # to do that needs them, and neither one carries a judgement.
     #
     # `graded` is "has this been marked at all" -- the test for whether
-    # somebody is ready to be invited. It used to be read off the score, which
-    # a manager no longer has, and without it their invite list is empty and
-    # the button that is the whole point of their screen sits disabled.
+    # somebody is ready to be invited. Sent whatever MANAGER_DASHBOARD_SCORES
+    # says, because with it off the page has no score to read it off, and
+    # without it their invite list is empty and the button that is the whole
+    # point of their screen sits disabled.
     #
     # `rejected` keeps people already turned down off that same list. Only the
     # terminal fact, not `decision.reason`, which is our own bookkeeping.
@@ -673,7 +709,7 @@ def _manager_submission(sub: dict) -> dict:
 
 def _project(payload):
     """
-    Strip scores from a submission, or a list of them, for a manager.
+    Narrow a submission, or a list of them, to what a manager may read.
 
     A no-op for the recruiting team and when auth is off. Called at the point a
     payload leaves the server rather than where it is read, so a route that
@@ -1755,6 +1791,13 @@ def api_roles():
         # shown buttons that would answer 403.
         "user": auth.public_user(user) if user else None,
         "is_admin": _is_admin(),
+        # Whether the score column is drawn at all. Sent rather than derived
+        # from `is_admin`, because for a manager the answer is a setting --
+        # MANAGER_DASHBOARD_SCORES -- and the page must not have to guess it
+        # from whether the rows it happens to be holding carry an `evaluation`.
+        # That test reads "not graded yet" as "not allowed" and would blank the
+        # column on a role whose grading has not run.
+        "scores_visible": _is_admin() or MANAGER_DASHBOARD_SCORES,
         "auth_enabled": AUTH_ENABLED,
         "shortlist_size": SHORTLIST_SIZE,
         "shortlist_max": SHORTLIST_MAX,
@@ -2562,19 +2605,27 @@ def api_send_stage_email():
 # people, which puts it in the same bracket as /api/run and above everything a
 # hiring manager is trusted with.
 #
-# Two things happen on this surface and they are deliberately separate calls:
+# WHAT THE DASHBOARD ACTUALLY USES IS TWO OF THESE ROUTES:
 #
-#   /import   somebody was rejected outside this system -- a BCC sent by hand,
-#             a decision taken in Workable. Written down so the next send skips
-#             them. NOTHING IS EMAILED, and the response says so plainly,
-#             because a button that silently mails 400 people when you expected
-#             it to file them is unrecoverable.
+#   /import   "I have already emailed these people." The right-pointing move on
+#             the rejection list. Written down so nothing offers them again.
+#             NOTHING IS EMAILED, and the response says so plainly, because a
+#             button that silently mails 400 people when you expected it to
+#             file them is unrecoverable.
 #
-#   /send     write the message here, read the preview, send it. One
-#             personalised message each, in the background, recorded as it goes.
+#   /remove   the same move leftwards. It un-sends nothing; it makes this
+#             system stop believing these people were told.
 #
-# They meet at the ledger in mongo_store, which every rejection path reads
-# before sending and writes after -- including the board's own in
+# The rest -- /parse, /preview, /send -- are the bulk send: write the message,
+# read the preview, mail everyone one personalised copy in the background. It
+# is complete and tested and NOTHING IN THE UI CALLS IT, deliberately: the
+# recruiter sends rejections from their own mail client for now, and the
+# dashboard's job is only to remember who. Left in place because the day that
+# changes, this is the part that would have to be rebuilt from nothing; delete
+# it with rejections.py and tests/test_rejections.py if that day is not coming.
+#
+# Everything here meets at the ledger in mongo_store, which every rejection
+# path reads before sending and writes after -- including the board's own in
 # candidate_mail. That is the whole point: one answer to "has this person
 # already been told", wherever the telling happened.
 
@@ -3104,7 +3155,7 @@ def _grade_one(submission_id: int):
         grid = evaluator.derive_grid(role)
         tier_resolver.ensure_resolved(role, store)
         submission = store.get_submission(submission_id) or submission
-        verdict = evaluator.evaluate_and_store(submission, role, grid)
+        verdict = grader.grade_and_store(submission, role, grid)
     except (evaluator.EvaluationFailed, evaluator.EvaluatorNotConfigured) as exc:
         return jsonify({"error": str(exc)}), 502
     except Exception as exc:
@@ -3198,7 +3249,7 @@ def api_grade():
         # run single-file. grade.py has done it this way for the CLI path all
         # along; this brings the dashboard's batch into line.
         def one(sub):
-            return sub, evaluator.evaluate_and_store(sub, role, grid)
+            return sub, grader.grade_and_store(sub, role, grid)
 
         with ThreadPoolExecutor(max_workers=max(1, LLM_CONCURRENCY)) as pool:
             futures = [pool.submit(one, sub) for sub in pending]

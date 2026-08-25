@@ -468,3 +468,109 @@ class TestReviewOnlyMode:
             assert client.get(path).status_code == 404
         finally:
             server.app.config["REVIEW_ONLY"] = False
+
+
+# ---------------------------------------------------------------------------
+# The rejected queue knows who has already heard
+# ---------------------------------------------------------------------------
+#
+# THE BUG THIS PREVENTS, IN FULL. The "Rejected — ready for rejection emails"
+# list answers "who did the assessment reject", and it is read as though it
+# answered "who is still owed an email". Those are the same list exactly once:
+# the first time. The month after, twenty new people land in it beside the two
+# hundred who were mailed last month, and ticking all of it sends two hundred
+# people a second rejection out of a list that looked correct.
+#
+# So the queue carries the ledger's answer per row, and the page unticks on it.
+
+class TestTheRejectedQueueIsAnnotated:
+    @pytest.fixture
+    def queue(self, dashboard, monkeypatch):
+        from backend.web import server
+
+        rows = [
+            {"_id": 1, "candidate_name": "A", "candidate_email": "a@x.com",
+             "job_id": 7, "decision": {"status": "rejected", "reason": "missing_video"}},
+            {"_id": 2, "candidate_name": "B", "candidate_email": "b@x.com",
+             "job_id": 7, "decision": {"status": "rejected", "reason": "missing_video"}},
+            {"_id": 3, "candidate_name": "C", "candidate_email": "c@x.com",
+             "job_id": 7, "decision": {"status": "rejected", "reason": "missing_video"}},
+        ]
+        monkeypatch.setattr(server.store, "list_rejected", lambda **kw: rows)
+        return dashboard
+
+    def _ledger(self, monkeypatch, mapping):
+        from backend.web import server
+        monkeypatch.setattr(server.store, "rejections_for", lambda emails: mapping)
+
+    def test_nobody_told_yet_means_everybody_is_waiting(self, queue, monkeypatch):
+        self._ledger(monkeypatch, {})
+        body = queue.get("/api/evaluations/rejected").get_json()
+        assert body["already_told"] == 0
+        assert body["waiting"] == 3
+        assert all(c["already_told"] is False for c in body["candidates"])
+
+    def test_somebody_told_is_flagged_with_when_and_how(self, queue, monkeypatch):
+        from datetime import datetime, timezone
+        when = datetime(2026, 8, 25, tzinfo=timezone.utc)
+        self._ledger(monkeypatch, {"b@x.com": {"_id": "b@x.com",
+                                               "status": "recorded",
+                                               "rejected_at": when}})
+        body = queue.get("/api/evaluations/rejected").get_json()
+
+        assert body["already_told"] == 1
+        assert body["waiting"] == 2
+        told = {c["candidate_email"]: c for c in body["candidates"]}
+        assert told["b@x.com"]["already_told"] is True
+        assert told["b@x.com"]["told_how"] == "recorded"
+        assert told["b@x.com"]["told_at"].startswith("2026-08-25")
+        assert told["a@x.com"]["already_told"] is False
+
+    def test_it_does_not_matter_which_surface_told_them(self, queue, monkeypatch):
+        # Mailed by the bulk send, by the board, or typed in by hand -- the
+        # queue must hold all three back, or the route somebody was rejected
+        # through decides whether they get a second one.
+        self._ledger(monkeypatch, {
+            "a@x.com": {"status": "sent", "rejected_at": None},
+            "b@x.com": {"status": "recorded", "rejected_at": None},
+        })
+        body = queue.get("/api/evaluations/rejected").get_json()
+        assert body["already_told"] == 2 and body["waiting"] == 1
+
+    def test_a_failed_send_leaves_them_in_the_queue(self, queue, monkeypatch):
+        # We tried and it bounced, so that candidate has heard nothing and is
+        # still owed a reply. Treating a failure as "told" is how somebody is
+        # silently dropped for ever -- which is the whole reason failures are
+        # written to the ledger rather than discarded.
+        self._ledger(monkeypatch, {"c@x.com": {"status": "failed",
+                                               "rejected_at": None,
+                                               "error": "bounced"}})
+        body = queue.get("/api/evaluations/rejected").get_json()
+
+        assert body["waiting"] == 3
+        told = {c["candidate_email"]: c for c in body["candidates"]}
+        assert told["c@x.com"]["already_told"] is False
+        # ...but the page can still say what happened.
+        assert told["c@x.com"]["told_how"] == "failed"
+
+    def test_an_unreadable_ledger_does_not_take_the_list_down(self, monkeypatch):
+        """
+        rejections_for() fails OPEN, unlike already_rejected().
+
+        Same collection, opposite default, because the consequence is
+        opposite. already_rejected() gates a send: an unreadable ledger there
+        must stop five hundred messages rather than risk a second rejection.
+        This one only decorates a list on screen, and the cost of it failing
+        closed would be a panel that says everybody has already been told --
+        which is both wrong and the more dangerous of the two errors to show.
+        """
+        from pymongo.errors import PyMongoError
+        from backend.database import mongo_store as store
+
+        class Broken:
+            def find(self, *a, **k):
+                raise PyMongoError("mongo is down")
+
+        monkeypatch.setattr(store, "get_db",
+                            lambda: type("DB", (), {"rejections": Broken()})())
+        assert store.rejections_for(["a@x.com"]) == {}
