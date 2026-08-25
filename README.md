@@ -1415,11 +1415,14 @@ review server does not serve `evaluations.html`.
 ### On Vercel — the review surface only
 
 `vercel.json` and `api/index.py` deploy this repo as a serverless function.
-**`REVIEW_ONLY=1` is the default there and should stay that way.**
+**`REVIEW_ONLY` is set in `vercel.json`, not in Vercel's dashboard** — one
+source of truth, no precedence question. It is currently `0`, so the whole
+dashboard is served there.
 
-That is not caution, it is the only part that works. A serverless function is
-frozen the moment it returns a response, so anything that reports progress by
-polling a background thread breaks in a way that costs real emails:
+That is a deliberate trade. A serverless function is frozen the moment it
+returns a response, so anything that reports progress by polling a background
+thread breaks in a way that costs real emails — those parts must be run from a
+machine with a real process:
 
 | | on Vercel |
 |---|---|
@@ -1432,10 +1435,20 @@ polling a background thread breaks in a way that costs real emails:
 | Two concurrent sends | both proceed — `_run_lock` is per-instance |
 | Grading, portal ingest | exceed the function timeout |
 
-So the split the codebase already describes maps exactly onto this: the review
-surface is the half that needs a public URL, and it is the half that is
-request-shaped. **The dashboard belongs on the `Dockerfile`** — Cloud Run,
-Render, Fly, App Service — where it has a real process and a writable disk.
+With `REVIEW_ONLY=0` the read-and-decide half of the dashboard works fine —
+signing in, roles, candidates, scores, the pipeline board, the rejection panel,
+minting review links, and single rejection or shortlist sends are all
+request-shaped Mongo work. Only the batch jobs in the bottom half of that table
+are broken, and they stay on a laptop or on the `Dockerfile` (Cloud Run,
+Render, Fly, App Service) where there is a real process and a writable disk.
+
+**Two things follow from serving the dashboard publicly.** Every candidate's
+name, address, CV and score sits behind nothing but the login form, so
+`AUTH_ENABLED` must stay on and the admin password is the whole boundary. And
+`REVIEW_ONLY` must never go *missing* from `vercel.json` — `_review_only()`
+reads it with a falsy default, so an absent key deploys the full dashboard by
+accident and looks identical to deploying it on purpose. `tests/test_guards.py`
+pins its presence for that reason.
 
 Set these in Vercel's environment (Project → Settings → Environment Variables):
 

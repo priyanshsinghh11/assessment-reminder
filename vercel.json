@@ -11,6 +11,6 @@
     { "src": "/(.*)", "dest": "api/index.py" }
   ],
   "env": {
-    "REVIEW_ONLY": "1"
+    "REVIEW_ONLY": "0"
   }
 }

@@ -37,14 +37,28 @@ invocation, and it is killed at the platform's timeout. So:
                 Grading and portal ingest are the other half: both are far
                 longer than any function timeout.
 
-REVIEW_ONLY=1 IS THE DEFAULT IN vercel.json FOR EXACTLY THAT REASON, not as a
-precaution. It serves only the surface in the "works" list above, which is also
-the only surface that needs a public URL -- review links and unsubscribe links
-in candidate email both resolve here. Everything else 404s.
+REVIEW_ONLY IS SET IN vercel.json AND IS CURRENTLY 0 -- the whole dashboard is
+served here, deliberately, so that recruiters and hiring managers can reach it
+without a second deployment. That is a decision with two consequences worth
+being able to find later:
 
-The dashboard belongs on the Dockerfile in this repo, somewhere with a real
-process and a writable disk: Cloud Run, Render, Fly, App Service. Set
-REVIEW_ONLY=0 here only if you have read the list above and accept it.
+  * The batch jobs in the "does NOT" list above are reachable and will fail.
+    Sync portal and grading time out; the reminder run is the dangerous one --
+    it returns 202 and then dies frozen, having already mailed some candidates.
+    Run those from a machine with a real process, not from here.
+
+  * Every candidate's name, address, CV and score is now behind nothing but the
+    login form, on the open internet. AUTH_ENABLED must stay on, and the admin
+    password is the whole boundary.
+
+Set it back to "1" to serve only the review surface. What must NEVER happen is
+the key going missing: _review_only() reads it with a falsy default, so an
+absent REVIEW_ONLY deploys the full dashboard by accident and looks identical
+to deploying it on purpose. tests/test_guards.py pins its presence.
+
+The alternative, when the batch jobs need hosting too, is the Dockerfile in
+this repo on Cloud Run, Render, Fly or App Service -- a real process with
+threads and a writable disk, where nothing above is caveated.
 """
 
 import sys

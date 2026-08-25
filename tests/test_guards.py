@@ -248,12 +248,20 @@ class TestTheServerlessEntryPoint:
                    and any(alias.name == "app" for alias in node.names)}
         assert sources == {"wsgi"}, f"app is imported from {sources}"
 
-    def test_review_only_is_the_deployed_default(self):
+    def test_review_only_is_stated_explicitly(self):
+        """
+        The value is a judgement call. Its ABSENCE is not.
+
+        _review_only() reads app.config with a falsy default, so a vercel.json
+        with no REVIEW_ONLY at all deploys the full dashboard -- every role,
+        every candidate's address, every send button -- on a public URL, and
+        looks exactly like a deployment where somebody chose that. This pins
+        that the key is present and deliberate, whichever way it is set.
+        """
         import json
         config = json.loads((ROOT / "vercel.json").read_text(encoding="utf-8"))
-        # Not a precaution -- the dashboard's sends run on background threads
-        # that a frozen function kills mid-batch. See api/index.py.
-        assert config["env"]["REVIEW_ONLY"] == "1"
+        assert "REVIEW_ONLY" in config.get("env", {}),             "REVIEW_ONLY missing from vercel.json -- the dashboard would be public by accident"
+        assert config["env"]["REVIEW_ONLY"] in ("0", "1")
 
     def test_every_path_reaches_the_function(self):
         import json
