@@ -118,6 +118,11 @@ const state = {
   // applyAccountView().
   topN: null,
   users: [],
+  // Which account's role picker to put the cursor back into after the
+  // list re-renders. Adding a role costs a round trip and a redraw, and
+  // people add roles in threes; without this each one starts by hunting
+  // for the box again. See pickRole().
+  focusPicker: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -471,7 +476,7 @@ function applyAccountView() {
   // Adding somebody to a role is adding somebody to this dashboard. Managers
   // read the list; they do not write it.
   setHidden('mgrForm', !admin);
-  setHidden('accountsPanel', !admin);
+  setHidden('accountsBtn', !admin);
 
   // The whole Shortlist section, not just its editor. What is left of it for a
   // manager is a list they cannot change and a table of the same people the
@@ -524,46 +529,100 @@ async function loadUsers() {
   }
 }
 
+/* --- opening and closing --------------------------------------------------
+ *
+ * The drawer sits over whatever is on screen and unloads none of it, so
+ * closing puts you back on the same role, the same tab and the same scroll
+ * position. That is the whole reason this moved out of the roles view: you
+ * decide somebody should be on a role while you are looking at the role.
+ */
+
+function openAccounts() {
+  $('accountsDrawer').hidden = false;
+  toggleNewUserForm(false);
+  // Opened fresh each time. A filter left over from the last visit hides
+  // accounts that are still there, which reads as accounts that are gone.
+  $('userSearch').value = '';
+  if (state.users.length) renderUsers(); else loadUsers();
+  $('userSearch').focus();
+}
+
+function closeAccounts() {
+  closeRolePicker();
+  $('accountsDrawer').hidden = true;
+  $('accountsBtn')?.focus();
+}
+
+/* Three empty fields above the list of people you came here to edit are three
+ * fields in the way, so the create form is folded until asked for. */
+function toggleNewUserForm(open) {
+  const form = $('newUserForm');
+  const show = open === undefined ? form.hidden : Boolean(open);
+  form.hidden = !show;
+  const btn = $('newUserToggle');
+  btn.setAttribute('aria-expanded', String(show));
+  btn.textContent = show ? 'Cancel' : 'New account';
+  if (show) $('newUserEmail').focus();
+}
+
+/* --- the list ------------------------------------------------------------ */
+
+/* The search matches role titles as well as people, because the question asked
+ * of this screen is at least as often "who is on Chief of Staff?" as it is
+ * "what can Anita see?". Every word has to match something; two words narrow
+ * rather than widen. */
+function matchesUserSearch(user, needle) {
+  if (!needle) return true;
+  const hay = [user.email, user.name,
+    user.is_admin ? 'recruiting admin' : 'hiring manager']
+    .concat((user.roles || []).map((r) => r.title))
+    .join(' ').toLowerCase();
+  return needle.split(/\s+/).every((word) => hay.includes(word));
+}
+
+// plural() is the one further down this file, beside the shortlist counts.
+
+function userInitials(user) {
+  const parts = String(user.name || user.email || '').split(/[\s.@_-]+/)
+    .filter(Boolean);
+  return ((parts[0] || '?')[0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
+}
+
 function renderUsers() {
-  const rows = state.users;
-  $('usersEmpty').hidden = rows.length > 0;
-  $('usersBody').innerHTML = rows.map((user) => {
-    const roles = roleCell(user);
-    const flags = [];
-    if (!user.active) flags.push('disabled');
-    if (user.must_change) flags.push('must set a password');
-    return `
-      <tr>
-        <td>
-          <div class="user-email">${esc(user.email)}</div>
-          <div class="dim">${esc(user.name)}${
-            flags.length ? ` · ${esc(flags.join(' · '))}` : ''}</div>
-        </td>
-        <td>${user.is_admin ? 'Recruiting' : 'Hiring manager'}</td>
-        <td class="user-roles">${roles}</td>
-        <td class="nowrap dim">${user.last_login_at
-          ? esc(shortDate(user.last_login_at)) : 'never'}</td>
-        <td>
-          <div class="user-actions">
-            <button class="btn btn-ghost" data-reset="${esc(user.email)}"
-                    title="Set a new temporary password and sign them out">
-              Reset password</button>
-            <button class="btn btn-ghost" data-role="${esc(user.email)}"
-                    data-to="${user.is_admin ? 'manager' : 'admin'}">
-              ${user.is_admin ? 'Make manager' : 'Make recruiting'}</button>
-            <button class="btn btn-ghost" data-del="${esc(user.email)}">
-              Remove</button>
-          </div>
-        </td>
-      </tr>`;
-  }).join('');
+  const all = state.users;
+  const needle = $('userSearch').value.trim().toLowerCase();
+  // Recruiting first, then managers, each A-Z. The admin list is the short one
+  // and the one somebody scanning for "who can see everything" wants on top.
+  const rows = all.filter((user) => matchesUserSearch(user, needle))
+    .slice()
+    .sort((a, b) => (Number(b.is_admin) - Number(a.is_admin))
+      || a.email.localeCompare(b.email));
+
+  const admins = all.filter((user) => user.is_admin).length;
+  $('accountsCount').textContent = all.length
+    ? `${plural(all.length, 'account')} · ${admins} recruiting · `
+      + `${plural(all.length - admins, 'hiring manager')}`
+    : 'Nobody has an account yet.';
+
+  const empty = $('usersEmpty');
+  empty.hidden = rows.length > 0;
+  // Two different nothings: an empty server, and a search that found nobody.
+  empty.textContent = all.length
+    ? 'No account matches that search.' : 'No accounts yet.';
+
+  $('usersBody').innerHTML = rows.map(userCard).join('');
 
   for (const btn of $('usersBody').querySelectorAll('[data-reset]')) {
     btn.addEventListener('click', () => resetUserPassword(btn.dataset.reset));
   }
   for (const btn of $('usersBody').querySelectorAll('[data-role]')) {
-    btn.addEventListener('click', () =>
-      setUserRole(btn.dataset.role, btn.dataset.to));
+    btn.addEventListener('click', () => {
+      // The half of the switch that is already on. Clicking it should be the
+      // no-op it looks like, not a confirm dialog offering the state you are
+      // already in.
+      if (btn.classList.contains('is-on')) return;
+      setUserRole(btn.dataset.role, btn.dataset.to);
+    });
   }
   for (const btn of $('usersBody').querySelectorAll('[data-del]')) {
     btn.addEventListener('click', () => removeUser(btn.dataset.del));
@@ -572,53 +631,206 @@ function renderUsers() {
     btn.addEventListener('click', () =>
       unassignRole(btn.dataset.unassign, Number(btn.dataset.job)));
   }
-  for (const box of $('usersBody').querySelectorAll('[data-assign]')) {
-    box.addEventListener('change', () => {
-      if (!box.value) return;
-      assignRole(box.dataset.assign, Number(box.value));
-      box.value = '';           // back to the prompt; the chip is the receipt
-    });
+  for (const input of $('usersBody').querySelectorAll('.role-picker-input')) {
+    input.addEventListener('focus', () => openRolePicker(input));
+    input.addEventListener('input', () => openRolePicker(input));
+    input.addEventListener('keydown', (event) => rolePickerKey(event, input));
+    input.addEventListener('blur', () => closeRolePicker());
   }
+
+  restorePickerFocus();
 }
 
-/* The roles cell: what this account is on, and the two controls that change it.
+function userCard(user) {
+  const flags = [];
+  if (!user.active) flags.push('<span class="flag">disabled</span>');
+  if (user.must_change) flags.push('<span class="flag">password not set</span>');
+  const meta = [
+    esc(user.name) || '<span class="flag">no name</span>',
+    `last signed in ${user.last_login_at
+      ? esc(shortDate(user.last_login_at)) : 'never'}`,
+  ].concat(flags).join(' · ');
+
+  return `
+    <article class="user-card">
+      <div class="user-card-head">
+        <span class="user-avatar" aria-hidden="true">${esc(userInitials(user))}</span>
+        <div class="user-id">
+          <div class="user-email">${esc(user.email)}</div>
+          <div class="user-meta">${meta}</div>
+        </div>
+        <!-- Access as a two-way switch. The old button named where you would
+             end up and the cell beside it named where you were, so telling a
+             recruiter from a manager meant reading both. -->
+        <div class="access-toggle" role="group"
+             aria-label="Access for ${esc(user.email)}">
+          <button type="button" class="${user.is_admin ? '' : 'is-on'}"
+                  data-role="${esc(user.email)}" data-to="manager"
+                  ${user.is_admin ? '' : 'aria-current="true"'}
+                  title="Sees only the roles listed on this card">Hiring manager</button>
+          <button type="button" class="${user.is_admin ? 'is-on' : ''}"
+                  data-role="${esc(user.email)}" data-to="admin"
+                  ${user.is_admin ? 'aria-current="true"' : ''}
+                  title="Sees every role and every button on these pages">Recruiting</button>
+        </div>
+        <div class="user-actions">
+          <button class="btn btn-ghost" data-reset="${esc(user.email)}"
+                  title="Set a new temporary password and sign them out">
+            Reset password</button>
+          <button class="btn btn-ghost btn-danger" data-del="${esc(user.email)}"
+                  title="Take away their sign-in">Remove</button>
+        </div>
+      </div>
+      <div class="user-card-roles">${roleCell(user)}</div>
+    </article>`;
+}
+
+/* The roles an account is on, and the two controls that change it.
  *
  * Writes the SAME list as the Hiring managers editor on the role itself --
  * `hiring_managers` -- rather than a permission of its own. Two doors onto one
  * list; there is no second answer to who owns a seat. Which also means every
- * change here changes who a shortlist is emailed to, so the chips say so.
+ * change here changes who a shortlist is emailed to, so the copy says so.
  */
 function roleCell(user) {
   const on = user.roles || [];
   const onIds = new Set(on.map((r) => r.id));
+  const who = esc(user.name || user.email);
   const chips = on.map((r) => `
     <span class="role-chip">${esc(r.title)}<button type="button"
       data-unassign="${esc(user.email)}" data-job="${r.id}"
-      title="Take ${esc(user.name)} off ${esc(r.title)}"
+      title="Take ${who} off ${esc(r.title)}"
       aria-label="Remove from ${esc(r.title)}">&times;</button></span>`).join('');
-
-  // Only roles they are not already on. An option that does nothing is an
-  // option somebody clicks twice wondering why nothing happened.
-  const options = state.roles
-    .filter((r) => !onIds.has(r.id))
-    .map((r) => `<option value="${r.id}">${esc(r.title)}</option>`).join('');
 
   // An admin sees every role whatever this says, so for them the list means
   // something different -- it is who gets the shortlist email, not who can
   // look. Saying "Every role" and then offering to add one would read as a
-  // contradiction.
+  // contradiction, so the sentence above the chips says which it is.
   const note = user.is_admin
-    ? '<span class="dim">Every role, as an admin. Listing them below only '
-      + 'decides which shortlists are emailed to them.</span>'
-    : on.length ? '' : '<span class="dim">None yet — pick one below, or add '
-      + 'their address under Hiring managers on a role.</span>';
+    ? '<p class="dim">Every role, as an admin. What is listed here only '
+      + 'decides which shortlists are emailed to them.</p>'
+    : on.length ? '' : '<p class="dim">Not on any role yet — there is nothing '
+      + 'for them to open until one is added.</p>';
+
+  // Only roles they are not already on. An option that does nothing is an
+  // option somebody picks twice wondering why nothing happened.
+  const left = state.roles.filter((r) => !onIds.has(r.id)).length;
 
   return `${note}<div class="role-chips">${chips}</div>
-    <select class="role-add" data-assign="${esc(user.email)}"
-            ${options ? '' : 'disabled'}>
-      <option value="">${options ? 'Add to a role…' : 'On every role'}</option>
-      ${options}
-    </select>`;
+    <div class="role-picker" data-picker="${esc(user.email)}">
+      <input type="text" class="role-picker-input" autocomplete="off"
+             role="combobox" aria-expanded="false" aria-autocomplete="list"
+             aria-label="Add ${esc(user.email)} to a role"
+             placeholder="${left
+               ? 'Add to a role — type to filter' : 'On every role already'}"
+             ${left ? '' : 'disabled'}>
+      <div class="role-picker-menu" hidden></div>
+    </div>`;
+}
+
+/* --- the role picker ------------------------------------------------------
+ *
+ * A <select> of forty roles is forty roles to scroll past, and the recruiter
+ * already knows the title they are looking for. This filters as they type and
+ * hands focus back after a pick, so putting somebody on three roles is three
+ * words rather than three trips through the same list.
+ */
+
+function openRolePicker(input) {
+  const picker = input.closest('.role-picker');
+  const menu = picker.querySelector('.role-picker-menu');
+  const user = state.users.find((u) => u.email === picker.dataset.picker);
+  const onIds = new Set(((user && user.roles) || []).map((r) => r.id));
+  const needle = input.value.trim().toLowerCase();
+
+  const options = state.roles
+    .filter((r) => !onIds.has(r.id))
+    .filter((r) => !needle || r.title.toLowerCase().includes(needle));
+
+  menu.innerHTML = options.length
+    ? options.map((r, i) => `<button type="button" data-job="${r.id}"
+        class="${i === 0 ? 'is-active' : ''}">${esc(r.title)}</button>`).join('')
+    : '<p class="role-picker-none">No role matches that.</p>';
+  menu.hidden = false;
+  input.setAttribute('aria-expanded', 'true');
+
+  // mousedown rather than click: a click fires after the input has blurred,
+  // which has already closed the menu out from under the pointer. Preventing
+  // the default also keeps the caret where it was.
+  for (const btn of menu.querySelectorAll('[data-job]')) {
+    btn.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+      pickRole(picker.dataset.picker, Number(btn.dataset.job));
+    });
+  }
+}
+
+function closeRolePicker() {
+  for (const menu of document.querySelectorAll('.role-picker-menu')) {
+    menu.hidden = true;
+  }
+  for (const input of document.querySelectorAll('.role-picker-input')) {
+    input.setAttribute('aria-expanded', 'false');
+  }
+}
+
+function rolePickerKey(event, input) {
+  const picker = input.closest('.role-picker');
+  const menu = picker.querySelector('.role-picker-menu');
+
+  if (event.key === 'Escape') {
+    // Swallowed only while the menu is up, so it shuts the menu and nothing
+    // else -- otherwise the page-level handler would close the whole drawer on
+    // the same keystroke. With no menu open there is nothing here to close and
+    // Escape should mean what it means everywhere else on the page.
+    if (menu.hidden) return;
+    event.stopPropagation();
+    closeRolePicker();
+    return;
+  }
+  if (menu.hidden && (event.key === 'ArrowDown' || event.key === 'Enter')) {
+    openRolePicker(input);
+  }
+
+  const options = Array.from(menu.querySelectorAll('[data-job]'));
+  if (!options.length) return;
+  const at = Math.max(0,
+    options.findIndex((btn) => btn.classList.contains('is-active')));
+
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    pickRole(picker.dataset.picker, Number(options[at].dataset.job));
+    return;
+  }
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+  event.preventDefault();
+  const to = (at + (event.key === 'ArrowDown' ? 1 : options.length - 1))
+    % options.length;
+  options[at].classList.remove('is-active');
+  options[to].classList.add('is-active');
+  options[to].scrollIntoView({ block: 'nearest' });
+}
+
+/* Adding asks nothing: it is visible on the card the moment it lands, and the
+ * x beside it is the undo. Dropping still asks -- see unassignRole() -- because
+ * it takes a role away from somebody who may be halfway through reviewing it,
+ * and takes them off its shortlist mail with it. */
+function pickRole(email, jobId) {
+  state.focusPicker = email;
+  closeRolePicker();
+  assignRole(email, jobId);
+}
+
+function restorePickerFocus() {
+  const email = state.focusPicker;
+  state.focusPicker = null;
+  if (!email) return;
+  for (const picker of $('usersBody').querySelectorAll('.role-picker')) {
+    if (picker.dataset.picker !== email) continue;
+    const input = picker.querySelector('.role-picker-input');
+    if (input && !input.disabled) input.focus();
+    return;
+  }
 }
 
 async function setUserRoles(email, jobIds, verb) {
@@ -692,6 +904,7 @@ async function createUser(event) {
     state.users = data.users || state.users;
     renderUsers();
     $('newUserForm').reset();
+    toggleNewUserForm(false);
     showSecret(`Password for ${email}`, data.password);
     toast(data.message);
   } catch (err) {
@@ -4056,7 +4269,16 @@ $('matrixToggle').addEventListener('change', (e) => {
   state.showMatrix = e.target.checked;
   renderCandidates();
 });
+// --- accounts ---
+// Optional-chained like the other late additions on this page: a browser
+// holding cached HTML against fresh JS should lose the button, not the page.
+$('accountsBtn')?.addEventListener('click', openAccounts);
+for (const el of document.querySelectorAll('[data-accounts-close]')) {
+  el.addEventListener('click', closeAccounts);
+}
 $('newUserForm').addEventListener('submit', createUser);
+$('newUserToggle')?.addEventListener('click', () => toggleNewUserForm());
+$('userSearch')?.addEventListener('input', renderUsers);
 $('accountsRefresh').addEventListener('click', loadUsers);
 $('roleSearch').addEventListener('input', renderRoles);
 $('roleFilter').addEventListener('change', renderRoles);
@@ -4081,6 +4303,7 @@ for (const tab of $('roleTabs').querySelectorAll('.viewtab')) {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (!$('mailPreview').hidden || !$('drawer').hidden
+      || $('accountsDrawer')?.hidden === false
       || InviteComposer.isOpen()) return;
   if (state.activeRoleId !== null) backToRoles();
 });
@@ -4096,6 +4319,12 @@ document.addEventListener('keydown', (e) => {
   if (!$('mailPreview').hidden) closeMailPreview();
   else if (InviteComposer.isOpen()) InviteComposer.close();
   else if (!$('drawer').hidden) closeDrawer();
+  // Last: it is the only one of the four that can have another open over it,
+  // and an open role picker has already swallowed the key. See rolePickerKey().
+  // Optional-chained because it is the newest element on the page and so the
+  // one a browser on cached HTML is likeliest to be missing -- and a throw here
+  // would take Escape away from the other three as well.
+  else if ($('accountsDrawer')?.hidden === false) closeAccounts();
 });
 
 /* The composer, told how this page talks and what to do afterwards.
