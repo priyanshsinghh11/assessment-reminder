@@ -33,6 +33,14 @@
   </div>
   <div class="topbar-actions">
     <a class="btn btn-ghost" href="/">Reminders</a>
+    <!-- Accounts. In the header rather than at the foot of the roles list,
+         because putting somebody on a role is something you do while looking
+         at the role -- and from down there it meant backing out of whatever
+         was open and scrolling past forty cards to reach it. It opens over
+         the page, so you come back to exactly where you were. Admin-only;
+         hidden, not disabled, by applyAccountView(). -->
+    <button class="btn btn-ghost" id="accountsBtn" type="button" hidden
+            title="Who can sign in, and which roles they can open">Accounts</button>
     <button class="btn" id="syncBtn" title="Re-download submissions from the portal">Sync portal</button>
     <button class="btn" id="refreshBtn">Refresh</button>
   </div>
@@ -65,78 +73,11 @@
       <p class="empty" id="roleEmpty" hidden>No roles match these filters.</p>
     </section>
 
-    <!-- =================================================================
-         Accounts. Admin-only, and hidden rather than disabled for a manager
-         -- a greyed-out "Accounts" panel tells them there is an admin tier
-         and invites the question of who is in it.
-
-         The roles column here is NOT editable. Which roles an account can
-         open is the hiring-manager list on each role, one screen along, and
-         a second place to set it would be a second place for it to be wrong.
-         ============================================================== -->
-    <section class="panel" id="accountsPanel" hidden>
-      <div class="panel-head">
-        <h2>Accounts</h2>
-        <div class="controls">
-          <button class="btn btn-ghost" id="accountsRefresh" type="button">Refresh</button>
-        </div>
-      </div>
-
-      <p class="hint">
-        Who can sign in, and what they see. <strong>Recruiting</strong> accounts
-        see every role and every button on these pages.
-        <strong>Hiring manager</strong> accounts see only the roles their address
-        is listed on under <em>Hiring managers</em> &mdash; add them there to give
-        them a role, remove them to take it away.
-      </p>
-
-      <form class="new-user-form" id="newUserForm">
-        <label>Email
-          <input type="email" id="newUserEmail" placeholder="anita@ajaia.ai"
-                 autocomplete="off" required>
-        </label>
-        <label>Name
-          <input type="text" id="newUserName" placeholder="Anita Desai"
-                 autocomplete="off">
-        </label>
-        <label>Access
-          <select id="newUserRole">
-            <option value="manager">Hiring manager</option>
-            <option value="admin">Recruiting team</option>
-          </select>
-        </label>
-        <button class="btn btn-primary" type="submit" id="newUserBtn">
-          Create account
-        </button>
-      </form>
-
-      <!-- A generated password appears here once and is then unrecoverable.
-           On the page rather than in a toast, which auto-dismisses. -->
-      <div class="secret" id="newUserSecret" hidden>
-        <strong id="secretWho"></strong>
-        <code id="secretPassword"></code>
-        <small>
-          Shown once &mdash; there is no screen that can show it again. Send it
-          to them now; they will be asked to change it when they first sign in.
-        </small>
-      </div>
-
-      <div class="table-wrap">
-        <table class="users-table">
-          <thead>
-            <tr>
-              <th>Account</th>
-              <th>Access</th>
-              <th>Roles they can open</th>
-              <th>Last sign-in</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="usersBody"></tbody>
-        </table>
-      </div>
-      <p class="empty" id="usersEmpty" hidden>No accounts yet.</p>
-    </section>
+    <!-- Accounts used to sit here, under the grid. It is now a drawer off
+         the header button -- see #accountsDrawer at the foot of this file.
+         Nothing on this view replaces it: a panel that only an admin could
+         see, at the bottom of a list of forty roles, was a panel nobody
+         scrolled to. -->
 
   </section>
 
@@ -683,6 +624,93 @@
 <!-- The shortlist email exactly as the manager would receive it, rendered by
      the same function that sends it. A preview built from a different template
      is a preview of nothing. -->
+<!-- =====================================================================
+     Accounts, as a drawer.
+
+     Everything the old panel did, plus the two things it was missing: it
+     opens from anywhere -- including from inside a role, which is where you
+     are standing when you decide somebody should be on it -- and it can be
+     searched, which matters once there are more accounts than fit a screen.
+
+     The roles listed on an account are the SAME list as the Hiring managers
+     editor on the role itself (`hiring_managers`). Two doors onto one list;
+     there is no second answer to who owns a seat, and no second place for it
+     to be wrong. Which also means every add and every drop here changes who
+     the shortlist email goes to, and the copy says so.
+     ================================================================== -->
+<div class="drawer" id="accountsDrawer" hidden>
+  <div class="drawer-scrim" data-accounts-close></div>
+  <aside class="drawer-panel is-wide" role="dialog" aria-modal="true"
+         aria-labelledby="accountsTitle">
+    <div class="drawer-head">
+      <div>
+        <p class="eyebrow">Access</p>
+        <h2 id="accountsTitle">Accounts</h2>
+        <p class="subtitle" id="accountsCount">Loading&hellip;</p>
+      </div>
+      <div class="drawer-head-actions">
+        <button class="btn btn-ghost" id="accountsRefresh" type="button">Refresh</button>
+        <button class="btn btn-ghost" data-accounts-close aria-label="Close accounts">Close</button>
+      </div>
+    </div>
+
+    <div class="drawer-body">
+      <p class="hint">
+        Who can sign in, and what they see. <strong>Recruiting</strong> accounts
+        see every role and every button on these pages.
+        <strong>Hiring manager</strong> accounts see only the roles listed on
+        their card &mdash; add one to give them a role, drop one to take it
+        away. The same list decides which shortlists are emailed to them.
+      </p>
+
+      <div class="accounts-toolbar">
+        <input type="search" id="userSearch" autocomplete="off"
+               placeholder="Search by name, address or role">
+        <button class="btn btn-primary" type="button" id="newUserToggle"
+                aria-expanded="false" aria-controls="newUserForm">
+          New account
+        </button>
+      </div>
+
+      <!-- Folded away until asked for. Three empty fields above the list of
+           people you came here to edit is three fields in the way. -->
+      <form class="new-user-form" id="newUserForm" hidden>
+        <label>Email
+          <input type="email" id="newUserEmail" placeholder="anita@ajaia.ai"
+                 autocomplete="off" required>
+        </label>
+        <label>Name
+          <input type="text" id="newUserName" placeholder="Anita Desai"
+                 autocomplete="off">
+        </label>
+        <label>Access
+          <select id="newUserRole">
+            <option value="manager">Hiring manager</option>
+            <option value="admin">Recruiting team</option>
+          </select>
+        </label>
+        <button class="btn btn-primary" type="submit" id="newUserBtn">
+          Create account
+        </button>
+      </form>
+
+      <!-- A generated password appears here once and is then unrecoverable.
+           On the page rather than in a toast, which auto-dismisses. -->
+      <div class="secret" id="newUserSecret" hidden>
+        <strong id="secretWho"></strong>
+        <code id="secretPassword"></code>
+        <small>
+          Shown once &mdash; there is no screen that can show it again. Send it
+          to them now; they will be asked to change it when they first sign in.
+        </small>
+      </div>
+
+      <div class="user-list" id="usersBody"></div>
+      <p class="empty" id="usersEmpty" hidden>No accounts yet.</p>
+    </div>
+  </aside>
+</div>
+
 <div class="drawer" id="mailPreview" hidden>
   <div class="drawer-scrim" data-mail-close></div>
   <aside class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="mailSubject">
