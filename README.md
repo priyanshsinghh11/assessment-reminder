@@ -1412,6 +1412,54 @@ there is nowhere to type a flag at a container:
 the dashboard one. They are different hostnames once this is split, and the
 review server does not serve `evaluations.html`.
 
+### On Vercel — the review surface only
+
+`vercel.json` and `api/index.py` deploy this repo as a serverless function.
+**`REVIEW_ONLY=1` is the default there and should stay that way.**
+
+That is not caution, it is the only part that works. A serverless function is
+frozen the moment it returns a response, so anything that reports progress by
+polling a background thread breaks in a way that costs real emails:
+
+| | on Vercel |
+|---|---|
+| `/review/<token>` and its API | works |
+| `/unsubscribe/<token>` | works — and every candidate email links here |
+| `/healthz`, the review pages' static files | works |
+| Reminder run (`/api/run`) | **thread is killed mid-batch** — some candidates mailed, no record shown |
+| Bulk rejection send | same |
+| Progress polling | 404s — the job id lives in one instance's memory |
+| Two concurrent sends | both proceed — `_run_lock` is per-instance |
+| Grading, portal ingest | exceed the function timeout |
+
+So the split the codebase already describes maps exactly onto this: the review
+surface is the half that needs a public URL, and it is the half that is
+request-shaped. **The dashboard belongs on the `Dockerfile`** — Cloud Run,
+Render, Fly, App Service — where it has a real process and a writable disk.
+
+Set these in Vercel's environment (Project → Settings → Environment Variables):
+
+| Variable | Why |
+|---|---|
+| `MONGO_URI` | **Required.** Defaults to `127.0.0.1:27017`, which is nothing inside a lambda. Point it at Atlas and allow-list Vercel's egress. |
+| `PUBLIC_BASE_URL` | `https://<your>.vercel.app`. Review and unsubscribe links are built from it, and the one-click unsubscribe header is only emitted over https. |
+| `APP_SECRET` | Signs unsubscribe links. Minted into Mongo if unset, which is fine — but pin it if two deployments share candidates. |
+| `BREVO_API_KEY` | Only if managers send interview invitations from their review link. |
+| `SESSION_COOKIE_SECURE=1` | Vercel terminates TLS upstream, so this cannot be inferred. |
+
+`REVIEW_ONLY=1` is already set in `vercel.json`; it does not need repeating in
+the dashboard.
+
+#### Logging has no file there
+
+`logs/` is read-only on Vercel, and `setup_logging()` used to open a rotating
+file handler *at import* from `wsgi.py` — which took the process down before
+Flask existed and made every request a 500 with nothing in it naming a log
+directory. It now falls back to stdout and says so once. That is the right
+behaviour for any container: platforms collect stdout, not files inside an
+image. `tests/test_guards.py` pins it, because a laptop always has a writable
+`logs/` and will never reproduce it.
+
 ### With Docker
 
 ```bash

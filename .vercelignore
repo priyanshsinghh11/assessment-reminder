@@ -1,0 +1,37 @@
+# What never needs to reach a serverless bundle.
+#
+# The lambda has a size limit and a cold start proportional to what is in it,
+# and everything below is either rebuilt by Vercel, useless without a writable
+# disk, or candidate PII that has no business being deployed at all.
+
+# Rebuilt from requirements.txt on Vercel's own Linux. 83MB locally, and the
+# wrong platform's wheels besides.
+venv/
+__pycache__/
+*.py[cod]
+
+# Local secrets. Vercel's own environment variables are the deployed config --
+# see the README. .env.example is documentation and is not needed at runtime.
+.env
+.env.*
+!.env.example
+
+# Written at runtime, and unwritable on Vercel anyway.
+logs/
+state/
+
+# Candidate PII: portal exports, and the reminder/ingest CSVs beside them.
+*.csv
+
+# Not served, not imported.
+tests/
+tools/
+.github/
+Dockerfile
+docker-compose.yml
+.dockerignore
+PROJECT_AUDIT.md
+
+# assessments/ IS NOT LISTED. It is 481K, and rubric_pack reads the grids out
+# of it -- the review surface renders criterion labels from the same pack the
+# grading used. Excluding it is a page that half-draws.

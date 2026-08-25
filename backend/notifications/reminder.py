@@ -105,37 +105,60 @@ def setup_logging(level=logging.INFO):
     if getattr(root, "_ajaia_configured", False):
         return
 
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-
-    file_handler = RotatingFileHandler(
-        LOG_FILE,
-        maxBytes=LOG_MAX_BYTES,
-        backupCount=LOG_BACKUP_COUNT,
-        encoding="utf-8",
-    )
-
-    # Tighten the mode on the live file and on every rotated one. chmod is a
-    # no-op on Windows and the try/except covers a filesystem that does not
-    # support it -- a log that cannot be locked down is still a log worth
-    # writing, so this narrows permissions where it can and never stops a run.
-    def _protect(path) -> None:
-        try:
-            os.chmod(path, LOG_FILE_MODE)
-        except (OSError, NotImplementedError):
-            pass
-
-    _protect(LOG_FILE)
-    _rotator = file_handler.rotate
-
-    def rotate(source, dest):
-        _rotator(source, dest)
-        _protect(dest)
-
-    file_handler.rotate = rotate
-
     formatter = logging.Formatter(
         "%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-    file_handler.setFormatter(formatter)
+
+    # THE FILE HALF IS OPTIONAL. IT IS THE ONLY PART OF THIS THAT NEEDS A DISK.
+    #
+    # A serverless platform mounts the deployment read-only -- Vercel, Lambda
+    # and Cloud Functions all do, with only /tmp writable. This mkdir then
+    # raises OSError, and because setup_logging() runs at IMPORT from wsgi.py
+    # it takes the process down before Flask exists. Every request 500s
+    # identically, and nothing in the error names a log directory, so the
+    # cause is invisible from the outside.
+    #
+    # Skipped rather than fatal, because those are exactly the platforms that
+    # collect stdout instead: the handler below is the real log there. What is
+    # lost is the rotation policy, and a filesystem that is discarded between
+    # invocations had nothing to rotate. Set LOG_DIR somewhere writable (/tmp)
+    # if you want the file back.
+    #
+    # Only OSError. A misconfigured LOG_MAX_BYTES should still fail loudly --
+    # this is a narrow allowance for "there is no disk", not a blanket one.
+    file_handler = None
+    disk_error = None
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        file_handler = RotatingFileHandler(
+            LOG_FILE,
+            maxBytes=LOG_MAX_BYTES,
+            backupCount=LOG_BACKUP_COUNT,
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        disk_error = exc
+
+    if file_handler is not None:
+        # Tighten the mode on the live file and on every rotated one. chmod is
+        # a no-op on Windows and the try/except covers a filesystem that does
+        # not support it -- a log that cannot be locked down is still a log
+        # worth writing, so this narrows permissions where it can and never
+        # stops a run.
+        def _protect(path) -> None:
+            try:
+                os.chmod(path, LOG_FILE_MODE)
+            except (OSError, NotImplementedError):
+                pass
+
+        _protect(LOG_FILE)
+        _rotator = file_handler.rotate
+
+        def rotate(source, dest):
+            _rotator(source, dest)
+            _protect(dest)
+
+        file_handler.rotate = rotate
+        file_handler.setFormatter(formatter)
 
     # The console, reconfigured to UTF-8 where it will allow it.
     #
@@ -160,9 +183,18 @@ def setup_logging(level=logging.INFO):
     stream_handler.setFormatter(formatter)
 
     root.setLevel(level)
-    root.addHandler(file_handler)
+    if file_handler is not None:
+        root.addHandler(file_handler)
     root.addHandler(stream_handler)
     root._ajaia_configured = True
+
+    # Said once, on the handler that did survive, so "why is logs/ empty" has
+    # an answer in the place somebody is already looking.
+    if disk_error is not None:
+        logging.getLogger(__name__).warning(
+            "No log file: %s is not writable (%s). Logging to stdout only. "
+            "This is normal on a read-only or serverless filesystem.",
+            LOG_DIR, disk_error)
 
 
 # ---------------------------------------------------------------------------

@@ -8,9 +8,13 @@ reachable without a session, and how the caller's address is derived -- because
 a throttle keyed on a value the caller can choose is not a throttle.
 """
 
+from pathlib import Path
+
 import pytest
 
 from backend.web import server
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture
@@ -143,3 +147,121 @@ class TestThrottleConfiguration:
         # and anyone who knows an admin's address can keep them signed out.
         from backend.core.config import LOGIN_IP_MAX_ATTEMPTS, LOGIN_MAX_ATTEMPTS
         assert LOGIN_IP_MAX_ATTEMPTS < LOGIN_MAX_ATTEMPTS
+
+
+# ---------------------------------------------------------------------------
+# Booting where there is no writable disk
+# ---------------------------------------------------------------------------
+#
+# THE BUG THIS PINS took a production deployment down completely and gave no
+# clue why. setup_logging() runs at IMPORT from wsgi.py, and it opened a file
+# under logs/. On a serverless platform the deployment is mounted read-only, so
+# the mkdir raised OSError before Flask existed -- every request 500'd with a
+# platform error page that says nothing about a log directory.
+#
+# It is invisible from a laptop, where logs/ is always writable, which is
+# exactly why it belongs in the suite rather than in a runbook.
+
+class TestLoggingWithoutAWritableDisk:
+    @staticmethod
+    def _reset():
+        """setup_logging() is idempotent by design, so undo it between cases."""
+        import logging
+        root = logging.getLogger()
+        for handler in list(root.handlers):
+            root.removeHandler(handler)
+            handler.close()
+        if hasattr(root, "_ajaia_configured"):
+            del root._ajaia_configured
+
+    @pytest.fixture
+    def readonly_disk(self, monkeypatch):
+        from pathlib import Path
+
+        real = Path.mkdir
+
+        def refuse(self, *args, **kwargs):
+            if "logs" in str(self):
+                raise OSError(30, "Read-only file system")
+            return real(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "mkdir", refuse)
+        self._reset()
+        yield
+        self._reset()
+
+    def test_it_configures_rather_than_raising(self, readonly_disk):
+        import logging
+        from backend.notifications import reminder
+
+        reminder.setup_logging()          # must not raise -- that is the bug
+        assert getattr(logging.getLogger(), "_ajaia_configured", False)
+
+    def test_stdout_still_gets_the_log(self, readonly_disk):
+        import logging
+        from backend.notifications import reminder
+
+        reminder.setup_logging()
+        kinds = [type(h).__name__ for h in logging.getLogger().handlers]
+        # StreamHandler and nothing else: the file handler is the half that
+        # needed a disk, and serverless platforms collect stdout anyway.
+        assert "StreamHandler" in kinds
+        assert "RotatingFileHandler" not in kinds
+
+    def test_a_writable_disk_still_gets_a_file(self, monkeypatch, tmp_path):
+        # The fix must not quietly cost everyone else their log file.
+        import logging
+        from backend.notifications import reminder
+
+        self._reset()
+        monkeypatch.setattr(reminder, "LOG_DIR", tmp_path / "logs")
+        monkeypatch.setattr(reminder, "LOG_FILE", tmp_path / "logs" / "r.log")
+        try:
+            reminder.setup_logging()
+            kinds = [type(h).__name__ for h in logging.getLogger().handlers]
+            assert "RotatingFileHandler" in kinds
+            assert "StreamHandler" in kinds
+        finally:
+            self._reset()
+
+
+class TestTheServerlessEntryPoint:
+    """
+    api/index.py must go through wsgi.py, not around it.
+
+    `from backend.web.server import app` is the tempting shortcut: same object,
+    boots faster, skips the call that used to crash. It also skips
+    `app.config["REVIEW_ONLY"] = ...`, and _review_only() reads that key with a
+    falsy default -- so the deployment would come up serving the full dashboard
+    on a public URL. It fails OPEN and looks entirely normal.
+    """
+
+    def test_it_imports_the_app_from_wsgi(self):
+        # Parsed, not grepped. The docstring in that file quotes the shortcut
+        # in order to warn against it, and a substring check reads the warning
+        # as the offence.
+        import ast
+
+        tree = ast.parse((ROOT / "api" / "index.py").read_text(encoding="utf-8"))
+        sources = {node.module for node in ast.walk(tree)
+                   if isinstance(node, ast.ImportFrom)
+                   and any(alias.name == "app" for alias in node.names)}
+        assert sources == {"wsgi"}, f"app is imported from {sources}"
+
+    def test_review_only_is_the_deployed_default(self):
+        import json
+        config = json.loads((ROOT / "vercel.json").read_text(encoding="utf-8"))
+        # Not a precaution -- the dashboard's sends run on background threads
+        # that a frozen function kills mid-batch. See api/index.py.
+        assert config["env"]["REVIEW_ONLY"] == "1"
+
+    def test_every_path_reaches_the_function(self):
+        import json
+        config = json.loads((ROOT / "vercel.json").read_text(encoding="utf-8"))
+        # Including /unsubscribe/<token>, which every candidate email links to.
+        assert any(r["src"] == "/(.*)" for r in config["routes"])
+
+    def test_the_local_venv_is_not_deployed(self):
+        ignored = (ROOT / ".vercelignore").read_text(encoding="utf-8")
+        for path in ("venv/", "logs/", "state/", ".env", "*.csv"):
+            assert path in ignored, f"{path} would be uploaded"
