@@ -700,10 +700,38 @@ def _manager_submission(sub: dict) -> dict:
     # without it their invite list is empty and the button that is the whole
     # point of their screen sits disabled.
     #
-    # `rejected` keeps people already turned down off that same list. Only the
-    # terminal fact, not `decision.reason`, which is our own bookkeeping.
+    # `rejected` keeps people already turned down off that same list.
     out["graded"] = isinstance(ev.get("score"), (int, float))
     out["rejected"] = (sub.get("decision") or {}).get("status") == "rejected"
+
+    # WHICH QUEUE THIS CANDIDATE IS IN -- because a hiring manager grades now.
+    #
+    # `decision.status` is not a hiring decision and never was: it is where the
+    # assessment pipeline has got to with this person. Awaiting the AI marker,
+    # marked, auto-rejected for a missing artefact, or started-but-never-
+    # submitted. Grading is the act of moving somebody from the first of those
+    # to the second, so a screen that cannot see the difference cannot offer
+    # it -- "Grade pending" counts the pending rows to decide whether there is
+    # anything to do, and with no status on the payload that count was zero on
+    # every role and the button sat disabled for ever. The status column read
+    # "unknown" for the same reason, and the status filter matched nothing.
+    #
+    # `reason` comes with it, because "Rejected" on its own is the one badge on
+    # this page that is actively misleading without it: it means no CV or no
+    # video, not a verdict on the work, and a manager who reads it as a verdict
+    # will skip the candidate the recruiting team merely has not chased yet.
+    #
+    # BUILT FIELD BY FIELD, not copied. `decision` also carries `source` and
+    # `at`, and will carry whatever the next change to the pipeline adds; the
+    # allowlist rule at the top of this section is the whole reason a manager's
+    # payload has never leaked a field nobody thought about, and it applies
+    # inside a sub-document exactly as it does outside one.
+    decision = sub.get("decision") or {}
+    if decision:
+        out["decision"] = {
+            "status": decision.get("status"),
+            "reason": decision.get("reason"),
+        }
     return out
 
 

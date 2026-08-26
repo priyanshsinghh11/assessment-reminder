@@ -3152,11 +3152,13 @@ function renderCandHead() {
 /* Everyone marked, not yet turned down, not yet anywhere on the board.
  *
  * READ FROM FLAGS, NOT FROM THE SCORE. A hiring manager's payload carries no
- * `evaluation` and no `decision` -- see MANAGER_SUBMISSION_FIELDS -- so the old
- * `typeof c.evaluation?.score === 'number'` test was false for every row on
- * their screen, and the list behind their invite button came back empty. The
- * server sends `graded` and `rejected` for exactly this, and a recruiter's
- * payload still carries the originals, so both are read and either will do.
+ * `evaluation` while MANAGER_DASHBOARD_SCORES is off -- see
+ * MANAGER_SUBMISSION_FIELDS -- so the old `typeof c.evaluation?.score ===
+ * 'number'` test was false for every row on their screen, and the list behind
+ * their invite button came back empty. The server sends `graded` and
+ * `rejected` for exactly this, and a recruiter's payload still carries the
+ * originals, so both are read and either will do. (`decision` IS on a
+ * manager's payload now, narrowed to status and reason, because they grade.)
  *
  * The ORDER still needs the number, and only a recruiter has it. A manager
  * gets submission order instead, which is honest: this list is "who is ready

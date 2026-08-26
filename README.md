@@ -299,8 +299,19 @@ So there are two kinds of account, and the difference is enforced on the server:
 
 | | Sees | Can do |
 |---|---|---|
-| **Recruiting** (`admin`) | every role | everything: portal sync, reminder sends, grading, who owns which seat, accounts |
-| **Hiring manager** (`manager`) | only the roles their address is listed on | read those roles, move their candidates, send their shortlist, set their own booking link |
+| **Recruiting** (`admin`) | every role | everything: portal sync, reminder sends, who owns which seat, accounts |
+| **Hiring manager** (`manager`) | only the roles their address is listed on | read those roles, **grade their candidates**, move them, send their shortlist, set their own booking link |
+
+**A hiring manager grades their own roles.** Both doors: *Grade pending* walks
+the role's queue in a batch, and *Evaluate now* in the drawer marks the one
+candidate they are looking at. It was never a rule that they could not — the
+route has been scoped by role, not by account type, all along — but their
+payload carried no `decision.status`, so the page could not count the pending
+queue, the button sat disabled on every role and the status column read
+`unknown`. The queue state (and the reason behind a `rejected` row, which means
+a missing CV or video rather than a verdict) is now on their payload; `source`
+and `at` are bookkeeping and stay off it. Nothing about a role a manager is not
+named on has changed: that is still a 404.
 
 **A hiring manager reads the AI score on the dashboard**, along with the grid
 behind it, the per-criterion marks, the verdict and the brief — the same

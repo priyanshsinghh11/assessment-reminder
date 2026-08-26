@@ -181,6 +181,23 @@ def run(manager_email: str) -> int:
                {"email": "not.them@ajaia.ai", "cal_link": "cal.com/x"}
                ).status_code == 403)
 
+    # Grading is theirs now, and this is the payload that makes it usable.
+    # `decision.status` is which queue a candidate is in -- pending, scored,
+    # auto-rejected, never submitted -- and the Grade button counts the pending
+    # rows to decide whether there is anything to run. Without it that count is
+    # zero on every role and the button is disabled for ever, which is what the
+    # dashboard did before. `source` and `at` are bookkeeping and stay out.
+    rows = manager.get(f"/api/evaluations/role/{ours}").get_json()["candidates"]
+    if not rows:
+        skip("the manager's queue status", "no submissions on their first role")
+    else:
+        marked = [row for row in rows if row.get("decision")]
+        check("their candidates carry the queue they are in",
+              bool(marked) and all(row["decision"].get("status") for row in marked),
+              f"{len(marked)} of {len(rows)} rows carry a decision")
+        check("and nothing else out of the decision",
+              all(set(row["decision"]) <= {"status", "reason"} for row in marked))
+
     # --- lists that span roles -------------------------------------------
     print("\n--- lists that span roles ---")
     board = manager.get("/api/pipeline").get_json()
