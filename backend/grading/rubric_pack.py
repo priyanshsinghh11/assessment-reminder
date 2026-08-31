@@ -1,23 +1,28 @@
 """
 The Ajaia Assessment Scoring Rubrics, version 2026-08-12, as data.
 
-The pack covers 36 live Workable postings in 14 rubric units and 17 scoring
+The pack covers 38 live Workable postings in 16 rubric units and 19 scoring
 grids. This module is those grids: every criterion, its weight, and the
 behavioural anchors at 5, 3 and 1 that decide which mark it gets -- plus the
 auto-fails, the two-minute triage, the GIA overlay and the reviewer notes that
 sit around the grid in the source document.
 
-Two units do not split 70 / 10 / 10 / 10, and both buy the same fifth block --
-`background`, for the record the resume and the portfolio show -- at very
-different prices. Unit 13, AI Strategy, arrived on 2026-08-21 with the two AI
-Strategist postings and pays 40 points for it, because on that seat the track
-record is half the decision. Unit 14, Social Media and Marketing Intern,
-arrived on 2026-08-22 and pays 10, for the opposite reason: an intern's record
-is usually thin and would otherwise decide the seat by accident, so capping it
-at 10 is what stops it. Both departures are stated and defended in their own
-source documents; `block_points_of` is how the rest of this module was taught
-to read them, and `config.CV_WEIGHT_BY_SEAT` pins both seats' external CV
-weight to 0.0 so the record is not paid for twice.
+Four units do not split 70 / 10 / 10 / 10, and all four buy the same fifth
+block -- `background`, for the record the resume and the portfolio show -- at
+wildly different prices, from 100 points down to 10. Unit 13, AI Strategy,
+arrived on 2026-08-21 with the two AI Strategist postings and pays 40, because
+on that seat the track record is half the decision. Unit 14, Social Media and
+Marketing Intern, arrived on 2026-08-22 and pays 10, for the opposite reason:
+an intern's record is usually thin and would otherwise decide the seat by
+accident, so capping it at 10 is what stops it. Unit 15, General Management
+and Growth, pays the whole 100 because it has no assessment behind it at all
+and the record is the only evidence there is. Unit 16, Recruiting, arrived on
+2026-08-31 and pays 10 for unit 14's reason in its own source's words -- "the
+Experience row adds, never blocks" -- and spends what it saved on a 25-point
+spike instead. Every departure is stated and defended where it is made;
+`block_points_of` is how the rest of this module was taught to read them, and
+`config.CV_WEIGHT_BY_SEAT` pins all four seats' external CV weight to 0.0 so
+the record is not paid for twice.
 
 Unit 13 is also the only one whose two grids share a slug. The senior and
 the associate posting sit the identical 90-minute assessment and the portal
@@ -48,11 +53,13 @@ assessment text and stored in `assessments/grid-<slug>.json`. See
 kinds identically, which is the point of validating the shape here.
 
 Source: Ajaia_Assessment_Rubric_Pack.md (built 2026-08-12 from 33 live JDs and
-the live assessment assignments), plus the two standalone rubric documents that
-arrived after it -- AI Strategy on 2026-08-21 and "Social Media and Marketing
+the live assessment assignments), plus the standalone rubric documents that
+arrived after it -- AI Strategy on 2026-08-21; "Social Media and Marketing
 Intern. Scoring Rubric, Interview Loop and Launch Plan", built 2026-08-20 from
-Jordan's 2026-08-19 notes, on 2026-08-22. Where this file paraphrases, the
-intent is the source's; where it quotes, the quotes are the source's own.
+Jordan's 2026-08-19 notes, on 2026-08-22; and the Recruiter scoring rubric on
+2026-08-31, kept verbatim in `assessments/rubric-recruiter.md`. Where this file
+paraphrases, the intent is the source's; where it quotes, the quotes are the
+source's own.
 """
 
 from typing import Optional
@@ -61,17 +68,19 @@ from typing import Optional
 # The fixed architecture
 #
 # "Every rubric scores 100 points in four fixed blocks." The blocks are the
-# only thing shared across all 17 grids, so they are also the only level at
+# only thing shared across all 19 grids, so they are also the only level at
 # which two candidates in different families can be compared: an Investments
 # 62 and a Marketing 62 mean the same decision, and their AI-forwardness rows
 # are asking the same question of both.
 #
-# Three grids depart, deliberately and by instruction, and all three buy the
+# Five grids depart, deliberately and by instruction, and all five buy the
 # same fifth block -- `background`, for the record the resume and the portfolio
 # show. The AI Strategist pair splits 40 / 40 / 6 / 7 / 7; the Social Media and
-# Marketing Intern grid splits 55 / 10 / 10 / 13 / 12. See `block_points_of`
-# below, section 10 of either Strategist grid's `notes`, and unit 14's second
-# note. Everything else in this module still assumes 70 / 10 / 10 / 10, because
+# Marketing Intern grid splits 55 / 10 / 10 / 13 / 12; General Management and
+# Growth, which has no assessment behind it, puts all 100 there; Recruiting
+# splits 50 / 10 / 10 / 5 / 25. See `block_points_of` below, section 10 of
+# either Strategist grid's `notes`, unit 14's second note and unit 16's header.
+# Everything else in this module still assumes 70 / 10 / 10 / 10, because
 # everything else still is.
 # ---------------------------------------------------------------------------
 
@@ -3355,6 +3364,35 @@ GRIDS = (
     # the instruction with the pack; section 10 of `notes` sets out what it
     # costs, and `config.CV_WEIGHT_BY_SEAT` pins this seat's external CV weight
     # to 0.0 so the resume is not also paid for a second time in the blend.
+    #
+    # Both grids in this unit were retargeted on 2026-08-31 from assignment 77
+    # (Core Assignment v4) to assignment 81 (v7), which is what the portal now
+    # serves. The change is delivery, not substance. v4 collected two separate
+    # video files and both grids said so -- "two videos that play", "both video
+    # links open", "Video 1" and "Video 2" as named artefacts. v7 collects the
+    # same two segments in ONE place: "Record both parts as a single continuous
+    # video... Do not submit two separate files. The portal accepts exactly one
+    # video submission per candidate", delivered as a shared folder link.
+    #
+    # So the wording below asks for the two PARTS and is indifferent to how
+    # many files carry them -- one combined recording, or several inside the
+    # one link submitted. That is the only phrasing that is fair to both
+    # cohorts at once: a v4 candidate who sent two links still has both parts,
+    # and a v7 candidate who was told not to send two files is no longer
+    # failing a check they were instructed not to satisfy.
+    #
+    # Nothing here re-weights anything. Every row keeps its block and its
+    # points, and the questions the anchors ask -- did they present rather than
+    # read, did they answer Priya's interruption, did they say something real
+    # about what they did not enjoy -- are unchanged. Editing anchor text does
+    # move `grid_version`, so the twelve cards graded before this date show on
+    # the dashboard as scored against the earlier grid. That flag is accurate
+    # and worth leaving: they were.
+    #
+    # One thing that looks like drift and is not: the mechanics check still
+    # requires the deck "attached as a file rather than a link". v7 kept that
+    # ("Submit it as a PDF or PowerPoint file") -- the folder link is for the
+    # video only. The linked decks failing that check today are real misses.
     {
         "key": "ai_strategy",
         "unit": "AI Strategy",
@@ -3372,8 +3410,9 @@ GRIDS = (
         "tier_default": True,
         "roles": ("Senior AI Strategist (218F45AD60)",),
         "assessment": "Ajaia AI Strategist Assessment, 90 minutes including "
-                      "the deck, plus a 10-minute recorded C-suite "
-                      "presentation and a 2 to 3 minute candidate video",
+                      "the deck, plus one continuous 12 to 13 minute video: a "
+                      "10-minute recorded C-suite presentation, then a 2 "
+                      "to 3 minute candidate introduction",
         "location": "New York, on-site, full-time, 4 to 7 years, $150,000 to "
                     "$250,000 base",
         "spike": "Executive nerve and claim discipline",
@@ -3422,7 +3461,7 @@ GRIDS = (
             {"label": "Executive translation",
              "asks": "A deck a chief executive can decide from.",
              "anchor": "\"One recommendation, the tradeoffs stated, a decision "
-                       "at the end of it\" (Task 3, Video 1)"},
+                       "at the end of it\" (Task 3, the presentation)"},
             {"label": "Specification craft",
              "asks": "Converts a recommendation into something an engineer can "
                      "build and test.",
@@ -3616,16 +3655,17 @@ GRIDS = (
              "label": "Presence, length judgment, and submission craft",
              "block": "communication", "weight": 7,
              "anchors": {
-                 5: "Presents rather than reads. Talks to the room in Video 1, "
+                 5: "Presents rather than reads. Talks to the room in Part 1, "
                     "uses the slides as support, holds roughly to 10 minutes, "
                     "and both screen and speaker are visible and audible "
                     "throughout. Length is judged, not padded: a reader finds "
                     "the recommendation immediately and an engineer finds the "
                     "acceptance criteria immediately. Written work sectioned by "
-                    "task number. Deck submitted as a file. Both videos "
-                    "present, Ajaia in the caption if hosted on YouTube, "
-                    "ajaia.ai referenced in the materials, every link opens. "
-                    "Video 2 answers the enjoyed and did not enjoy question "
+                    "task number. Deck submitted as a file. Both parts "
+                    "present in what was submitted, Ajaia in the caption if "
+                    "hosted on YouTube, ajaia.ai referenced in the "
+                    "materials, every link opens. "
+                    "Part 2 answers the enjoyed and did not enjoy question "
                     "with something real.",
                  3: "Delivery is competent but flat or over-rehearsed, or the "
                     "presentation runs well past or short of 10 minutes, or "
@@ -3633,7 +3673,7 @@ GRIDS = (
                     "the written work is readable but bloated, or so terse that "
                     "a required element is missing. One or two submission "
                     "misses: a slide link instead of a file, no ajaia.ai "
-                    "reference, salary buried, Video 2 answered with "
+                    "reference, salary buried, Part 2 answered with "
                     "pleasantries.",
                  1: "Reads the slides aloud with no audience in mind, or a link "
                     "that does not open, or a video missing entirely, or the "
@@ -3664,10 +3704,10 @@ GRIDS = (
                     "attestation requirement is noted without being designed "
                     "for.",
                  1: "Commits to the 20 percent with no baseline, or presents "
-                    "every item as certain, or Video 1 never engages the "
+                    "every item as certain, or Part 1 never engages the "
                     "interruption.",
              },
-             "note": "Priya interrupts around minute two of Video 1. If nothing "
+             "note": "Priya interrupts around minute two of Part 1. If nothing "
                      "is on camera anywhere, score this from the deck and the "
                      "written work alone and carry the missing recording to the "
                      "screen as the first question."},
@@ -3680,7 +3720,8 @@ GRIDS = (
             "Confirmed fraud or misrepresentation, visible on the face of the "
             "submission: fake or duplicated identity, another person's work "
             "submitted as their own, a visibly different person across the two "
-            "videos, burner-domain or automated-apply patterns, or materials "
+            "parts of the video, burner-domain or automated-apply patterns, "
+            "or materials "
             "that hand the JD's own phrasing back as analysis. This routes to "
             "the fraud log, not to grading.",
         ),
@@ -3721,12 +3762,18 @@ GRIDS = (
         "triage": (
             {"key": "fraud", "label": "No fraud tells: burner domain, automated "
                                       "apply, JD phrasing returned, identity "
-                                      "inconsistent between the two videos."},
+                                      "inconsistent between the "
+                                      "presentation and the introduction."},
             {"key": "complete", "label": "Substantially complete: five tasks, a "
-                                         "deck, and two videos that play."},
+                                         "deck, and a video that plays and "
+                                         "carries both parts -- one "
+                                         "combined file or several, in the "
+                                         "one place submitted."},
             {"key": "mechanics", "label": "Submission mechanics: deck attached "
-                                          "as a file rather than a link, both "
-                                          "video links open, Ajaia in the "
+                                          "as a file rather than a link, the "
+                                          "submitted video link opens and "
+                                          "everything in it plays, Ajaia in "
+                                          "the "
                                           "caption if on YouTube, ajaia.ai "
                                           "reference present, Markdown "
                                           "sectioned by task."},
@@ -3781,10 +3828,10 @@ GRIDS = (
                 "a human gate exists.",
                 "Task 2 (11:00), scanning for leak points and whether the "
                 "questions move the plan.",
-                "Video 1 at 1.5x (12:00), slowing to normal speed for the "
+                "Part 1 at 1.5x (12:00), slowing to normal speed for the "
                 "interruption at roughly minute two. Score the spike and "
                 "presence here.",
-                "Video 2 (15:00) for the enjoyed and did not enjoy answer and "
+                "Part 2 (15:00) for the enjoyed and did not enjoy answer and "
                 "salary expectations. Then Task 5 and total.",
             ),
             "calibration": "Craft is a criterion in this version, which makes "
@@ -3794,7 +3841,7 @@ GRIDS = (
                            "an AI records agent and never mentions the "
                            "attestation requirement is a 1 on both triage and "
                            "the spike, and the deck row alone will not save it. "
-                           "Video 2 is worth actually watching: it is the only "
+                           "Part 2 is worth actually watching: it is the only "
                            "unstructured thing in the pack, and the answer to "
                            "what they did not enjoy tells you whether they will "
                            "say an uncomfortable thing to a client.",
@@ -3813,7 +3860,7 @@ GRIDS = (
                 "did you get wrong the first time?\" Use this on every "
                 "advancing candidate, and carry anything on the resume you "
                 "could not settle at the desk.",
-                "Take whatever they said they did not enjoy in Video 2 and ask "
+                "Take whatever they said they did not enjoy in Part 2 and ask "
                 "what they would have changed about it. You are testing whether "
                 "the critique holds up under one follow-up question or "
                 "evaporates.",
@@ -3937,8 +3984,9 @@ GRIDS = (
         "tier": "associate",
         "roles": ("AI Strategist (32DBC63865)",),
         "assessment": "Ajaia AI Strategist Assessment, 90 minutes including "
-                      "the deck, plus a 10-minute recorded C-suite "
-                      "presentation and a 2 to 3 minute candidate video",
+                      "the deck, plus one continuous 12 to 13 minute video: a "
+                      "10-minute recorded C-suite presentation, then a 2 "
+                      "to 3 minute candidate introduction",
         "location": "New York, on-site, full-time, 0 to 3 years, $100,000 to "
                     "$175,000 base",
         # Renamed from 13A's "Executive nerve and claim discipline", and the
@@ -3991,7 +4039,7 @@ GRIDS = (
             {"label": "Executive translation",
              "asks": "A deck a chief executive can decide from.",
              "anchor": "\"One recommendation, the tradeoffs stated, a decision "
-                       "at the end of it\" (Task 3, Video 1)"},
+                       "at the end of it\" (Task 3, the presentation)"},
             {"label": "Specification craft",
              "asks": "Converts a recommendation into something an engineer can "
                      "build and test.",
@@ -4233,14 +4281,15 @@ GRIDS = (
              "label": "Clarity, length judgment, and submission mechanics",
              "block": "communication", "weight": 7,
              "anchors": {
-                 5: "Talks to the room in Video 1 rather than reading the "
+                 5: "Talks to the room in Part 1 rather than reading the "
                     "slides, holds roughly to 10 minutes, and both screen and "
                     "speaker are visible and audible. A reader finds the "
                     "recommendation immediately and an engineer finds the "
                     "acceptance criteria immediately. Written work sectioned by "
-                    "task. Deck submitted as a file. Both videos present, Ajaia "
-                    "in the caption if hosted on YouTube, ajaia.ai referenced, "
-                    "every link opens. Nerves are not scored.",
+                    "task. Deck submitted as a file. Both parts present "
+                    "in what was submitted, Ajaia in the caption if "
+                    "hosted on YouTube, ajaia.ai referenced, every link "
+                    "opens. Nerves are not scored.",
                  3: "Delivery is stiff, rushed or over-rehearsed but the "
                     "argument still lands. Or the written work is bloated, or "
                     "so terse that a required element is missing. One or two "
@@ -4276,7 +4325,7 @@ GRIDS = (
                     "answered with feature comparison, or the attestation "
                     "requirement is noted without being designed for.",
                  1: "Commits to the 20 percent with no baseline, or presents "
-                    "everything as certain, or Video 1 never engages the "
+                    "everything as certain, or Part 1 never engages the "
                     "interruption.",
              },
              "note": "Steadiness is not in these anchors and holding a room is "
@@ -4285,7 +4334,7 @@ GRIDS = (
                      "junior candidate who tells the CEO what she wants to hear "
                      "will do the same thing to a real client in month two, "
                      "when it costs more. Priya interrupts around minute two of "
-                     "Video 1; if nothing is on camera anywhere, score this "
+                     "Part 1; if nothing is on camera anywhere, score this "
                      "from the deck and the written work and carry the missing "
                      "recording to the screen as the first question."},
         ),
@@ -4293,7 +4342,8 @@ GRIDS = (
             "Confirmed fraud or misrepresentation, visible on the face of the "
             "submission: fake or duplicated identity, another person's work "
             "submitted as their own, a visibly different person across the two "
-            "videos, burner-domain or automated-apply patterns, or materials "
+            "parts of the video, burner-domain or automated-apply patterns, "
+            "or materials "
             "that hand the JD's own phrasing back as analysis. This routes to "
             "the fraud log, not to grading. Reviewers run no forensics.",
         ),
@@ -4340,12 +4390,18 @@ GRIDS = (
         "triage": (
             {"key": "fraud", "label": "No fraud tells: burner domain, automated "
                                       "apply, JD phrasing returned, identity "
-                                      "inconsistent between the two videos."},
+                                      "inconsistent between the "
+                                      "presentation and the introduction."},
             {"key": "complete", "label": "Substantially complete: five tasks, a "
-                                         "deck, and two videos that play."},
+                                         "deck, and a video that plays and "
+                                         "carries both parts -- one "
+                                         "combined file or several, in the "
+                                         "one place submitted."},
             {"key": "mechanics", "label": "Submission mechanics: deck attached "
-                                          "as a file rather than a link, both "
-                                          "video links open, Ajaia in the "
+                                          "as a file rather than a link, the "
+                                          "submitted video link opens and "
+                                          "everything in it plays, Ajaia in "
+                                          "the "
                                           "caption if on YouTube, ajaia.ai "
                                           "reference present, Markdown "
                                           "sectioned by task."},
@@ -4393,9 +4449,9 @@ GRIDS = (
                 "Task 4 (9:00), checking it describes the same system and that "
                 "a human gate exists.",
                 "Task 2 (10:30), briefly.",
-                "Video 1 at 1.5x (11:30), slowing to normal speed for the "
+                "Part 1 at 1.5x (11:30), slowing to normal speed for the "
                 "interruption around minute two. Score the spike.",
-                "Video 2 (14:00), then Task 5 and total.",
+                "Part 2 (14:00), then Task 5 and total.",
             ),
             "calibration": "Two failure modes will cost you good hires in this "
                            "pool. The first is paying for polish: a tidy deck "
@@ -4425,7 +4481,7 @@ GRIDS = (
                 "highest-yield question in the loop.",
                 "\"Which item on your triage do you drop if the budget is "
                 "halved, and what breaks?\"",
-                "Take whatever they said they did not enjoy in Video 2 and ask "
+                "Take whatever they said they did not enjoy in Part 2 and ask "
                 "what they would have changed. You are testing whether the "
                 "critique survives one follow-up.",
             ),
@@ -5262,6 +5318,2369 @@ GRIDS = (
             "proxy signals above are live.",
         ),
     },
+    # -- 16. Recruiting ----------------------------------------------------
+    #
+    # Portal assignment 40, slug `recruiter`, live 2026-08-31; the Workable
+    # posting (EC24F51CB9, "Recruiter - Philippines") went up the same morning
+    # at 08:47 UTC. Sixty minutes including the video, which is the shortest
+    # assessment in the pack by a factor of two, and the rubric that arrived
+    # with it is a flat six-row table rather than the pack's block
+    # architecture.
+    #
+    # The source's weights -- 20 / 25 / 30 / 10 / 5 / 10 across six rows --
+    # are carried below unchanged. What this file decides is only which block
+    # each row sits in, which changes how a card groups and nothing about the
+    # arithmetic. Three things depart from the pack default, all three because
+    # the source says so rather than because the assessment is short.
+    #
+    # `block_points` splits 50 / 10 / 10 / 5 / 25. The salary calls are the
+    # spike rather than a third work-product row because the assessment names
+    # them as the differentiator in its own words -- "whether you can make a
+    # salary call and defend it, including when the easy answer and the fair
+    # answer are different" -- and because that is the row where a recruiter
+    # who is good at this and one who is merely fast come apart. Communication
+    # buys 5 instead of 10; work product gives up 20 of the pack's 70 to pay
+    # for the spike and the background block.
+    #
+    # `background` is open at 10, so `config.CV_WEIGHT_BY_SEAT` pins this
+    # seat's external CV weight to 0.0 -- the pairing BLOCKS' `background`
+    # note requires of any grid that opens it. The price is unit 14's price
+    # and the reason is unit 14's reason in the source's own sentence: "The
+    # Experience row adds, never blocks; score a missing signal 3, never 1."
+    # A recruiter's public record is thin far more often than it is damning,
+    # and at 10 points an empty optional section costs 4 points against an
+    # otherwise perfect card and cannot decide the seat.
+    #
+    # `universal_auto_fails: False`, for the reason unit 14 switches it off.
+    # Three of the four universal rules are cap-and-completeness rules, and
+    # this rubric turns exactly those into scored rows: "Video absent" is a 1
+    # on a 5-point row, "No note" is a 1 on a 10-point row, and "Grade what is
+    # in front of you" is the source's own instruction. Leaving the list on
+    # would have a grader close a candidacy on a missing video the rubric
+    # prices at five points. The fourth universal rule -- fabricated facts
+    # where the task supplied data -- is neither repealed nor contradicted
+    # here and is carried forward by hand in `auto_fails` below: the task
+    # supplies three stated expectations and a band, and a submission that
+    # invents different ones is not marking the same exercise.
+    #
+    # What this rubric does NOT make an auto-fail is worth stating, because
+    # the temptation is real. Asking what a finalist currently earns, and
+    # anchoring an offer to Marisol's volunteered PHP figure, each break a
+    # rule Material C states absolutely and the JD repeats. The source prices
+    # both as 1-anchors on their own rows and ends the grading for neither, so
+    # neither is an auto-fail here. They are triage checks and red flags
+    # instead, which is where a rule that must be seen but must not decide the
+    # score belongs.
+    {
+        "key": "recruiting",
+        "unit": "Recruiting",
+        "grid_name": "Recruiter",
+        "entity": "Ajaia",
+        "slugs": ("recruiter",),
+        "roles": ("Recruiter (EC24F51CB9)",),
+        "assessment": "Ajaia Recruiter Assessment, Core Assignment, 60 "
+                      "minutes including the video",
+        "location": "Remote -- Philippines, India, Pakistan, Kenya or Sri "
+                    "Lanka, meaningful overlap with US Eastern. $10,000 to "
+                    "$20,000 all-in: $9,000 to $17,000 base plus up to 18 "
+                    "percent quarterly bonus.",
+        "spike": "The salary calls",
+        # 50 / 10 / 10 / 5 / 25. Stated in full rather than as a diff, because
+        # a reader who sees only "spike: 25" cannot tell what paid for it.
+        "block_points": {
+            "work_product": 50,
+            "background": 10,
+            "ai_forwardness": 10,
+            "communication": 5,
+            "spike": 25,
+        },
+        "universal_auto_fails": False,
+        "seat": "The seat owns hiring end to end for a company running 30+ "
+                "roles across two systems and thousands of submissions: "
+                "intake, writing the posting, sourcing, screening, moving "
+                "people through the assessment platform, scheduling, and "
+                "keeping every candidate informed. The assignment is that job "
+                "compressed into one hour -- one intake, three salary calls, "
+                "one posting -- and the JD's line that the volume \"only "
+                "works when one person owns the whole machine and keeps it "
+                "clean\" is what the hour is sampling.",
+        "core_skill": "Making a call and defending it under a clock. The "
+                      "assessment says so twice: 60 minutes is \"the only "
+                      "hard constraint\", and \"a different approach is "
+                      "treated the same as the expected one when it is "
+                      "coherent, fits the constraints, and you say why you "
+                      "chose it.\"",
+        "competencies": (
+            {"label": "Intake that prevents a rewrite",
+             "asks": "The questions that would have to be answered before the "
+                     "posting is written, and the courage to name what the "
+                     "brief gets wrong.",
+             "anchor": "\"Run intake with hiring managers: get the real "
+                       "requirements out of them, and push back when a brief "
+                       "asks for two different people\" (JD), tested by "
+                       "Renata's years contradiction (Task 1)"},
+            {"label": "Holding a range",
+             "asks": "A number put in front of a candidate, and the sentence "
+                     "said about it, when the easy answer and the fair answer "
+                     "differ.",
+             "anchor": "\"Handle salary conversations: know the band, hold it, "
+                       "and tell a candidate early when their expectation and "
+                       "our range do not meet\" (JD), tested by Daniel at "
+                       "$9,500 and Aditi at $31,000 (Task 2)"},
+            {"label": "Writing a posting to house style",
+             "asks": "A publish-ready JD built from rough notes, against a "
+                     "one-page style sheet the candidate is handed.",
+             "anchor": "\"Most of our roles need the job description built "
+                       "from a hiring manager's rough notes, not copied from "
+                       "the last one\" (JD), against Material C (Task 3)"},
+            {"label": "Candidate-pay discipline",
+             "asks": "Whether the rule survives contact with a hiring manager "
+                     "who asks for it and a candidate who volunteers it.",
+             "anchor": "\"We never ask a candidate what they currently earn. "
+                       "Expectations only\" (JD and Material C), tested by "
+                       "Renata's request and Marisol's cover note"},
+        ),
+        "criteria": (
+            {"key": "intake_questions", "label": "Intake questions (Task 1)",
+             "block": "work_product", "weight": 20,
+             "anchors": {
+                 5: "Questions that would prevent a rewrite: scope, must-haves "
+                    "versus preferences, the interview loop, the decision "
+                    "timeline. The years contradiction is named -- \"3+ years "
+                    "minimum in process or ops or consulting, non negotiable\" "
+                    "against \"honestly the years thing matters less than "
+                    "whether they can hold a room\" -- and the answer says "
+                    "what they would do about it. The current-compensation "
+                    "request is refused plainly, with what they will provide "
+                    "instead. Ten questions or fewer, and the three lines to "
+                    "Renata are used on what has to be resolved before this "
+                    "goes live.",
+                 3: "A competent list, but generic, or it names the "
+                    "contradiction without saying what they would do about it.",
+                 1: "Questions that restate the notes back, no contradiction "
+                    "noticed, or an intake question that asks what the "
+                    "finalists currently earn.",
+             }},
+            {"key": "posting", "label": "The posting (Task 3)",
+             "block": "work_product", "weight": 30,
+             "anchors": {
+                 5: "Publish-ready. House style held: one canonical title with "
+                    "the alternates listed separately as search terms, no "
+                    "\"rockstar\" and no other banned word, 5 to 7 short "
+                    "requirement lines at one capability each, an AI fluency "
+                    "line, and the compensation range stated in the body. "
+                    "Overview, what the person will do, requirements and the "
+                    "compensation line are all present. Reads like a person "
+                    "wrote it and a good candidate would finish it.",
+                 3: "On-format and clean, but generic, or one style rule "
+                    "slipped, or the requirements bloat past 7 lines.",
+                 1: "\"Rockstar\" or another banned word survived, the role is "
+                    "posted under all three of Renata's titles, no "
+                    "compensation line, or the requirements are a copy of "
+                    "Renata's paragraph.",
+             }},
+            {"key": "salary_calls", "label": "The salary calls (Task 2)",
+             "block": "spike", "weight": 25,
+             "anchors": {
+                 5: "Daniel brought into the band or flagged as under floor "
+                    "with a recommendation -- his $9,500 sits below the stated "
+                    "14 to 22. Aditi handled with an early, direct "
+                    "conversation about the range, her $31,000 against a "
+                    "$22,000 ceiling. Marisol assessed against the "
+                    "client-facing requirement she has never met, not against "
+                    "her six years. Marisol's volunteered PHP 65,000 never "
+                    "used and never repeated. The recommendation follows what "
+                    "Renata said she needs -- someone who can run a mapping "
+                    "session without her in the room -- and picks one person, "
+                    "under 100 words.",
+                 3: "Reasonable calls, but one candidate is handled on the "
+                    "resume rather than the brief, or the recommendation "
+                    "hedges instead of picking.",
+                 1: "Daniel offered $9,500 because he asked for it, an offer "
+                    "anchored to Marisol's current pay, or Aditi advanced with "
+                    "the range gap unmentioned.",
+             }},
+            {"key": "ai_workflow_note", "label": "AI Workflow Note (Task 4)",
+             "block": "ai_forwardness", "weight": 10,
+             "anchors": {
+                 5: "Names specific tools and specific uses, and names "
+                    "something AI produced that was rejected, with a reason. "
+                    "Inside 60 words.",
+                 3: "Lists tools and uses, but nothing AI gave them was "
+                    "apparently rejected.",
+                 1: "No note, or a note with no specifics.",
+             }},
+            {"key": "video", "label": "Video",
+             "block": "communication", "weight": 5,
+             "anchors": {
+                 5: "Clear and direct on why this role and why Ajaia, then "
+                    "walks through real reasoning on the hardest salary call "
+                    "and a choice in the posting. Screen plus camera, 6 to 8 "
+                    "minutes, salary expectations stated, every link opens.",
+                 3: "Covers most of what was asked, but the walkthrough "
+                    "narrates the work instead of explaining the thinking "
+                    "behind it.",
+                 1: "Video absent, salary expectations not stated, or the "
+                    "submission is hard to follow.",
+             }},
+            {"key": "experience",
+             "label": "Experience and public presence",
+             "block": "background", "weight": 10,
+             # The neutral-3 rule, on the row it governs, because this is the
+             # row a grader is reading when the temptation to mark an empty
+             # optional section as a 1 arises. The source states it twice, in
+             # its preamble and in this row's own 3 anchor.
+             "note": "Adds, never blocks. Nothing to review scores 3, never 1. "
+                     "The 1 is reserved for links that do not open and for "
+                     "shown work that contradicts the submission, never for "
+                     "absence -- the section is optional and the assessment "
+                     "says leaving it blank is fine.",
+             "anchors": {
+                 5: "Real, checkable recruiting work: roles filled, a posting "
+                    "or careers page they wrote, a sourcing project, a public "
+                    "profile that holds up.",
+                 3: "Some relevant evidence. Also score 3 when nothing is "
+                    "provided at all -- the section is optional and absence is "
+                    "not a signal.",
+                 1: "Links provided that do not open, or shown work that "
+                    "directly contradicts the quality of the submission. Score "
+                    "1 only for a broken or contradicted claim, never for an "
+                    "empty field.",
+             }},
+        ),
+        # Two rules only, and neither is a completeness rule -- see the header
+        # comment above for why the universal list is off and why exactly one
+        # of its four rules is carried forward here.
+        "auto_fails": (
+            "Fabricated facts or numbers where the task supplied them: a band "
+            "other than 14 to 22, a stated expectation other than $16,000, "
+            "$9,500 or $31,000, or a candidate detail invented rather than "
+            "read out of Material B.",
+            "Confirmed fraud or misrepresentation visible on the face of the "
+            "submission: another person's work, a visibly different person "
+            "across the video and the writing, burner-domain or "
+            "automated-apply patterns, or materials that hand the posting's "
+            "own phrasing back as content. This routes to the fraud log, not "
+            "to grading.",
+        ),
+        "red_flags": (
+            "Any request for a candidate's current pay, in any format, at any "
+            "stage -- including agreeing to Renata's \"can you also find out "
+            "what the finalists are making now\". Material C forbids it "
+            "absolutely and the JD repeats it. It is a 1 on the row it sits "
+            "under and a probe at screen, not an auto-fail.",
+            "Marisol's PHP 65,000 repeated anywhere in the submission, even "
+            "neutrally. The rule is that a volunteered figure is not used and "
+            "does not go in the notes; a submission that quotes it back has "
+            "put it in the notes.",
+            "The role posted under all three of Renata's titles because she "
+            "asked. The point of Material C is that it is the standard and the "
+            "hiring manager's note is not.",
+            "A recommendation that ranks all three and picks none. The task "
+            "asks who to hire.",
+            "Deference as a strategy: every one of Renata's instructions "
+            "carried out, including the two Material C forbids. The seat "
+            "exists to push back.",
+        ),
+        "triage": (
+            {"key": "fraud", "label": "No fraud tells: burner domain, "
+                                      "automated-apply pattern, a different "
+                                      "person in the video than in the "
+                                      "writing, posting phrasing handed back "
+                                      "as content."},
+            {"key": "complete", "label": "Complete: intake questions plus the "
+                                         "lines to Renata, three salary calls "
+                                         "plus the recommendation, the "
+                                         "posting, the AI Workflow Note, and a "
+                                         "video link at the top."},
+            {"key": "opens", "label": "Every link opens in a private window, "
+                                      "and a reference to ajaia.ai appears in "
+                                      "the materials. Ask once before counting "
+                                      "a dead link against them."},
+            {"key": "contradiction", "label": "The years contradiction in "
+                                              "Renata's notes is named: 3+ "
+                                              "non-negotiable against \"the "
+                                              "years thing matters less\"."},
+            {"key": "current_pay", "label": "Nobody is asked what they "
+                                            "currently earn, at any stage, and "
+                                            "Marisol's volunteered figure is "
+                                            "neither used nor repeated."},
+            {"key": "posting_style", "label": "The posting carries one "
+                                              "canonical title, no banned "
+                                              "word, and a compensation line."},
+        ),
+        "tells": {
+            "strong": "A number put in front of Daniel that is not the number "
+                      "he asked for, with the reason said out loud.",
+            "weak": "An intake question that asks Renata to find out what the "
+                    "finalists are making now.",
+        },
+        "do_not_penalize": (
+            "Going over the 60 minutes. \"Grade what is in front of you.\" The "
+            "clock is the candidate's constraint, not a criterion, and "
+            "reviewers run no forensics on when a file was written.",
+            "An approach that is not the one we had in mind. The assessment "
+            "says so in as many words: a different approach is treated the "
+            "same as the expected one when it is coherent, fits the "
+            "constraints, and the candidate says why they chose it. Advancing "
+            "Marisol on a development plan and rejecting Aditi on budget are "
+            "both defensible; what is graded is the defence.",
+            "Prose that reads as AI-written. This is an AI-native seat, the "
+            "assessment instructs candidates to use AI, and what is graded is "
+            "the Workflow Note and whether a filter was applied on top -- not "
+            "whether a model was involved.",
+            "Rough video production. Screen plus camera is the only "
+            "requirement; lighting, edit and set are scored nowhere.",
+            "An empty optional prior-work section. It is optional, it adds, "
+            "and the background row scores 3 when there is nothing to read.",
+            "A dead link, on first sight. Ask once for a working one, grade "
+            "what is reachable meanwhile, and score `experience` and the "
+            "`opens` triage check down only after the ask has gone "
+            "unanswered.",
+            "A short posting. Material C caps requirements at 5 to 7 lines and "
+            "bans hype; a JD that comes in tight and plain is the house style "
+            "working, not thin work.",
+        ),
+        "gia": {
+            "primary": ("Word Meaning", "Reasoning"),
+            "secondary": ("Perceptual Speed",),
+            "why": "Word Meaning fits a seat whose whole output is written -- "
+                   "postings, outreach, screening notes, rejections -- and "
+                   "whose JD says a candidate can tell a templated message "
+                   "from a real one in about four words. Reasoning fits "
+                   "spotting that a brief contradicts itself and holding a "
+                   "band against three different arguments for breaking it. "
+                   "Perceptual Speed is secondary and belongs to the volume "
+                   "part of the seat rather than to this hour. Ajaia "
+                   "administers no instrument, so only the proxies below are "
+                   "live.",
+            "proxies": (
+                "Whether the years contradiction was noticed at all, and how "
+                "quickly it is disposed of.",
+                "How the 60 minutes were allocated across four tasks and a "
+                "video, and whether that allocation matches the weights.",
+                "Whether the current-pay refusal is argued or merely asserted.",
+            ),
+        },
+        "reviewer": {
+            "path": (
+                "Task 2 first, all three calls and the recommendation. It is "
+                "25 points and the fastest read in the submission (4 min).",
+                "Task 1, checking for the contradiction and for the "
+                "current-pay refusal (3).",
+                "Task 3 against Material C, line by line: title count, banned "
+                "words, requirement-line count, AI fluency line, compensation "
+                "line (5).",
+                "Task 4, the AI Workflow Note (1).",
+                "Video, the opening 90 seconds and the hardest-call "
+                "walkthrough (8).",
+                "Optional prior work, links opened (2).",
+            ),
+            "calibration": "The failure mode on this seat is rewarding "
+                           "compliance. A submission that does everything "
+                           "Renata asked -- three titles, current pay "
+                           "collected, Daniel signed at the number he named -- "
+                           "is fast, tidy, and wrong on three counts, and it "
+                           "reads well until you check it against Material C. "
+                           "Read the posting with the style sheet open. The "
+                           "second failure mode is the reverse: a candidate "
+                           "who lectures the hiring manager instead of asking "
+                           "her a question. The row rewards a refusal that "
+                           "says what will be provided instead.",
+            "probes": (
+                "\"Renata needs this live by Wednesday and she is out Thursday "
+                "and Friday. Walk me through your Monday.\"",
+                "\"You put a number in front of Daniel. He says another firm "
+                "offered him 12. What do you say?\"",
+                "\"Tell me about a brief you pushed back on, and what "
+                "happened.\"",
+            ),
+        },
+        "notes": (
+            "Use 4 and 2 often, which the source says in its own preamble and "
+            "which matters more here than anywhere else in the pack. There "
+            "are six rows and three of them carry 20 points or more, so a "
+            "reviewer who marks only 3s and 5s is moving candidates in 12- "
+            "and 15-point steps and compressing the pool rather than ranking "
+            "it.",
+            "What the 10-point background weighting changes, with the "
+            "arithmetic. A candidate who scores 3 on `experience` and a "
+            "perfect 5 everywhere else lands at 96, so an empty optional "
+            "section costs 4 points and nothing else. Work product plus the "
+            "spike is 75 on its own, so a candidate can clear the advance bar "
+            "on the three task rows alone with no public record at all. That "
+            "is what \"adds, never blocks\" means here.",
+            "The bands are the pack's, unchanged, and the source agrees with "
+            "them: advance at 75, hold 60 to 74, reject below 60. The pack "
+            "splits the advancing band at 85 into Best and Better so the top "
+            "of the queue is visible without opening every card; that is a "
+            "presentation split above the source's bar, not a second bar.",
+            "Check the posting against Material C with the style sheet open "
+            "rather than from memory. Five of the checks in that row are "
+            "objective and take under a minute between them -- count the "
+            "titles, search for the six banned words, count the requirement "
+            "lines, look for the AI fluency line, look for the compensation "
+            "line -- and doing them by eye is how a polished posting that "
+            "breaks two rules gets a 4.",
+            "The assessment is 60 minutes including the video, the shortest "
+            "in the pack. That is a scoping constraint on what can be asked "
+            "of a submission, not a licence to mark it more gently: the "
+            "weights already reflect what an hour can show, and the source's "
+            "instruction is to grade what is in front of you.",
+        ),
+        "gaps": (
+            "No sourcing task. The JD says \"many of the roles we fill need "
+            "candidates found, not just candidates who applied\", and nothing "
+            "in this hour tests whether the candidate can find anyone. The "
+            "`experience` row is the only place a sourcing project is visible "
+            "at all, and it is worth 10.",
+            "No volume and no ATS hygiene. The seat exists because 30+ roles "
+            "and thousands of submissions across two systems need one owner, "
+            "and a one-intake, three-candidate exercise samples none of that. "
+            "Screen for it, or watch it in the first month.",
+            "Nothing tests candidate communication at scale -- the rejection "
+            "that sounds like a person wrote it, the pipeline nobody sits in "
+            "for six weeks. The JD names both as standards and the assessment "
+            "asks for neither.",
+            "Ajaia administers no formal GIA instrument today, so only the "
+            "proxy signals above are live.",
+        ),
+    },
+    # -- 17. Marketing Associate -------------------------------------------
+    #
+    # Portal assignment 41, slug `marketing-associate`, and the first of six
+    # grids added on 2026-08-31 from one instruction set. All six share an
+    # architecture the pack did not have before them: a `seeded` list naming
+    # what was planted in the materials on purpose, reported caught or missed
+    # per criterion rather than averaged into a mark. See `seeded_of`.
+    #
+    # All six also open `background` at 10 on the same rule -- "always adds,
+    # never blocks... a candidate with nothing to show there scores a 3, never
+    # a 1" -- so `config.CV_WEIGHT_BY_SEAT` pins all six to 0.0, and all six
+    # switch the universal auto-fails off, because every one of these rubrics
+    # prices absence as a 1 on the row rather than as the end of the grading:
+    # "under 300 words", "No note", "No working prototype", "Missing
+    # walkthrough". The one universal rule none of them repeals -- fabricated
+    # facts where the task supplied data -- is carried forward by hand, and it
+    # bites harder here than usual, because each of these packs hands the
+    # candidate real numbers to reason from.
+    #
+    # 50 / 10 / 10 / 5 / 25. The channel set is the spike rather than a third
+    # work-product row because it is the only task where the constraint and
+    # the easy win point in opposite directions: Task 2 is scoped to public
+    # ajaia.ai material, and Sam's unverified 480 is sitting right there in
+    # Material B looking like a great stat. Everything else in this pack
+    # rewards judgment; that row rewards restraint, which is rarer.
+    {
+        "key": "marketing_associate",
+        "unit": "Marketing Associate",
+        "grid_name": "Marketing Associate",
+        "entity": "Ajaia",
+        "slugs": ("marketing-associate",),
+        "roles": ("Marketing Associate (ABDD1D2556)",),
+        "assessment": "Ajaia Marketing Associate Assessment, Core Assignment, "
+                      "120 minutes including the video",
+        "location": "Remote",
+        "spike": "Working inside the constraint",
+        "block_points": {
+            "work_product": 50,
+            "background": 10,
+            "ai_forwardness": 10,
+            "communication": 5,
+            "spike": 25,
+        },
+        "universal_auto_fails": False,
+        "seat": "A simulated day as Ajaia's Marketing Associate in the week "
+                "the podcast is being prepped: a think piece, a channel "
+                "piece, and a clip plan for the launch episode. The materials "
+                "are deliberately slightly chaotic -- \"two people in the "
+                "materials below do not fully agree with each other\" -- and "
+                "the pack is built to see what the candidate notices while "
+                "working fast.",
+        "core_skill": "Noticing. Every one of the five planted items is "
+                      "visible on one read and easy to skim past on a clock, "
+                      "and the assessment says so: the video asks for "
+                      "\"anything you deliberately left out or any conflict "
+                      "in the materials you noticed.\"",
+        # What the pack planted. Each names the material it lives in, so a
+        # reviewer can check the grader rather than take its word.
+        "seeded": (
+            {"key": "beta_480",
+             "label": "The unverified 480 beta signups",
+             "where": "Material B, Sam Okafor's email",
+             "criteria": ("channel_set",),
+             "caught": "The figure is left out of the public-facing channel "
+                       "piece, and ideally the candidate says why: Sam "
+                       "flagged possible bot traffic from a Reddit thread and "
+                       "wrote \"I wouldn't stake anything on it yet.\" "
+                       "Deliberately not using it, and saying so, is the "
+                       "signal.",
+             "missed": "The 480 appears in the channel deliverable. That is "
+                       "two failures at once: Task 2 is scoped to public "
+                       "ajaia.ai material only, and the number is one the "
+                       "source himself would not stand behind."},
+            {"key": "client_names",
+             "label": "Legal's no-client-names rule",
+             "where": "Material A, Priya Chen 10:03 AM",
+             "criteria": ("channel_set",),
+             "caught": "No client or partner company is named in the public "
+                       "piece. Bellwether Mutual and Marcus Webb are episode "
+                       "material, not channel material, and the site copy is "
+                       "used as the source of truth as instructed.",
+             "missed": "Bellwether Mutual, or any other client or partner, "
+                       "named in the channel piece. Priya's reminder is "
+                       "explicit and says \"(again)\", which is the tell that "
+                       "this is a standing rule rather than a preference."},
+            {"key": "runtime_mismatch",
+             "label": "The recording-length discrepancy",
+             "where": "Material C: brief says 40 minutes, Priya's planning "
+                      "note says 42, the timestamped outline closes at 39:30",
+             "criteria": ("podcast",),
+             "caught": "The mismatch is named. Resolving it is not required "
+                       "and not expected -- noticing that three numbers "
+                       "describing one recording disagree is the whole test.",
+             "missed": "A clip plan and show notes written as though the "
+                       "three figures agreed, with a runtime stated as "
+                       "settled."},
+            {"key": "hedged_stat",
+             "label": "Marcus's walked-back results number",
+             "where": "Material C, 33:15",
+             "criteria": ("podcast",),
+             "caught": "The near-half processing-time cut is attributed as "
+                       "Marcus's own hedged claim, or left out. He says \"we "
+                       "think\", \"still validating the methodology\" and "
+                       "\"don't quote me on an exact number yet\" in one "
+                       "breath.",
+             "missed": "\"Cut processing time in half\" headlined as settled "
+                       "fact in a clip title, hook or the show notes. This is "
+                       "the single most common way to fail this row."},
+            {"key": "launch_date",
+             "label": "The unresolved launch date",
+             "where": "Material A: Priya says this Thursday, Dev says the "
+                      "calendar says the Friday after next, never resolved",
+             "criteria": ("podcast",),
+             "caught": "The conflict is flagged as an open question rather "
+                       "than silently decided. Priya's own \"huh, will "
+                       "check\" is the evidence that nobody has settled it.",
+             "missed": "One date picked and stated as fact with no flag, or "
+                       "no date handled at all."},
+            {"key": "brand_voice",
+             "label": "The brand voice note as a live test",
+             "where": "Material D",
+             "criteria": ("think_piece", "channel_set"),
+             "caught": "No \"unlock\", \"seamless\", \"game-changing\" or "
+                       "\"cutting-edge\" anywhere, and the prose would not "
+                       "work on any other AI company's homepage.",
+             "missed": "A banned word survives, or the copy is generic "
+                       "AI-company writing. Material D is one short paragraph "
+                       "and easy to skim past, which is the point of putting "
+                       "it there."},
+        ),
+        "criteria": (
+            {"key": "think_piece", "label": "Think piece (Task 1)",
+             "block": "work_product", "weight": 30,
+             "anchors": {
+                 5: "Real, arguable position an enterprise buyer who has "
+                    "already sat through a failed pilot would stop scrolling "
+                    "for. Specific, supportable, and it sustains itself. "
+                    "Brand voice held: no banned word, and it would not work "
+                    "on another AI company's homepage.",
+                 3: "Competent and readable, but the position is safe or the "
+                    "examples are generic.",
+                 1: "Definitional summary of AI, hype language, invented "
+                    "statistics, or under 300 words.",
+             }},
+            {"key": "podcast", "label": "Podcast launch task (Task 3)",
+             "block": "work_product", "weight": 20,
+             "anchors": {
+                 5: "Clips chosen for a real reason, with hooks that earn the "
+                    "next few seconds. The hedged results stat handled "
+                    "honestly. Show notes tight, accurate and inside 150 "
+                    "words. Timestamp ranges, titles and hooks all present.",
+                 3: "Reasonable clip choices but a weak hook, or show notes "
+                    "that pad rather than inform.",
+                 1: "Clips picked at random, the hedged number presented as "
+                    "settled fact, or show notes that misstate the material.",
+             }},
+            {"key": "channel_set",
+             "label": "Channel execution set (Task 2)",
+             "block": "spike", "weight": 25,
+             "anchors": {
+                 5: "Platform-native and platform named first. Built only "
+                    "from public ajaia.ai material, brand voice held, no "
+                    "client or partner named. The three sentences give clear "
+                    "reasoning for the choices made and for what was "
+                    "deliberately left out.",
+                 3: "On-format and clean, but generic or leaning on template "
+                    "thinking.",
+                 1: "Off-constraint -- non-public or unverified material, "
+                    "including the 480 figure -- or off-brand voice, or no "
+                    "reasoning given.",
+             }},
+            {"key": "ai_workflow_note", "label": "AI Workflow Note (Task 4)",
+             "block": "ai_forwardness", "weight": 10,
+             "anchors": {
+                 5: "Names specific tools and specific uses, and names "
+                    "something AI produced that was rejected, with a reason. "
+                    "Inside 100 words.",
+                 3: "Lists tools and uses, but nothing was apparently "
+                    "rejected.",
+                 1: "No note, or no specifics.",
+             }},
+            {"key": "video", "label": "Video",
+             "block": "communication", "weight": 5,
+             "anchors": {
+                 5: "Walks through the real reasoning behind all three "
+                    "deliverables, screen plus camera, 5 to 8 minutes, and "
+                    "closes cleanly with who they are, why Ajaia, and salary "
+                    "expectations.",
+                 3: "Covers most of what was asked, or is thin on reasoning, "
+                    "or the close is rushed.",
+                 1: "Missing walkthrough, or the close never states why Ajaia "
+                    "or salary expectations.",
+             }},
+            {"key": "experience",
+             "label": "Experience and public presence",
+             "block": "background", "weight": 10,
+             "note": "Always adds, never blocks. Nothing to show scores 3, "
+                     "never 1. Reserve the 1 for links that do not open or "
+                     "work that contradicts the submission.",
+             "anchors": {
+                 5: "Real, checkable work: an account they grew, published "
+                    "writing, a produced show, or similar.",
+                 3: "Some relevant evidence, or nothing provided at all -- "
+                    "score 3 here, never 1.",
+                 1: "Links that do not open, or shown work that contradicts "
+                    "the quality of the submission.",
+             }},
+        ),
+        "auto_fails": (
+            "Fabricated facts or numbers where the pack supplied them: a "
+            "runtime, a results figure, a signup count or a quotation "
+            "attributed to Marcus that is not in Material C.",
+            "Confirmed fraud or misrepresentation: another person's work, a "
+            "visibly different person in the video, burner-domain or "
+            "automated-apply patterns. Routes to the fraud log, not to "
+            "grading.",
+        ),
+        "red_flags": (
+            "The 480 used anywhere public. It is the most attractive number "
+            "in the pack and the one the source refused to stand behind.",
+            "A client or partner company named in the channel piece.",
+            "Production polish carrying a piece that missed the substantive "
+            "call. Say so explicitly in the brief -- \"well-produced but "
+            "misses X\" -- rather than letting the polish lift the mark.",
+        ),
+        "triage": (
+            {"key": "fraud", "label": "No fraud tells: burner domain, "
+                                      "automated apply, posting phrasing "
+                                      "handed back as content."},
+            {"key": "complete", "label": "Complete: think piece, channel "
+                                         "piece plus three sentences, clip "
+                                         "plan and show notes, AI Workflow "
+                                         "Note, and a video."},
+            {"key": "opens", "label": "Every link opens in a private window "
+                                      "and a reference to ajaia.ai appears in "
+                                      "the materials. Ask once before "
+                                      "counting a dead link against them."},
+            {"key": "constraint", "label": "The channel piece stays inside "
+                                           "public ajaia.ai material: no 480, "
+                                           "no client or partner named."},
+            {"key": "hedged", "label": "The near-half processing-time cut is "
+                                       "not presented as a settled number."},
+            {"key": "voice", "label": "No banned word survives: unlock, "
+                                      "seamless, game-changing, "
+                                      "cutting-edge."},
+        ),
+        "tells": {
+            "strong": "A sentence saying what they left out and why -- the "
+                      "480, a client name, a date they could not confirm.",
+            "weak": "\"Cut processing time in half\" as a clip title.",
+        },
+        "do_not_penalize": (
+            "Going over the 120 minutes. Grade what is in front of you.",
+            "Rough production on the channel piece or the video. Neither is a "
+            "production test; the reasoning behind the choices is what is "
+            "scored.",
+            "Prose that reads as AI-written. AI use is expected and asked "
+            "for; what is graded is the Workflow Note and whether a filter "
+            "was applied on top.",
+            "An empty optional prior-work section. It is optional, it adds, "
+            "and the background row scores 3 when there is nothing to read.",
+            "A dead link on first sight. Ask once, grade what is reachable "
+            "meanwhile.",
+            "Not resolving the runtime discrepancy or the launch date. "
+            "Noticing is the test; resolving is not asked for.",
+        ),
+        "gia": {
+            "primary": ("Word Meaning", "Perceptual Speed"),
+            "secondary": ("Reasoning",),
+            "why": "Word Meaning fits a seat whose output is a think piece, a "
+                   "caption and show notes. Perceptual Speed fits the real "
+                   "task under the clock -- five planted items across four "
+                   "short materials, none of them hidden and all of them easy "
+                   "to skim past. Ajaia administers no instrument, so only "
+                   "the proxies below are live.",
+            "proxies": (
+                "How many of the five planted items were named at all.",
+                "Whether the hedged stat was attributed or asserted.",
+                "Whether the three sentences on Task 2 name something left "
+                "out.",
+            ),
+        },
+        "reviewer": {
+            "path": (
+                "Task 2 first, against the constraint: search the channel "
+                "piece for 480 and for any company name (3 min).",
+                "Task 3, checking the hedged stat and the runtime and date "
+                "conflicts (4).",
+                "Task 1 whole, for whether there is a position in it (5).",
+                "Task 4, the AI Workflow Note (1).",
+                "Video, the walkthrough then the close (8).",
+                "Optional prior work, links opened (2).",
+            ),
+            "calibration": "The floor is a technically complete submission: "
+                           "tasks done, links work. The separation is whether "
+                           "the channel piece stayed inside the constraint "
+                           "with the 480 sitting right there, whether the "
+                           "podcast task handled the hedged stat honestly, "
+                           "and whether the think piece takes an actual "
+                           "position. A glossy channel piece built on the 480 "
+                           "figure, or a think piece that reads like a 2026 "
+                           "AI summary, is not rescued by production polish.",
+            "probes": (
+                "\"What did you leave out of the channel piece, and why?\"",
+                "\"Which of the three runtime numbers would you have gone "
+                "with, and what would you have done to find out?\"",
+                "\"Read me your think piece's argument in one sentence. Who "
+                "disagrees with it?\"",
+            ),
+        },
+        "notes": (
+            "Use 4 and 2 often. Six rows and three of them carry 20 points or "
+            "more, so a reviewer marking only 3s and 5s moves candidates in "
+            "large steps and compresses the pool rather than ranking it.",
+            "Check the seeded issues before scoring the row they sit under. "
+            "They are the primary signal on this pack -- more important than "
+            "production polish or writing quality -- and four of the six are "
+            "objective checks a reviewer can make with a text search.",
+            "The background row at 10 means a candidate who scores 3 there "
+            "and 5 everywhere else lands at 96. Work product plus the spike "
+            "is 75 on its own, so the advance bar is reachable on the three "
+            "task rows alone.",
+        ),
+        "gaps": (
+            "No email or newsletter work, no analytics read, no posting "
+            "cadence -- all of which the seat eventually owns.",
+            "The channel piece is one asset. Nothing here tests whether a "
+            "candidate can hold a look or a voice across a week of them.",
+            "Ajaia administers no formal GIA instrument today, so only the "
+            "proxy signals above are live.",
+        ),
+    },
+
+    # -- 18. Head of Marketing ---------------------------------------------
+    #
+    # Portal assignment 42, slug `marketing-head`. The seat above unit 17 and
+    # a different question: not "what do you notice" but "do you have a point
+    # of view, and does it survive a founder pushing on it".
+    #
+    # 60 / 10 / 10 / 10 / 10. Work product takes three rows because the pack
+    # asks for three separate pieces of writing and making, and the think
+    # piece alone is 30 -- the assessment calls it "the centerpiece of this
+    # exercise; spend real time here", so the weight follows the instruction.
+    # The content engine plan is the spike at 10 rather than a fourth
+    # work-product row because it is where the CAC number has to be handled,
+    # and handling it is the seat: Theo's line, "whoever we hire for this
+    # needs to actually own an answer to why not just paid", is the job
+    # description in one sentence.
+    {
+        "key": "marketing_head",
+        "unit": "Head of Marketing",
+        "grid_name": "Head of Marketing",
+        "entity": "Ajaia",
+        "slugs": ("marketing-head",),
+        "roles": ("Head of Marketing (2F71B2FA92)",),
+        "assessment": "Ajaia Head of Marketing Assessment, Core Assignment, "
+                      "120 minutes including the video",
+        "location": "Remote",
+        "spike": "Owning the answer to \"why not just paid\"",
+        "block_points": {
+            "work_product": 60,
+            "background": 10,
+            "ai_forwardness": 10,
+            "communication": 10,
+            "spike": 10,
+        },
+        "universal_auto_fails": False,
+        "seat": "A finalist exercise for Head of Marketing. \"The founders "
+                "want to see how you think and how you write before they see "
+                "how you manage\" -- so the pack is four pieces of writing "
+                "and making plus a plan, and the video is where the founders "
+                "push back in person.",
+        "core_skill": "Having a position and holding it. Three of the five "
+                      "tasks fail the same way -- summary where a take was "
+                      "asked for -- and the video's interruption is the same "
+                      "test asked out loud.",
+        "seeded": (
+            {"key": "cac_drop",
+             "label": "The one-week CAC drop",
+             "where": "Exhibit A: Rana sees paid CAC down 40% last week; Theo "
+                      "says one week off a small spend base is noise and asks "
+                      "for the 8-week number; Rana has not pulled it",
+             "criteria": ("content_engine", "video"),
+             "caught": "The sample-size problem is named. If the figure is "
+                       "used at all it is used with the baseline requirement "
+                       "attached, which is exactly what Task 4 asks for: the "
+                       "one number you would commit to, with the baseline you "
+                       "would need first. This is the shape of the founder "
+                       "interruption in the video.",
+             "missed": "Rana's 40% cited as settled grounds to shift budget. "
+                       "That is repeating an unresolved internal argument as "
+                       "fact, in front of the two people having it."},
+            {"key": "brand_voice",
+             "label": "The brand voice note as a live test",
+             "where": "Exhibit B",
+             "criteria": ("think_piece", "commentary"),
+             "caught": "No \"unlock\", \"seamless\", \"game-changing\" or "
+                       "\"cutting-edge\" across the think piece and all three "
+                       "takes, and the writing would not work on another AI "
+                       "company's homepage.",
+             "missed": "A banned word or generic AI-company voice. Task 2's "
+                       "three short takes give three separate chances to "
+                       "slip, which is why this issue reaches two rows."},
+            {"key": "summary_not_take",
+             "label": "Summary dressed as a take",
+             "where": "Task 2, by design",
+             "criteria": ("commentary",),
+             "caught": "All three takes state an actual opinion. \"Say what "
+                       "you actually think, not just what happened\" is the "
+                       "instruction and it is met three times.",
+             "missed": "\"X released a model with capability Y\" with no "
+                       "stated opinion. The task is not done, however clean "
+                       "the writing."},
+            {"key": "make_it_craft",
+             "label": "The making task as a craft test",
+             "where": "Task 3, by design",
+             "criteria": ("make_it",),
+             "caught": "The reel or carousel is a real execution of one of "
+                       "their own Task 2 takes, recognisably so, genuinely "
+                       "platform-native, and built only from public ajaia.ai "
+                       "material. \"This is the real piece, not a plan for "
+                       "one.\"",
+             "missed": "A generic AI-trend graphic not recognisably tied to "
+                       "their own take, or material pulled from outside "
+                       "ajaia.ai. Either skips the test."},
+        ),
+        "criteria": (
+            {"key": "think_piece", "label": "AI think piece (Task 1)",
+             "block": "work_product", "weight": 30,
+             "anchors": {
+                 5: "Real, arguable position a buyer who has sat through a "
+                    "failed pilot would stop and read. Specific, supportable, "
+                    "400 words or more, brand voice held.",
+                 3: "Competent and readable but safe or under-argued.",
+                 1: "Definitional summary, hype language, invented "
+                    "statistics, or under 400 words.",
+             }},
+            {"key": "commentary", "label": "AI commentary set (Task 2)",
+             "block": "work_product", "weight": 15,
+             "anchors": {
+                 5: "All three are genuine takes in Ajaia's voice, specific "
+                    "and defensible, none generic.",
+                 3: "Two of three land as real takes; one slides into summary "
+                    "or hype.",
+                 1: "Mostly summary rather than opinion, or hype throughout.",
+             }},
+            {"key": "make_it", "label": "Make it, reel or carousel (Task 3)",
+             "block": "work_product", "weight": 15,
+             "anchors": {
+                 5: "Genuine platform-native rendering of one of their own "
+                    "takes, only public material, with clear reasoning for "
+                    "the format and the choices.",
+                 3: "On-format and competent but generic, or the connection "
+                    "to the chosen take is thin.",
+                 1: "Off-constraint (non-public material), the take is not "
+                    "recognisable in the piece, or the execution is broken or "
+                    "incomplete.",
+             }},
+            {"key": "content_engine",
+             "label": "Content engine plan (Task 4)",
+             "block": "spike", "weight": 10,
+             "anchors": {
+                 5: "Grounded in real ajaia.ai material, with specific format "
+                    "bets. The one committed number is paired with the "
+                    "baseline that would be needed before committing to it, "
+                    "and the CAC figure is treated with scrutiny if it is "
+                    "used at all.",
+                 3: "Reasonably grounded but generic-playbook bets, or the "
+                    "CAC figure used uncritically.",
+                 1: "Generic plan with the name inserted, or a number with no "
+                    "baseline requirement.",
+             }},
+            {"key": "video", "label": "Video",
+             "block": "communication", "weight": 10,
+             "anchors": {
+                 5: "Presents the plan clearly. The interruption answer "
+                    "directly engages the CAC-versus-content tension. The "
+                    "reel or carousel is shown with real reasoning, the "
+                    "read-aloud take lands, and the close states why Ajaia "
+                    "and salary expectations plainly.",
+                 3: "Adequate, but the interruption answer is generic, the "
+                    "reasoning thin, the read-aloud flat, or the close "
+                    "rushed.",
+                 1: "The interruption is not meaningfully answered, a "
+                    "required piece is missing, or the close never states why "
+                    "Ajaia or salary expectations.",
+             }},
+            {"key": "ai_workflow_note", "label": "AI Workflow Note (Task 5)",
+             "block": "ai_forwardness", "weight": 10,
+             "anchors": {
+                 5: "Specific tools and uses, and names something rejected "
+                    "with a reason. Inside 100 words.",
+                 3: "Lists tools and uses, but nothing apparently rejected.",
+                 1: "No note, or no specifics.",
+             }},
+            {"key": "experience",
+             "label": "Experience and public presence",
+             "block": "background", "weight": 10,
+             "note": "Always adds, never blocks. Nothing to show scores 3, "
+                     "never 1.",
+             "anchors": {
+                 5: "Real, checkable audience-building work that holds up and "
+                    "matches the seat.",
+                 3: "Some relevant evidence, or nothing provided at all -- "
+                    "score 3 here, never 1.",
+                 1: "Links that do not open, or shown work that contradicts "
+                    "the quality of the submission.",
+             }},
+        ),
+        "auto_fails": (
+            "Fabricated facts or numbers, including anything from the "
+            "exhibits presented as verified fact about Ajaia. The assessment "
+            "says the exhibits are fictional composites and says so twice.",
+            "Confirmed fraud or misrepresentation. Routes to the fraud log, "
+            "not to grading.",
+        ),
+        "red_flags": (
+            "Rana's 40% repeated as a finding. Theo is in the same thread "
+            "telling her it is noise.",
+            "Exhibit material presented as real Ajaia data. The pack warns "
+            "against this explicitly.",
+            "A polished submission that never takes a real position anywhere. "
+            "At this level production value does not rescue it -- say so in "
+            "the brief.",
+        ),
+        "triage": (
+            {"key": "fraud", "label": "No fraud tells: burner domain, "
+                                      "automated apply, JD phrasing handed "
+                                      "back as analysis."},
+            {"key": "complete", "label": "Complete: think piece, three takes, "
+                                         "an actual reel or carousel, the "
+                                         "content engine plan, the AI "
+                                         "Workflow Note, and a video."},
+            {"key": "opens", "label": "Every link opens, the reel or carousel "
+                                      "is reachable, and ajaia.ai is "
+                                      "referenced. Ask once before counting a "
+                                      "dead link against them."},
+            {"key": "position", "label": "The think piece takes a position "
+                                         "someone could disagree with, and "
+                                         "clears 400 words."},
+            {"key": "interruption", "label": "The video answers \"why would "
+                                             "we not just spend this on "
+                                             "paid\" on camera."},
+            {"key": "voice", "label": "No banned word survives across the "
+                                      "think piece and the three takes."},
+        ),
+        "tells": {
+            "strong": "A committed number with the baseline named as a "
+                      "precondition rather than an afterthought.",
+            "weak": "Three takes that could each be the first line of a news "
+                    "story.",
+        },
+        "do_not_penalize": (
+            "Going over the 120 minutes.",
+            "Rough production on the reel or carousel. It is a craft test of "
+            "whether the point survives the format change, not a production "
+            "test.",
+            "Disagreeing with Theo. A candidate who argues the 40% is worth "
+            "acting on, and says what they would check first, has engaged the "
+            "tension; that is the row's 5, not its 1.",
+            "Prose that reads as AI-written.",
+            "An empty optional prior-work section.",
+            "A dead link on first sight. Ask once.",
+        ),
+        "gia": {
+            "primary": ("Word Meaning", "Reasoning"),
+            "secondary": ("Number Speed and Accuracy",),
+            "why": "Word Meaning because the seat is judged on writing before "
+                   "it is judged on managing, by the assessment's own words. "
+                   "Reasoning because the whole pack turns on one question: "
+                   "is a 40% move over one week off a small base evidence of "
+                   "anything. Ajaia administers no instrument, so only the "
+                   "proxies below are live.",
+            "proxies": (
+                "Whether the sample-size problem is named without being "
+                "prompted.",
+                "Whether the committed number arrives with its baseline.",
+                "Whether the interruption answer holds or retreats into the "
+                "flattering statistic.",
+            ),
+        },
+        "reviewer": {
+            "path": (
+                "Task 1 whole. It is 30 points and the centerpiece (8 min).",
+                "Task 2, all three takes, asking of each: is there an opinion "
+                "here (4).",
+                "Task 3, opened and viewed at full size, checked against the "
+                "take it claims to render (4).",
+                "Task 4, looking for the baseline and for how CAC is handled "
+                "(3).",
+                "Video, the interruption answer first, then the rest (10).",
+                "Task 5 and the optional prior work (3).",
+            ),
+            "calibration": "The floor is a complete, well-organized "
+                           "submission. The separation is whether the writing "
+                           "sounds like a specific point of view or generic "
+                           "AI-company copy; whether the reel or carousel is "
+                           "a real execution of their own take or a generic "
+                           "AI-trend post; whether the interruption answer "
+                           "holds up or retreats into the flattering CAC "
+                           "stat; and whether the plan is grounded in what is "
+                           "actually on ajaia.ai or is a generic playbook "
+                           "with the name inserted.",
+            "probes": (
+                "\"Rana asks you again next week with an 8-week number that "
+                "still looks good. What do you say?\"",
+                "\"Which of your three takes would you not publish, and "
+                "why?\"",
+                "\"What is on ajaia.ai today that you would kill?\"",
+            ),
+        },
+        "notes": (
+            "Use 4 and 2 often. The commentary and make-it rows at 15 each "
+            "are where the middle of the scale does the most work: two of "
+            "three takes landing is explicitly a 3.",
+            "Three of the four seeded issues are objective checks. Search for "
+            "the four banned words, check whether the 40% appears with or "
+            "without its caveat, and check whether the Task 3 piece is "
+            "recognisably one of the Task 2 takes.",
+            "The interruption is scored in the video row, but what it tests "
+            "is the spike. A candidate whose written plan handles CAC well "
+            "and who then folds on camera has not held the position; note it "
+            "in the brief so the two rows are read together.",
+        ),
+        "gaps": (
+            "Nothing tests managing, which is half the seat -- the assessment "
+            "says so and defers it deliberately.",
+            "No budget, no channel mix, no attribution model, no hiring plan.",
+            "Ajaia administers no formal GIA instrument today, so only the "
+            "proxy signals above are live.",
+        ),
+    },
+
+    # -- 19. Technical Project Manager -------------------------------------
+    #
+    # Portal assignment 43, slug `technical-project-manager`. The only one of
+    # the six with a build in it, and the weights say so: 30 points of working
+    # code against 25 of triage.
+    #
+    # 50 / 10 / 5 / 10 / 25. Triage is the spike because the pack is built as
+    # a ranking problem -- five requests land in one day and they are
+    # deliberately of four different kinds: a scope add against a board-
+    # committed date, a real self-reported bug, a stale blocker, a legitimate
+    # non-urgent item, and noise. Telling those apart is the seat. The AI note
+    # is 5 rather than 10 here, and the video 10, because this pack has a
+    # demo in it: the video is where a build either runs or does not.
+    {
+        "key": "technical_pm",
+        "unit": "Technical Project Manager",
+        "grid_name": "Technical Project Manager",
+        "entity": "Ajaia",
+        "slugs": ("technical-project-manager",),
+        "roles": ("Technical Project Manager (E5946F1944)",),
+        "assessment": "Ajaia Technical Project Manager Assessment, Core "
+                      "Assignment, 120 minutes including the video",
+        "location": "Remote",
+        "spike": "Ranking across four kinds of urgency",
+        "block_points": {
+            "work_product": 50,
+            "background": 10,
+            "ai_forwardness": 5,
+            "communication": 10,
+            "spike": 25,
+        },
+        "universal_auto_fails": False,
+        "seat": "TPM on the Corrigan Peak Logistics engagement, three weeks "
+                "from a go-live Dana Okafor gave her board. \"You do not "
+                "write the production code. You are responsible for the plan, "
+                "the risk list, what Corrigan Peak is told, and for catching "
+                "problems in Priya's work before a client ever sees them.\"",
+        "core_skill": "Separating four kinds of urgency in one inbox, then "
+                      "telling the client the truth about what you found.",
+        "seeded": (
+            {"key": "status_green",
+             "label": "The politely wrong status update",
+             "where": "Material 2, sent last Friday: Terminal 3 called a "
+                      "\"minor data validation task\" expected to wrap \"without "
+                      "impact\", and \"No blockers to report\"",
+             "criteria": ("status_update",),
+             "caught": "The new update does not repeat that framing "
+                       "uncritically. It was sent before anyone could honestly "
+                       "know the Terminal 3 issue was minor, and DET-121 now "
+                       "says urgency scores are coming back null for a chunk "
+                       "of Terminal 3 exceptions.",
+             "missed": "Last Friday's message reworded, still green, still "
+                       "no blockers. Overcorrecting into needless alarm is "
+                       "the other failure and scores no better."},
+            {"key": "scope_add",
+             "label": "Dana's auto-reassign request",
+             "where": "Material 1A: add automatic carrier reassignment before "
+                      "the 8th, a date given to the board, with \"I'd rather "
+                      "not go back to him with no if there's a way\"",
+             "criteria": ("triage", "status_update"),
+             "caught": "Treated as a scope change against a fixed date rather "
+                       "than a small favour: deferred with a reason, or "
+                       "traded against something, and answered in the client "
+                       "message rather than left hanging.",
+             "missed": "Accepted into the release without naming what it "
+                       "costs, or declined with no answer offered to Dana at "
+                       "all."},
+            {"key": "priya_bug",
+             "label": "Priya's self-reported retry bug",
+             "where": "Material 1B, 4:52 PM: an exception can be pushed twice "
+                      "if the queue push succeeds and the database update "
+                      "fails, or if two poll cycles overlap",
+             "criteria": ("triage",),
+             "caught": "Scheduled as this-week work. She flagged it herself "
+                       "and asked whether it is a today problem or a "
+                       "launch-week problem; the answer is today, and "
+                       "flagging is not the same as fixing.",
+             "missed": "Noted as a risk and left unscheduled, or deferred to "
+                       "launch week."},
+            {"key": "det121",
+             "label": "DET-121, stale since 8/6",
+             "where": "Material 1C: the EDI schema mismatch on Terminal 3, "
+                      "\"see comment from 8/6, never picked up\", now "
+                      "returning null urgency scores, 2 extra days once "
+                      "Corrigan Peak's IT answers",
+             "criteria": ("triage",),
+             "caught": "Named as urgent AND the candidate asks why it sat "
+                       "unresourced since 8/6. The dependency on the client's "
+                       "IT contact is put on somebody's plate with a date.",
+             "missed": "Flagged as a problem now, with no notice that it has "
+                       "been sitting for weeks and no move to unblock the "
+                       "client dependency."},
+            {"key": "det118",
+             "label": "DET-118, legitimate but not urgent",
+             "where": "Material 1D: nobody has contacted the three terminal "
+                      "leads to schedule the routing-rules review. \"No "
+                      "blocker, just sitting.\"",
+             "criteria": ("triage",),
+             "caught": "Ranked below the two real risks but still given an "
+                       "owner and a date. It is genuinely lower priority and "
+                       "genuinely not nothing.",
+             "missed": "Treated as top priority, or as never-needed. Either "
+                       "shows a ranking with only two buckets in it."},
+            {"key": "colour_ask",
+             "label": "The shade-of-blue request",
+             "where": "Material 1E, Marcus Lin: ops liked a different shade "
+                      "of blue for the dispatcher queue UI, \"probably a "
+                      "quick CSS thing\"",
+             "criteria": ("triage",),
+             "caught": "Named as the noise item and declined fast and "
+                       "specifically. Task 1 asks plainly which item is "
+                       "noise.",
+             "missed": "Worked because it is quick, or declined across a "
+                       "paragraph of justification. Both fail: the first "
+                       "spends launch-week capacity on paint, the second "
+                       "spends the candidate's own time proving a point "
+                       "nobody contested."},
+            {"key": "dirty_data",
+             "label": "The planted dirt in the export",
+             "where": "Material 3: Terminal 3 against T3, swft/SWFT/Swft, "
+                      "three timestamp formats, and CPX-88216 with an empty "
+                      "carrier_code",
+             "criteria": ("build",),
+             "caught": "Terminal, carrier and timestamp all normalised, and "
+                       "the blank carrier on CPX-88216 explicitly handled or "
+                       "flagged in the note as the record that could not be "
+                       "confidently cleaned. The task asks for exactly that "
+                       "note.",
+             "missed": "A script that runs and silently drops or mishandles "
+                       "the blank-carrier record. It has not been checked, "
+                       "only executed -- which is the distinction the task "
+                       "draws in its own words."},
+        ),
+        "criteria": (
+            {"key": "build", "label": "Hands-on build (Task 2)",
+             "block": "work_product", "weight": 30,
+             "anchors": {
+                 5: "Script runs, normalizes terminal, carrier code and "
+                    "timestamp formatting correctly, and explicitly handles "
+                    "or flags the missing carrier code. The note shows real "
+                    "verification -- how they checked it worked, not just "
+                    "that it ran -- and the summary count by event type is "
+                    "there.",
+                 3: "Script runs and mostly normalizes but misses one dirty "
+                    "case silently.",
+                 1: "Script does not run, or there is no evidence of checking "
+                    "output against the data.",
+             }},
+            {"key": "status_update",
+             "label": "Client status update (Task 3)",
+             "block": "work_product", "weight": 20,
+             "anchors": {
+                 5: "Honest, specific, and it reflects the real state of "
+                    "things given what was decided in Task 1. Reads like "
+                    "something a client would trust, and it answers Dana on "
+                    "her request rather than going quiet on it.",
+                 3: "Reasonable and safe but generic, or it partly repeats "
+                    "the \"minor, no impact\" framing.",
+                 1: "Restates last Friday's update almost unchanged, or "
+                    "overcorrects into needless alarm.",
+             }},
+            {"key": "triage", "label": "Triage (Task 1)",
+             "block": "spike", "weight": 25,
+             "anchors": {
+                 5: "Cleanly separates real risk, foreseeable risk, "
+                    "legitimate-but-not-urgent and noise across all five "
+                    "items, with worked, deferred or declined and a reason "
+                    "for each. The noise item is declined fast and "
+                    "specifically.",
+                 3: "Reasonable calls on most items but one or two carry the "
+                    "wrong urgency, or the reasoning is vague.",
+                 1: "Treats every item as equally urgent, or works the noise "
+                    "item as if it mattered.",
+             }},
+            {"key": "video", "label": "Video",
+             "block": "communication", "weight": 10,
+             "anchors": {
+                 5: "Plan and build demo are clear and specific, presence is "
+                    "confident, the build is shown actually running, and the "
+                    "close plainly covers why this role, why Ajaia and salary "
+                    "expectations.",
+                 3: "Covers the required content but is generic or thin on "
+                    "the technical demo.",
+                 1: "Missing required content, or does not actually demo the "
+                    "build running.",
+             }},
+            {"key": "ai_workflow_note", "label": "AI Workflow Note (Task 4)",
+             "block": "ai_forwardness", "weight": 5,
+             "anchors": {
+                 5: "Specific tool use, and a real example of something "
+                    "checked or rejected.",
+                 3: "Generic description without a concrete example.",
+                 1: "Missing, or purely performative -- \"I used AI for "
+                    "everything\".",
+             }},
+            {"key": "experience",
+             "label": "Experience and public presence",
+             "block": "background", "weight": 10,
+             "note": "Always adds, never blocks. Never score 1 solely because "
+                     "links were left blank.",
+             "anchors": {
+                 5: "Resume, links or public work clearly show relevant "
+                    "delivery and build experience.",
+                 3: "Reasonable background, or no links provided with a "
+                    "plausible resume for the seat.",
+                 1: "Resume or links actively contradict fit for the seat. "
+                    "Never score 1 solely for blank links.",
+             }},
+        ),
+        "auto_fails": (
+            "Fabricated facts or numbers where the pack supplied them: "
+            "exception records not in Material 3, a ticket that does not "
+            "exist, or a go-live date other than September 8.",
+            "Confirmed fraud or misrepresentation. Routes to the fraud log, "
+            "not to grading.",
+        ),
+        "red_flags": (
+            "A build submitted with no note on how it was checked. The task "
+            "asks for the check specifically, in its own words: \"how you "
+            "checked that it actually worked, not just that it ran\".",
+            "A status update that goes quiet on Dana's request rather than "
+            "answering it.",
+            "A triage list with only two buckets in it -- urgent and not.",
+        ),
+        "triage": (
+            {"key": "fraud", "label": "No fraud tells: burner domain, "
+                                      "automated apply, posting phrasing "
+                                      "handed back."},
+            {"key": "complete", "label": "Complete: the five-item triage, a "
+                                         "build file or exported workflow "
+                                         "plus its note, the full status "
+                                         "update, the AI Workflow Note, and a "
+                                         "video."},
+            {"key": "runs", "label": "The build is demonstrated running, not "
+                                     "just described. Ask once for a working "
+                                     "file before counting this against "
+                                     "them."},
+            {"key": "noise", "label": "The shade-of-blue request is named as "
+                                      "noise and declined."},
+            {"key": "bug", "label": "Priya's retry bug is scheduled as work, "
+                                    "not merely noted as a risk."},
+            {"key": "honest", "label": "The status update does not repeat "
+                                       "\"minor, no impact, no blockers\" now "
+                                       "that DET-121 says otherwise."},
+        ),
+        "tells": {
+            "strong": "A note naming CPX-88216 by id as the record that could "
+                      "not be confidently cleaned, and why.",
+            "weak": "\"Status: Green\" in the new update.",
+        },
+        "do_not_penalize": (
+            "Going over the 120 minutes.",
+            "The language or tool the build is written in. \"Any language or "
+            "no-code tool\" is the instruction; a spreadsheet formula chain "
+            "that demonstrably works is a working build.",
+            "A build that is ugly. Correctness and the verification note are "
+            "what this row scores.",
+            "Declining Dana's scope add. Declining it is a defensible call "
+            "and often the right one; what is graded is whether she is given "
+            "an answer.",
+            "Prose that reads as AI-written.",
+            "An empty optional prior-work section.",
+        ),
+        "gia": {
+            "primary": ("Reasoning", "Number Speed and Accuracy"),
+            "secondary": ("Perceptual Speed",),
+            "why": "Reasoning for the ranking problem, which is the seat. "
+                   "Number Speed and Accuracy for the build: five records "
+                   "with three timestamp formats and one blank field is a "
+                   "small, exact task where the error is silent. Ajaia "
+                   "administers no instrument, so only the proxies below are "
+                   "live.",
+            "proxies": (
+                "How many distinct urgency buckets the triage actually uses.",
+                "Whether the blank carrier code is named by record id.",
+                "Whether the status update's changes from Friday's are "
+                "deliberate or cosmetic.",
+            ),
+        },
+        "reviewer": {
+            "path": (
+                "Task 1, all five items, checking the bucket each landed in "
+                "(6 min).",
+                "Task 2: open the file, run it if it runs, and read the note "
+                "for the check (8).",
+                "Task 3 against Task 1 -- does the update reflect what they "
+                "decided (4).",
+                "Video, the build demo especially (10).",
+                "Task 4 and the optional prior work (3).",
+            ),
+            "calibration": "Every competent candidate flags Priya's bug and "
+                           "the EDI issue as real; that is the floor, not the "
+                           "signal. The separation is a clean ranking across "
+                           "all five items rather than everything treated as "
+                           "equally urgent or equally ignorable, real "
+                           "verification against the dirty data, and a status "
+                           "update that reflects actual state rather than a "
+                           "safer reword of Friday's. A well-produced video "
+                           "that skips technical substance is a Hold, not an "
+                           "Advance. Nothing rescues a runs-but-unchecked "
+                           "build.",
+            "probes": (
+                "\"DET-121 sat from 8/6 to now. How does that happen, and "
+                "what would you change?\"",
+                "\"Dana calls after reading your update. What is the first "
+                "thing she asks?\"",
+                "\"Walk me through how you convinced yourself the script was "
+                "right.\"",
+            ),
+        },
+        "notes": (
+            "Use 4 and 2 often. The build row at 30 is where the middle of "
+            "the scale matters most: \"runs and mostly normalizes but misses "
+            "one dirty case silently\" is explicitly a 3, and that is the "
+            "commonest real outcome.",
+            "Run the build if you can. This is the only grid in the pack "
+            "whose heaviest row can be checked rather than judged, and a "
+            "reviewer who reads the code instead of running it is giving up "
+            "the advantage.",
+            "The status update is scored against the candidate's own Task 1, "
+            "not against an ideal. A candidate who deferred DET-121 and then "
+            "wrote an update consistent with that decision is internally "
+            "coherent; grade the coherence.",
+        ),
+        "gaps": (
+            "No estimation, no dependency mapping, no stakeholder management "
+            "beyond one email, and no exposure to the engineer relationship "
+            "that is most of the real seat.",
+            "The build is five records. It tests care, not scale.",
+            "Ajaia administers no formal GIA instrument today, so only the "
+            "proxy signals above are live.",
+        ),
+    },
+    # -- 20. Design Lead ----------------------------------------------------
+    #
+    # Portal assignment 44, slug `design-lead`. The say-do gap pack: a
+    # stakeholder sponsor with a confident feature list, two assistants who
+    # describe different bottlenecks, and a usage log that settles which of
+    # them the evidence supports.
+    #
+    # 30 / 10 / 5 / 25 / 30. Synthesis is the spike at 30 -- the joint-heaviest
+    # row in the grid -- because the instruction that came with this rubric
+    # says so in as many words: the say-do gap is "the single most important
+    # separator in the pack". Communication buys 25 because the video is
+    # 20 of it: this is the only one of the six where the client interruption
+    # is scored that heavily, and it is where the synthesis either survives
+    # contact with Owen or does not.
+    {
+        "key": "design_lead",
+        "unit": "Design Lead",
+        "grid_name": "Design Lead",
+        "entity": "Ajaia",
+        "slugs": ("design-lead",),
+        "roles": ("Design Lead (370B787999)",),
+        "assessment": "Ajaia Design Lead Assessment, Core Assignment, 120 "
+                      "minutes including the video",
+        "location": "Remote",
+        "spike": "Telling need from ask",
+        "block_points": {
+            "work_product": 30,
+            "background": 10,
+            "ai_forwardness": 5,
+            "communication": 25,
+            "spike": 30,
+        },
+        "universal_auto_fails": False,
+        "seat": "Design Lead on a three-week discovery engagement at Marsh & "
+                "Colby, a forty-person commercial insurance brokerage. \"Your "
+                "job in this pack is to figure out what Marsh & Colby's "
+                "underwriting assistants actually need, design the ideal "
+                "solution, and be ready to defend it to Owen when what you "
+                "show him does not match what he asked for.\"",
+        "core_skill": "Reading behaviour over stated preference, and then "
+                      "holding that reading in front of the person who asked "
+                      "for something else.",
+        "seeded": (
+            {"key": "say_do_gap",
+             "label": "The say-do gap -- the core planted test",
+             "where": "Anika calls the checklist \"fine\" and asks for "
+                      "\"smart autofill\"; her own log shows 23 of 61 "
+                      "submissions flagged for a coverage-limit mismatch, a "
+                      "2.1-day median wait for a broker reply and nine over 4 "
+                      "days. Colin names document-hunting and his log agrees: "
+                      "11 minutes locating against 3 to complete the "
+                      "checklist",
+             "criteria": ("synthesis", "solution"),
+             "caught": "The design targets document location and mismatch "
+                       "resolution, and the synthesis says plainly that what "
+                       "Anika asked for is not where her own time goes. This "
+                       "is the single most important separator in the pack.",
+             "missed": "\"Smart autofill for the checklist\", because that is "
+                       "what was asked for. The candidate designed the "
+                       "wishlist, not the need."},
+            {"key": "two_transcripts",
+             "label": "Two transcripts that partly contradict each other",
+             "where": "Materials 1 and 2: Anika says mismatch and email "
+                      "back-and-forth, Colin says document hunting",
+             "criteria": ("synthesis",),
+             "caught": "Both are treated as real -- they work differently, "
+                       "and neither is wrong -- and the usage log is used to "
+                       "reconcile them rather than to pick a winner. Task 1 "
+                       "asks for one statement of where they agree and one of "
+                       "where they do not.",
+             "missed": "One transcript restated as the finding, or the two "
+                       "averaged into a vague need, with no use of Material 4 "
+                       "to adjudicate."},
+            {"key": "owen_wishlist",
+             "label": "Owen's reasonable but unsupported wishlist",
+             "where": "Material 3: smart autofill, a cleaner interface, an AI "
+                      "chat assistant, mobile access",
+             "criteria": ("synthesis", "solution"),
+             "caught": "Not dismissed outright, but separated -- \"good idea, "
+                       "not supported by the evidence\" against \"core to what "
+                       "we are solving\". None of his four items directly "
+                       "addresses document-hunting or mismatch delay.",
+             "missed": "The four bullets adopted as the design, or waved away "
+                       "without engaging them. He is the sponsor and he is "
+                       "not stupid; he is just working from the wrong "
+                       "evidence."},
+            {"key": "checklist_untouched",
+             "label": "Owen's \"we don't need to touch that part much\"",
+             "where": "Material 3, closing line",
+             "criteria": ("synthesis",),
+             "caught": "Contradicted with evidence. Mismatch reconciliation "
+                       "is the more expensive problem and it lives in the "
+                       "checklist flow, whatever Owen believes about it.",
+             "missed": "Taken at face value, which quietly removes the most "
+                       "expensive problem from scope before design starts -- "
+                       "even if the output that follows is polished."},
+            {"key": "autofill_distinction",
+             "label": "Two different things called autofill",
+             "where": "Owen and Anika mean typing speed; the real opportunity "
+                      "is auto-pulling data from located documents",
+             "criteria": ("solution",),
+             "caught": "The distinction is named explicitly. Auto-pulling is "
+                       "downstream of solving location and mismatch, not a "
+                       "replacement for either. Credit this only when it is "
+                       "stated, not when it is merely implied by the design.",
+             "missed": "\"Autofill\" used throughout without saying which one "
+                       "is meant, leaving it unclear whether the candidate "
+                       "found the insight or repeated the word."},
+            {"key": "interruption_ready",
+             "label": "Owen's interruption is answerable, not a gotcha",
+             "where": "The video: \"Our users asked for the wishlist, why are "
+                      "you showing me something else?\"",
+             "criteria": ("video",),
+             "caught": "Evidence lines ready, and the candidate names "
+                       "specifically what they kept and what they "
+                       "reprioritized from his list -- without getting "
+                       "defensive and without folding.",
+             "missed": "Concedes the moment he pushes, or argues without "
+                       "citing a single number from Material 4. A prepared "
+                       "candidate has both the numbers and the manners."},
+        ),
+        "criteria": (
+            {"key": "solution", "label": "Solution design (Task 2)",
+             "block": "work_product", "weight": 30,
+             "anchors": {
+                 5: "Clearly targets document location and mismatch "
+                    "resolution, with the two or three screens that matter "
+                    "and a user journey. Human checkpoints are designed in "
+                    "with a stated reason for each.",
+                 3: "Competent but leans toward the wishlist; checkpoints are "
+                    "mentioned but not designed in.",
+                 1: "Essentially Owen's four bullet points with better "
+                    "visuals.",
+             }},
+            {"key": "synthesis",
+             "label": "Synthesis and next questions (Task 1)",
+             "block": "spike", "weight": 30,
+             "anchors": {
+                 5: "Clearly separates need from ask with an evidence line "
+                    "for each claim, correctly uses the usage log to resolve "
+                    "the say-do gap, names one place the transcripts and the "
+                    "log agree and one where they do not, and ties each "
+                    "follow-up question to a design decision that would "
+                    "change on the answer.",
+                 3: "Reasonable synthesis, cites some evidence, partially "
+                    "resolves the transcript gap, questions are generic.",
+                 1: "Restates the wishlist or one transcript without "
+                    "reconciling against the log; questions have no stated "
+                    "design impact.",
+             }},
+            {"key": "video", "label": "Video",
+             "block": "communication", "weight": 20,
+             "anchors": {
+                 5: "Handles Owen's interruption with specific evidence and "
+                    "holds the position without being rigid. Presents as if "
+                    "to the client sponsor, in character. Closes clearly with "
+                    "why this role, why Ajaia and salary expectations.",
+                 3: "Covers the required content but is somewhat general or "
+                    "thin.",
+                 1: "Missing required content, or folds immediately with no "
+                    "evidence-based answer ready.",
+             }},
+            {"key": "communication",
+             "label": "Communication, overall",
+             "block": "communication", "weight": 5,
+             "anchors": {
+                 5: "Clear, specific, and reads like someone who has done "
+                    "this before.",
+                 3: "Clear but generic.",
+                 1: "Hard to follow.",
+             }},
+            {"key": "ai_workflow_note", "label": "AI Workflow Note (Task 3)",
+             "block": "ai_forwardness", "weight": 5,
+             "anchors": {
+                 5: "Specific tool use, and a real example of something "
+                    "checked or rejected.",
+                 3: "Generic description without a concrete example.",
+                 1: "Missing, or purely performative.",
+             }},
+            {"key": "experience",
+             "label": "Experience and public presence",
+             "block": "background", "weight": 10,
+             "note": "Always adds, never blocks. Never score 1 solely for "
+                     "blank links.",
+             "anchors": {
+                 5: "Portfolio, links or resume clearly show relevant "
+                    "discovery and design work, including evidence of closing "
+                    "a say-do gap before.",
+                 3: "Reasonable background, or no links with a plausible "
+                    "resume for the seat.",
+                 1: "Resume or links actively contradict fit. Never score 1 "
+                    "solely for blank links.",
+             }},
+        ),
+        "auto_fails": (
+            "Fabricated facts or numbers where the pack supplied them: usage "
+            "figures not in Material 4, or a quotation attributed to Anika, "
+            "Colin or Owen that is not in the transcripts.",
+            "Confirmed fraud or misrepresentation. Routes to the fraud log, "
+            "not to grading.",
+        ),
+        "red_flags": (
+            "High-fidelity visuals with no evidence trail. This pack rewards "
+            "the reasoning; the screens are how it is expressed.",
+            "A design that solves document location and never mentions "
+            "mismatch reconciliation, or the reverse. Both appear in both "
+            "logs.",
+            "Follow-up questions unconnected to design impact. Task 1 asks "
+            "what would change about the design depending on the answer.",
+        ),
+        "triage": (
+            {"key": "fraud", "label": "No fraud tells: burner domain, "
+                                      "automated apply, posting phrasing "
+                                      "handed back."},
+            {"key": "complete", "label": "Complete: synthesis with evidence "
+                                         "lines, agree/disagree statements, "
+                                         "up to four questions, a user "
+                                         "journey plus wireframes or a "
+                                         "prototype, the AI Workflow Note, "
+                                         "and a video."},
+            {"key": "opens", "label": "Every link opens and the prototype or "
+                                      "wireframes are viewable. Ask once "
+                                      "before counting a dead link against "
+                                      "them."},
+            {"key": "log_used", "label": "Material 4 is actually cited, not "
+                                         "just mentioned -- a number from the "
+                                         "usage log appears in the "
+                                         "synthesis."},
+            {"key": "not_wishlist", "label": "The design targets something "
+                                             "other than Owen's four bullets."},
+            {"key": "interruption", "label": "The video answers Owen's "
+                                             "interruption on camera, in "
+                                             "character."},
+        ),
+        "tells": {
+            "strong": "\"Anika asked for autofill; her log says she loses 2.1 "
+                      "days per mismatch\" -- the ask and the evidence in one "
+                      "sentence.",
+            "weak": "A beautiful checklist screen with smart autofill on it.",
+        },
+        "do_not_penalize": (
+            "Going over the 120 minutes.",
+            "Low-fidelity output. \"Wireframes or a clickable prototype, in "
+            "any tool\" is the instruction; a rougher prototype that clearly "
+            "targets the say-do gap outscores a polished one that builds the "
+            "wishlist.",
+            "Keeping one or two items from Owen's list. Separating "
+            "\"supported\" from \"good idea, not now\" is the skill; keeping "
+            "nothing at all is as blunt as keeping everything.",
+            "Disagreeing with this rubric's reading of the evidence, when the "
+            "candidate's own reading is argued from the log. The test is "
+            "whether behaviour beat stated preference, not whether they "
+            "reached our answer.",
+            "Prose that reads as AI-written.",
+            "An empty optional portfolio section.",
+        ),
+        "gia": {
+            "primary": ("Reasoning", "Spatial Visualisation"),
+            "secondary": ("Word Meaning",),
+            "why": "Reasoning because the pack is one inference problem: two "
+                   "accounts, one log, and a stakeholder pointing the wrong "
+                   "way. Spatial Visualisation for the screens themselves. "
+                   "Ajaia administers no instrument, so only the proxies "
+                   "below are live.",
+            "proxies": (
+                "Whether a number from Material 4 appears in the synthesis at "
+                "all.",
+                "Whether the two transcripts are reconciled or one is "
+                "dropped.",
+                "How fast the interruption answer reaches evidence.",
+            ),
+        },
+        "reviewer": {
+            "path": (
+                "Task 1 first and slowly. It is the spike and it decides most "
+                "cards (10 min).",
+                "Task 2, opened and clicked if clickable, asking one "
+                "question: what problem do these screens solve (10).",
+                "Video, the interruption especially (10).",
+                "Task 3 and the optional portfolio (4).",
+            ),
+            "calibration": "The floor is noticing the two transcripts differ "
+                           "in emphasis. The separation is using the usage "
+                           "log to work out which parts of each are borne out "
+                           "by behaviour rather than stated preference, and "
+                           "whether the design actually targets document "
+                           "location and mismatch resolution. A visually "
+                           "polished prototype that quietly builds Owen's "
+                           "four bullets is a Hold at best. A rougher "
+                           "prototype that clearly targets the say-do gap is "
+                           "a strong Advance.",
+            "probes": (
+                "\"Owen signs off, then asks in month two why the checklist "
+                "still looks the same. What do you say?\"",
+                "\"Which of Owen's four would you build third, and what would "
+                "have to be true first?\"",
+                "\"What would you have asked Anika if you had ten more "
+                "minutes with her?\"",
+            ),
+        },
+        "notes": (
+            "Read Task 1 before Task 2, always. A strong prototype primes a "
+            "reviewer to read the synthesis more generously than it deserves, "
+            "and on this pack the synthesis is the thing being tested.",
+            "The two 30-point rows can and often should diverge. A candidate "
+            "who diagnoses the say-do gap correctly and then designs the "
+            "wishlist anyway is a 5 and a 2, not a 4 and a 4; that split is "
+            "informative and averaging it away loses the finding.",
+            "Use 4 and 2 often. With six rows and two of them worth 30, "
+            "clustering at 3 and 5 moves candidates in 12-point steps.",
+        ),
+        "gaps": (
+            "No visual design system work, no handoff to engineering, no "
+            "accessibility, and no evidence of how this candidate runs a "
+            "design team -- which the title implies and the pack never "
+            "samples.",
+            "One round of synthesis on pre-collected materials. Nothing tests "
+            "whether they can run the interview themselves.",
+            "Ajaia administers no formal GIA instrument today, so only the "
+            "proxy signals above are live.",
+        ),
+    },
+
+    # -- 21. Product Manager -------------------------------------------------
+    #
+    # Portal assignment 45, slug `product-manager`. Five materials that each
+    # point somewhere different, and one right answer that only appears when
+    # three of them are read together.
+    #
+    # 50 / 10 / 5 / 10 / 25. The roadmap call is the spike because the pack's
+    # whole design is a synthesis trap: the tagging tickets, the 30% of reels
+    # never opened hiding inside a 92% share rate, and the say-do gap between
+    # the 58% survey ask and 6% editor usage are three views of one problem,
+    # and a candidate who treats them as three decisions has missed it. Spec
+    # and prototype sit in work product at 25 each because they are executed
+    # downstream of that call, whatever it was.
+    {
+        "key": "product_manager",
+        "unit": "Product Manager",
+        "grid_name": "Product Manager",
+        "entity": "Ajaia",
+        "slugs": ("product-manager",),
+        "roles": ("Product Manager (782440C1B6)",),
+        "assessment": "Ajaia Product Manager Assessment, Core Assignment, 120 "
+                      "minutes including the video",
+        "location": "Remote",
+        "spike": "Reading five materials as one problem",
+        "block_points": {
+            "work_product": 50,
+            "background": 10,
+            "ai_forwardness": 5,
+            "communication": 10,
+            "spike": 25,
+        },
+        "universal_auto_fails": False,
+        "seat": "PM for SidelineReel, Ajaia's app for youth sports clubs. "
+                "\"You do not write the production code and you do not decide "
+                "the visual design. You decide what gets built next, why, and "
+                "what the spec asks the team to build.\" Customers are clubs; "
+                "users are coaches and parents, and the two do not want the "
+                "same things.",
+        "core_skill": "Finding the one problem that several materials are "
+                      "each describing a face of, and then being able to say "
+                      "no to a $180k account with a reason.",
+        "seeded": (
+            {"key": "carla_livestream",
+             "label": "Carla's livestreaming request",
+             "where": "Material 1: Ridgeline's Executive Director wants live "
+                      "streaming of every game, has raised it with sales "
+                      "twice, and renewal is six weeks out",
+             "criteria": ("roadmap",),
+             "caught": "Neither committed to as asked nor dismissed. The "
+                       "candidate names what Ridgeline needs underneath the "
+                       "ask -- visibility for grandparents and scouts -- and "
+                       "answers Carla concretely. Livestreaming is not the "
+                       "same capability as SidelineReel's post-game editing "
+                       "and tagging job.",
+             "missed": "Put on the roadmap because the account is big, or "
+                       "refused with nothing offered in its place. Task 1 "
+                       "explicitly invites naming it as a not-next item."},
+            {"key": "say_do_gap",
+             "label": "The editing-controls say-do gap",
+             "where": "Material 2: 58% of 210 parents name more editing "
+                      "controls as their single biggest ask; the Reel Editor "
+                      "was opened by 6% in 90 days and under 1% of those "
+                      "finished an edit, while the auto-recap Share button is "
+                      "used in 90% of recaps sent",
+             "criteria": ("roadmap",),
+             "caught": "Stated preference is weighed against behaviour and "
+                       "behaviour wins, with the numbers cited. What parents "
+                       "actually do is share the recap.",
+             "missed": "Editing controls prioritized because 58% asked for "
+                       "them. The survey is in the same material as the usage "
+                       "data that contradicts it."},
+            {"key": "tagging_root_cause",
+             "label": "Three tickets, one root cause",
+             "where": "Material 3: number 14 against number 4, \"jersey "
+                      "numbers were similar, just swapped digits\", number 1 "
+                      "against number 11 -- three clubs, one failure mode",
+             "criteria": ("roadmap", "spec"),
+             "caught": "Recognised as one problem: roster tagging confuses "
+                       "visually similar jersey numbers. Three reports across "
+                       "three unrelated clubs is a pattern, not a "
+                       "coincidence.",
+             "missed": "Handled as three separate complaints, or as "
+                       "individual bugs to be fixed one at a time."},
+            {"key": "noise_tickets",
+             "label": "The app icon and the watermark",
+             "where": "Material 3: a soccer-ball app icon for an all-sports "
+                      "league, and a watermark sometimes missing on "
+                      "camera-roll saves",
+             "criteria": ("roadmap",),
+             "caught": "The app icon is named as noise and declined quickly. "
+                       "The watermark is real but low-severity and is ranked "
+                       "as such -- the reporter says so himself: \"Not "
+                       "urgent, just noticed it.\"",
+             "missed": "Either ranked seriously, or a paragraph spent "
+                       "declining the app icon. Both are triage misses."},
+            {"key": "sales_pressure",
+             "label": "The Slack thread is pressure, not evidence",
+             "where": "Material 4: Jamal Whitfield, VP Sales, $180k a season, "
+                      "\"our highest-risk renewal this quarter\", \"whatever "
+                      "we tell Carla needs to be concrete\"",
+             "criteria": ("roadmap",),
+             "caught": "The commercial risk is named plainly as a real "
+                       "business risk -- Ridgeline may not renew -- and kept "
+                       "separate from the product evidence. Something "
+                       "concrete goes back to Carla either way.",
+             "missed": "The roadmap reordered because sales asked loudest and "
+                       "the account pays most, with no evidence the fix "
+                       "addresses the problem. This is the failure mode the "
+                       "material exists to test."},
+            {"key": "denominator",
+             "label": "The 92% with the missing denominator",
+             "where": "Material 5: Reel Share Rate 92%, \"calculated only "
+                      "over reels a parent opened\", with the analytics note "
+                      "below it saying roughly 30% of generated reels are "
+                      "never opened, often because the thumbnail shows the "
+                      "wrong kid",
+             "criteria": ("roadmap",),
+             "caught": "The 92% is not taken as health. Better still, the "
+                       "unopened 30% is connected to the tagging tickets -- "
+                       "the analytics note makes the link explicitly, and "
+                       "following it is the strongest possible case for what "
+                       "to build next.",
+             "missed": "92% cited uncritically as evidence the product is "
+                       "healthy. The caveat is printed directly beneath the "
+                       "number."},
+        ),
+        "criteria": (
+            {"key": "spec", "label": "The spec (Task 2)",
+             "block": "work_product", "weight": 25,
+             "anchors": {
+                 5: "Outcome, in and out of scope, the human-in-the-loop "
+                    "point, and acceptance criteria all specific and "
+                    "testable. The top two failure modes are real ones, each "
+                    "with a stated way it would be caught.",
+                 3: "Covers the required elements but the acceptance criteria "
+                    "or failure modes are generic.",
+                 1: "A required element is missing, or the acceptance criteria "
+                    "are not testable by anyone but the author.",
+             }},
+            {"key": "prototype", "label": "Prototype (Task 3)",
+             "block": "work_product", "weight": 25,
+             "anchors": {
+                 5: "Runs or clicks through end to end, the core flow works, "
+                    "and it matches the spec.",
+                 3: "Runs or clicks partially; one step is incomplete or "
+                    "rough.",
+                 1: "No working prototype -- static frames, a mockup image, "
+                    "or a written description only.",
+             }},
+            {"key": "roadmap", "label": "The roadmap call (Task 1)",
+             "block": "spike", "weight": 25,
+             "anchors": {
+                 5: "Evidence-based ranking that connects the tagging "
+                    "tickets, the unopened-reel share inside the 92%, and the "
+                    "say-do gap into one coherent case. Names at least one "
+                    "thing not to build and why, and handles Carla by naming "
+                    "the need underneath her ask.",
+                 3: "Reasonable ranking that correctly deprioritizes the "
+                    "noise, but treats the materials as separate decisions.",
+                 1: "Prioritizes by the loudest voice or by survey preference "
+                    "alone, or ranks the app icon or editing controls "
+                    "seriously.",
+             }},
+            {"key": "video", "label": "Video",
+             "block": "communication", "weight": 10,
+             "anchors": {
+                 5: "Clearly walks the roadmap call, the spec and the working "
+                    "prototype, demoed running. Closes with why this role, "
+                    "why Ajaia and salary expectations stated plainly.",
+                 3: "Covers the required content but is generic, or the "
+                    "reasoning is thin.",
+                 1: "Missing required content, or does not demo the prototype "
+                    "running.",
+             }},
+            {"key": "ai_workflow_note", "label": "AI Workflow Note (Task 4)",
+             "block": "ai_forwardness", "weight": 5,
+             "anchors": {
+                 5: "Specific tool use, and a real example of something "
+                    "checked or rejected.",
+                 3: "Generic description without a concrete example.",
+                 1: "Missing, or purely performative.",
+             }},
+            {"key": "experience",
+             "label": "Experience and public presence",
+             "block": "background", "weight": 10,
+             "note": "Always adds, never blocks. Never score 1 solely for "
+                     "blank links.",
+             "anchors": {
+                 5: "Resume, links or public work clearly show shipped "
+                    "product decisions and outcomes relevant to the seat.",
+                 3: "Reasonable background, or no links with a plausible "
+                    "resume for the seat.",
+                 1: "Resume or links actively contradict fit. Never score 1 "
+                    "solely for blank links.",
+             }},
+        ),
+        "auto_fails": (
+            "Fabricated facts or numbers where the pack supplied them: usage "
+            "figures not in Materials 2 or 5, ticket contents not in Material "
+            "3, or an account value other than $180k a season.",
+            "Confirmed fraud or misrepresentation. Routes to the fraud log, "
+            "not to grading.",
+        ),
+        "red_flags": (
+            "The 92% quoted as evidence of health with the analytics note "
+            "unmentioned.",
+            "Livestreaming committed to with a date because the account is "
+            "big.",
+            "A prototype that looks good in screenshots but does not run or "
+            "click when demoed. Nothing rescues this; the task says static "
+            "frames alone are not the task.",
+        ),
+        "triage": (
+            {"key": "fraud", "label": "No fraud tells: burner domain, "
+                                      "automated apply, posting phrasing "
+                                      "handed back."},
+            {"key": "complete", "label": "Complete: a ranked roadmap call "
+                                         "with a named not-next item, the "
+                                         "spec, a prototype link or file, the "
+                                         "AI Workflow Note, and a video."},
+            {"key": "runs", "label": "The prototype actually runs or clicks. "
+                                     "Ask once for a working link before "
+                                     "counting this against them."},
+            {"key": "tagging", "label": "The three tagging tickets are read "
+                                        "as one root cause."},
+            {"key": "denominator", "label": "The 92% is not cited as health "
+                                            "without its denominator "
+                                            "caveat."},
+            {"key": "not_next", "label": "At least one thing is explicitly "
+                                         "named as not-next, with a reason."},
+        ),
+        "tells": {
+            "strong": "The unopened 30% and the jersey-number tickets named "
+                      "in the same sentence.",
+            "weak": "\"58% of parents asked for editing controls, so that is "
+                    "what we build.\"",
+        },
+        "do_not_penalize": (
+            "Going over the 120 minutes.",
+            "Building the prototype with AI. The task names v0, Lovable, "
+            "Replit, Bolt and Claude by name and invites any tool at all.",
+            "A rough-looking prototype. It has to run; it does not have to be "
+            "designed. Visual design is explicitly not this seat's call.",
+            "Choosing to build something other than tagging, when the case is "
+            "argued from the materials. A candidate who ranks the unopened "
+            "reels problem, or notification timing, and argues it from the "
+            "same evidence has done the task.",
+            "Prose that reads as AI-written.",
+            "An empty optional prior-work section.",
+        ),
+        "gia": {
+            "primary": ("Reasoning", "Number Speed and Accuracy"),
+            "secondary": ("Word Meaning",),
+            "why": "Reasoning because the pack is a synthesis problem "
+                   "disguised as five separate inputs. Number Speed and "
+                   "Accuracy because the decisive move is noticing what a "
+                   "percentage was calculated over -- 92% of opened reels is "
+                   "not 92% of reels. Ajaia administers no instrument, so "
+                   "only the proxies below are live.",
+            "proxies": (
+                "Whether the 30% and the tagging tickets are connected.",
+                "Whether behaviour is weighed against the survey, with "
+                "numbers.",
+                "How the $180k is handled: named as a risk, or allowed to set "
+                "the roadmap.",
+            ),
+        },
+        "reviewer": {
+            "path": (
+                "Task 1 first. It is the spike and it is where the pack is "
+                "won (8 min).",
+                "Task 2 against Task 1 -- is this the spec for what they "
+                "ranked first (7).",
+                "Task 3: open it and click it. Do not judge from screenshots "
+                "(6).",
+                "Video, with the prototype demo watched rather than skipped "
+                "(10).",
+                "Task 4 and the optional prior work (3).",
+            ),
+            "calibration": "The floor is noticing the tagging issue is real "
+                           "and the app icon is not worth building. The "
+                           "separation is connecting the tagging tickets, the "
+                           "unopened-reel share inside the 92%, and the "
+                           "say-do gap into one coherent case rather than "
+                           "treating each material as isolated. Also how "
+                           "Carla is handled, whether the spec has testable "
+                           "acceptance criteria and named failure modes, and "
+                           "whether the prototype actually runs. A polished "
+                           "video does not rescue a prototype that does not "
+                           "click.",
+            "probes": (
+                "\"Carla reads your answer and asks what she tells her board "
+                "on Monday. What is the sentence?\"",
+                "\"Your fix ships and the unopened share does not move. What "
+                "was wrong with the theory?\"",
+                "\"Which of your acceptance criteria would you drop if you "
+                "had to ship a week earlier?\"",
+            ),
+        },
+        "notes": (
+            "Open the prototype before scoring anything else on it. This is "
+            "the row most often marked from a screenshot, and the 1 anchor "
+            "exists precisely for submissions that look finished and are not.",
+            "The spec is scored against the candidate's own roadmap call, not "
+            "against ours. A coherent spec for a defensibly-ranked second "
+            "choice beats an incoherent spec for the one we would have "
+            "picked.",
+            "Use 4 and 2 often. Three rows at 25 mean a single mark moves the "
+            "total by 5 points at a time; clustering at 3 and 5 compresses "
+            "the pool.",
+        ),
+        "gaps": (
+            "No pricing, no discovery with real users, no engineering "
+            "negotiation, and no exposure to the coach side of the product at "
+            "all -- every material here is parent-facing or commercial.",
+            "The prototype is scored on whether it runs, not on whether it is "
+            "good, which is the honest limit of a 35-minute build.",
+            "Ajaia administers no formal GIA instrument today, so only the "
+            "proxy signals above are live.",
+        ),
+    },
+
+    # -- 22. Client Delivery Lead --------------------------------------------
+    #
+    # Portal assignment 46, slug `client-delivery-lead`. Three accounts, one
+    # week, and a pack built so that the account already on fire is not the
+    # one that most needs the candidate's attention.
+    #
+    # 45 / 10 / 10 / 10 / 25. The portfolio call is the spike because Task 1
+    # asks for the one account they lose sleep over AND the tradeoff being
+    # made, and the instruction that came with this rubric names refusing to
+    # answer that as "the single most common failure mode on this
+    # assessment". Everything else in the pack can be done well by a careful
+    # operator; naming a tradeoff is the part that requires a spine.
+    {
+        "key": "client_delivery_lead",
+        "unit": "Client Delivery Lead",
+        "grid_name": "Client Delivery Lead",
+        "entity": "Ajaia",
+        "slugs": ("client-delivery-lead",),
+        "roles": ("Client Delivery Lead (2CF95851A3)",),
+        "assessment": "Ajaia Client Delivery Lead Assessment, Core "
+                      "Assignment, 120 minutes including the video",
+        "location": "Remote",
+        "spike": "Naming the tradeoff",
+        "block_points": {
+            "work_product": 45,
+            "background": 10,
+            "ai_forwardness": 10,
+            "communication": 10,
+            "spike": 25,
+        },
+        "universal_auto_fails": False,
+        "seat": "Three fictional composite accounts in one week: Bellhaven "
+                "green with Phase 2 kicking off in two weeks, Kestrel at risk "
+                "with a deliverable due at 9am tomorrow and auditors on "
+                "Thursday, and Vantage live six weeks with adoption stuck at "
+                "30%. The seat is deciding where the week goes and saying so "
+                "out loud.",
+        "core_skill": "Reading past a status label, and being willing to say "
+                      "what is being given up.",
+        "seeded": (
+            {"key": "bellhaven_green",
+             "label": "Green does not mean fully staffed",
+             "where": "Material 1: Bellhaven is reported Green with 1.5 "
+                      "engineers allocated against 3 needed, Phase 2 kickoff "
+                      "in two weeks, and a note that Phase 2 scope assumes "
+                      "full staffing from week 1",
+             "criteria": ("portfolio",),
+             "caught": "The staffing gap is flagged before it becomes a fire. "
+                       "Reading past the status label to the grid underneath "
+                       "it is the judgment this material tests.",
+             "missed": "Only the two accounts already burning are addressed. "
+                       "The one still preventable is the one that was "
+                       "missed."},
+            {"key": "phi_overreach",
+             "label": "The PHI overreach in the Kestrel export",
+             "where": "Material 2 includes Patient Social Security Number and "
+                      "Patient home address; Material 3 has Alicia saying the "
+                      "auditors need \"enough to trace a sample of claims end "
+                      "to end, nothing more, that was very clear\"",
+             "criteria": ("quality",),
+             "caught": "The two offending fields are named exactly. This is a "
+                       "specific, concrete defect and the export target is an "
+                       "external, read-only portal outside Kestrel's own "
+                       "systems.",
+             "missed": "A vague \"data quality concern\" or \"we should "
+                       "review the PHI\" with no field named. Naming them is "
+                       "the difference between spotting it and sensing it."},
+            {"key": "deadline_pressure",
+             "label": "The deadline pressure test",
+             "where": "9am tomorrow, auditors Thursday, and Alicia asking for "
+                      "it tonight if possible",
+             "criteria": ("quality",),
+             "caught": "A fast, scoped fix -- drop the two fields, confirm "
+                       "the rest still lets auditors trace a sample end to "
+                       "end -- plus a calm, honest message to Alicia. The "
+                       "urgency is real and the fix is small.",
+             "missed": "Shipping as-is, which prioritizes the date over a "
+                       "named compliance problem, or an unscoped delay with "
+                       "no client message at all."},
+            {"key": "jae_kim_trade",
+             "label": "The quiet resourcing trade",
+             "where": "Material 5: Jae Kim asks to be pulled onto Kestrel "
+                      "tomorrow morning, is supposed to be finishing "
+                      "Bellhaven's Phase 2 kickoff deck due Thursday, and "
+                      "Dani says it should only be a few hours -- nobody "
+                      "mentions Bellhaven's 1.5 of 3",
+             "criteria": ("portfolio",),
+             "caught": "The move is connected to its Bellhaven consequence, "
+                       "whether it is approved or not. Approving it is "
+                       "defensible; approving it silently is not.",
+             "missed": "Approved with no mention of what it does to an "
+                       "account already at half staffing. The portfolio call "
+                       "and the resourcing grid were read as separate "
+                       "documents."},
+            {"key": "adoption_red_herring",
+             "label": "The adoption red herring",
+             "where": "Material 4: training completion is already 90%, while "
+                      "night shift sits at 4% against day shift 62%, "
+                      "dispatchers over 10 years at 6% against under-2s at "
+                      "55%, and 8 of 11 open tickets describe bad route "
+                      "recommendations on weather-affected lanes",
+             "criteria": ("adoption",),
+             "caught": "The concentration is diagnosed -- night shift and the "
+                       "most tenured dispatchers -- and tied to the routing "
+                       "complaints. Trust was broken by specific bad "
+                       "recommendations, not by unfamiliarity.",
+             "missed": "A generic re-training push, which the 90% completion "
+                       "figure already rules out as the primary fix."},
+            {"key": "tradeoff_test",
+             "label": "The tradeoff test",
+             "where": "Task 1: name the one account you lose sleep over, and "
+                      "state the tradeoff you are making",
+             "criteria": ("portfolio",),
+             "caught": "One account named, and what is being given up said "
+                       "plainly.",
+             "missed": "Three equally-weighted responses with no named "
+                       "tradeoff. This is the single most common failure mode "
+                       "on this assessment, and a beautifully organized plan "
+                       "for all three accounts has not cleared Task 1."},
+        ),
+        "criteria": (
+            {"key": "quality", "label": "Quality decision (Task 2)",
+             "block": "work_product", "weight": 25,
+             "anchors": {
+                 5: "Identifies the specific overreaching fields, makes a "
+                    "scoped ship, fix or delay call, and writes a calm, "
+                    "honest, specific client message in full.",
+                 3: "Recognizes a general quality problem and proposes a "
+                    "reasonable fix, but does not name the exact fields, or "
+                    "the message is generic.",
+                 1: "Ships as-is, delays without a client message, or cannot "
+                    "articulate what is actually wrong.",
+             }},
+            {"key": "adoption", "label": "Adoption play (Task 3)",
+             "block": "work_product", "weight": 20,
+             "anchors": {
+                 5: "Diagnoses the concentration by shift and tenure, ties it "
+                    "to the routing complaints, and proposes a two-week plan "
+                    "that is not primarily more training, naming who does "
+                    "what.",
+                 3: "Reasonable two-week plan but treats the problem as "
+                    "uniform rather than concentrated.",
+                 1: "Defaults to a generic training push despite the 90% "
+                    "completion figure already given.",
+             }},
+            {"key": "portfolio", "label": "Portfolio call (Task 1)",
+             "block": "spike", "weight": 25,
+             "anchors": {
+                 5: "Names one account as the priority with a stated "
+                    "tradeoff, catches Bellhaven's staffing gap under the "
+                    "green label, and connects the Jae Kim move to its "
+                    "Bellhaven consequence.",
+                 3: "Reasonable actions for all three accounts but no clear "
+                    "priority or tradeoff named.",
+                 1: "Treats all three as equally urgent, misses the Bellhaven "
+                    "staffing gap, or ignores the resourcing conflict "
+                    "entirely.",
+             }},
+            {"key": "video", "label": "Video",
+             "block": "communication", "weight": 10,
+             "anchors": {
+                 5: "The walkthrough matches the written plan exactly, the "
+                    "reasoning is explained conversationally as if briefing a "
+                    "manager rather than read from a script, and it closes "
+                    "with a specific why-Ajaia and a stated salary figure.",
+                 3: "Accurate but reads like a script, or the closing is "
+                    "generic.",
+                 1: "Contradicts what was written, or omits salary "
+                    "expectations.",
+             }},
+            {"key": "ai_workflow_note", "label": "AI Workflow Note (Task 4)",
+             "block": "ai_forwardness", "weight": 10,
+             "anchors": {
+                 5: "Specific about what AI drafted versus what stayed human, "
+                    "with a concrete example of something checked or "
+                    "rejected.",
+                 3: "Generic AI use described without a specific example.",
+                 1: "Missing, or claims no AI use on an AI-native task.",
+             }},
+            {"key": "experience",
+             "label": "Experience and public presence",
+             "block": "background", "weight": 10,
+             "note": "Always adds, never blocks. A blank optional section is "
+                     "a 3.",
+             "anchors": {
+                 5: "Resume or links show real ownership of delivery across "
+                    "multiple concurrent accounts, with material reflecting "
+                    "sound judgment.",
+                 3: "Solid resume with no additional material, or neutral "
+                    "links.",
+                 1: "Provided material raises a specific concern, such as "
+                    "contradicting a claim made elsewhere in the submission.",
+             }},
+        ),
+        "auto_fails": (
+            "Fabricated facts or numbers where the pack supplied them: "
+            "staffing figures not in Material 1, adoption percentages not in "
+            "Material 4, or export fields not in Material 2.",
+            "Confirmed fraud or misrepresentation. Routes to the fraud log, "
+            "not to grading.",
+        ),
+        "red_flags": (
+            "A client message that describes what would be said rather than "
+            "saying it. Task 2 asks for the message in full and says so "
+            "twice.",
+            "Patient SSN or home address left in a scoped export to an "
+            "external read-only auditor portal, with no comment.",
+            "A video that states a different decision than the written "
+            "tasks. Flag it as a consistency concern rather than averaging "
+            "the two.",
+        ),
+        "triage": (
+            {"key": "fraud", "label": "No fraud tells: burner domain, "
+                                      "automated apply, posting phrasing "
+                                      "handed back."},
+            {"key": "complete", "label": "Complete: the portfolio call, the "
+                                         "quality decision with the client "
+                                         "message written out in full, the "
+                                         "two-week adoption plan, the AI "
+                                         "Workflow Note, and a video."},
+            {"key": "opens", "label": "Every link opens and the video plays. "
+                                      "Ask once before counting a dead link "
+                                      "against them."},
+            {"key": "tradeoff", "label": "One account is named as the one "
+                                         "they lose sleep over, with a stated "
+                                         "tradeoff."},
+            {"key": "fields", "label": "The two overreaching Kestrel fields "
+                                       "are named specifically."},
+            {"key": "concentration", "label": "The Vantage plan addresses "
+                                              "night shift and tenured "
+                                              "dispatchers rather than "
+                                              "training in general."},
+        ),
+        "tells": {
+            "strong": "\"I am prioritizing Kestrel this week and Bellhaven's "
+                      "kickoff deck slips to Monday\" -- the choice and its "
+                      "cost in one line.",
+            "weak": "A tidy three-column plan with no priority in it.",
+        },
+        "do_not_penalize": (
+            "Going over the 120 minutes.",
+            "Choosing to ship Kestrel with the fields removed and a caveat, "
+            "or to delay by half a day. Both are defensible; what is scored "
+            "is whether the fields were named and whether Alicia was told.",
+            "Losing sleep over Bellhaven rather than Kestrel. Kestrel is "
+            "urgent and Bellhaven is the one nobody is watching; either is a "
+            "5 when the tradeoff is stated.",
+            "A blunt client message. Calm and honest is the standard, not "
+            "diplomatic.",
+            "Prose that reads as AI-written.",
+            "An empty optional prior-work section.",
+        ),
+        "gia": {
+            "primary": ("Reasoning", "Perceptual Speed"),
+            "secondary": ("Word Meaning",),
+            "why": "Reasoning for the portfolio call and for spotting that a "
+                   "green label and a staffing grid disagree. Perceptual "
+                   "Speed because two of the three planted items are found by "
+                   "reading a table and a field list carefully rather than by "
+                   "thinking hard. Word Meaning for the client message, which "
+                   "is the only real writing in the pack. Ajaia administers "
+                   "no instrument, so only the proxies below are live.",
+            "proxies": (
+                "Whether the two PHI fields are named or gestured at.",
+                "Whether Bellhaven appears in the answer at all.",
+                "Whether the adoption plan segments the population or treats "
+                "it as one.",
+            ),
+        },
+        "reviewer": {
+            "path": (
+                "Task 1, looking for one named account and one stated "
+                "tradeoff before anything else (5 min).",
+                "Task 2, checking the field list against Material 2, then "
+                "reading the client message as Alicia would (7).",
+                "Task 3 against Material 4's segments (5).",
+                "Video, checked against the written tasks for consistency "
+                "(10).",
+                "Task 4 and the optional prior work (3).",
+            ),
+            "calibration": "The floor is flagging that Kestrel has a "
+                           "due-tomorrow problem and Vantage's adoption is "
+                           "low. The separation is naming the exact wrong "
+                           "fields rather than a general quality worry, "
+                           "catching that Bellhaven's green status hides a "
+                           "staffing gap, an adoption play aimed at night "
+                           "shift and veteran dispatchers specifically, and "
+                           "an actual named tradeoff in Task 1. Check the "
+                           "video against the written tasks: a candidate "
+                           "describing a different decision on camera than "
+                           "what is written down is a consistency problem "
+                           "worth flagging.",
+            "probes": (
+                "\"Alicia replies that the auditors specifically asked for "
+                "the SSN. What now?\"",
+                "\"You pulled Jae Kim. Bellhaven's kickoff slips. What do you "
+                "tell Bellhaven, and when?\"",
+                "\"Night shift is at 4%. What is the first thing you do that "
+                "is not a training session?\"",
+            ),
+        },
+        "notes": (
+            "Score Task 1 on whether a choice was made, not on which choice. "
+            "All three accounts have a defensible case; the failure mode is "
+            "declining to choose, and it is common enough that it is worth "
+            "checking for before reading the rest.",
+            "The client message is a writing sample and the only one in this "
+            "pack. Read it as Alicia would, not as a reviewer: it is going to "
+            "someone who has already told you what her auditors need and who "
+            "is expecting a file tonight.",
+            "Use 4 and 2 often. Two rows at 25 and one at 20 mean the middle "
+            "of the scale carries most of the ranking here.",
+        ),
+        "gaps": (
+            "No commercial work: no renewal conversation, no scoping, no "
+            "margin, and no exposure to the sales relationship that a "
+            "delivery lead lives beside.",
+            "One week of one portfolio. Nothing tests what this candidate is "
+            "like in month six, which is when delivery seats are actually "
+            "decided.",
+            "Ajaia administers no formal GIA instrument today, so only the "
+            "proxy signals above are live.",
+        ),
+    },
 )
 
 
@@ -5322,6 +7741,79 @@ def block_points_of(grid: dict) -> dict[str, int]:
             f"{sum(override.values())}, not 100."
         )
     return dict(override)
+
+
+def seeded_of(grid: dict) -> tuple[dict, ...]:
+    """
+    The issues deliberately planted in this assessment's materials.
+
+    A newer idea than the rest of the pack and a narrower one. An anchor says
+    what a 5 looks like; a seeded issue says what was buried in the materials
+    on purpose to see whether the candidate digs it up. The two are not the
+    same question, and the second one is the whole reason several of these
+    assessments exist: the Design Lead pack, for instance, is built around a
+    stakeholder asking for the wrong thing while his own usage log says so,
+    and "did they notice" is a cleaner signal than any prose about synthesis
+    quality.
+
+    Kept as its own list rather than folded into the anchors because it has to
+    be reported per issue, not per mark. A reviewer opening a card wants to
+    see WHICH traps a candidate walked into, and averaging that into a 1-5 on
+    a criterion throws away the only part a hiring manager can act on. The
+    model returns caught/missed by key; `evaluator._parse_verdict` keeps them
+    beside the mark.
+
+    Empty for every grid written before this existed, which is most of them.
+    Absence means "this rubric does not track planted issues", never "this
+    assessment has none".
+    """
+    return tuple(grid.get("seeded") or ())
+
+
+def seeded_for(grid: dict, criterion_key: str) -> tuple[dict, ...]:
+    """The seeded issues that bear on one criterion, in pack order."""
+    return tuple(issue for issue in seeded_of(grid)
+                 if criterion_key in (issue.get("criteria") or ()))
+
+
+def _validate_seeded(grid: dict, where: str, criterion_keys: set[str]) -> None:
+    """
+    Seeded issues must be addressable and must land on real criteria.
+
+    Both halves matter and they fail differently. A duplicate or missing key
+    means the model is asked to return an issue it cannot name, and the reply
+    is dropped silently. A `criteria` entry naming a row that does not exist
+    means the issue is rendered into the prompt for nobody -- it is in the
+    pack, it reads fine, and no criterion ever asks about it. That is the
+    failure this check exists for, because it is invisible in review.
+    """
+    seen: set[str] = set()
+    for issue in seeded_of(grid):
+        key = issue.get("key")
+        if not key:
+            raise ValueError(f"{where}: a seeded issue has no key.")
+        if key in seen:
+            raise ValueError(f"{where}: duplicate seeded key {key!r}.")
+        seen.add(key)
+        for field in ("label", "where", "caught", "missed"):
+            if not issue.get(field):
+                raise ValueError(
+                    f"{where}/seeded/{key}: missing '{field}'. A seeded issue "
+                    f"needs a name, the material it is planted in, and what "
+                    f"catching and missing it each look like."
+                )
+        rows = issue.get("criteria") or ()
+        if not rows:
+            raise ValueError(
+                f"{where}/seeded/{key}: names no criteria. An issue no "
+                f"criterion asks about is never put to the grader."
+            )
+        unknown = sorted(set(rows) - criterion_keys)
+        if unknown:
+            raise ValueError(
+                f"{where}/seeded/{key}: names criteria {unknown} that are not "
+                f"in this grid."
+            )
 
 
 def validate_grid(grid: dict, where: str = "grid") -> None:
@@ -5388,6 +7880,8 @@ def validate_grid(grid: dict, where: str = "grid") -> None:
             f"{where}: triage has {len(triage)} checks, not the six the pack "
             f"routes on."
         )
+
+    _validate_seeded(grid, where, seen)
 
 
 def _validate_pack() -> None:
@@ -5594,16 +8088,21 @@ def auto_fails_of(grid: dict) -> tuple[str, ...]:
     Universal auto-fails plus this family's own, in the pack's order.
 
     A grid may opt out of the universal list with
-    `"universal_auto_fails": False`, and three grids do: the AI Strategist pair
-    and the Social Media and Marketing Intern. The universal rules are written
-    for assessments with stated caps and required sections. The AI Strategist
-    pack has neither -- it says in as many words that there are no caps, that a
-    missing task scores 1 rather than ending the grading, and that the only
-    auto-fail is confirmed fraud. Unit 14 has caps but scores them: format and
-    scope compliance is a 5-point row, a written piece under 250 words scores 1,
-    and "Grade what is in front of you" is the instruction. Prepending the
-    universal list in either place would have the grader end candidacies on
-    rules its own rubric repeals.
+    `"universal_auto_fails": False`, and five grids do: the AI Strategist pair,
+    the Social Media and Marketing Intern, General Management and Growth, and
+    Recruiting. The universal rules are written for assessments with stated
+    caps and required sections. The AI Strategist pack has neither -- it says
+    in as many words that there are no caps, that a missing task scores 1
+    rather than ending the grading, and that the only auto-fail is confirmed
+    fraud. Unit 14 has caps but scores them: format and scope compliance is a
+    5-point row, a written piece under 250 words scores 1, and "Grade what is
+    in front of you" is the instruction. Unit 15 has no submission at all, only
+    a resume, so caps and required sections do not apply to it. Unit 16 is unit
+    14's case again -- an absent video is a 1 on a 5-point row and an absent AI
+    note is a 1 on a 10-point row -- and carries the one universal rule it does
+    not repeal, on fabricated data, forward by hand. Prepending the universal
+    list in any of them would have the grader end candidacies on rules its own
+    rubric repeals.
 
     Opting out is not a way to be lenient: FRAUD_TELLS is separate from this
     list and still reaches every grader.

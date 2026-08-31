@@ -1025,7 +1025,155 @@ def grid_block(grid: dict) -> str:
                 lines.append(f"    {level} = {_anchor(criterion, level)}")
             if criterion.get("note"):
                 lines.append(f"    note: {criterion['note']}")
+            # The planted issues this row is the place to report. Rendered
+            # under the criterion rather than in a list of their own so the
+            # grader reads them while marking that row, which is the only
+            # moment the answer is in front of them.
+            for issue in pack.seeded_for(grid, criterion["key"]):
+                lines.append(
+                    f"    seeded issue [{issue['key']}] {issue['label']}"
+                    f"\n      planted in: {issue['where']}"
+                    f"\n      caught  = {issue['caught']}"
+                    f"\n      missed  = {issue['missed']}"
+                )
     return "\n".join(lines).strip()
+
+
+# What the grader is told about seeded issues, and only on the grids that have
+# them. Six of the pack's grids do; the other nineteen never see this
+# paragraph, because a rubric with nothing planted in it should not be invited
+# to invent something.
+SEEDED_RULE = """\
+
+SEEDED ISSUES -- read this before you mark anything.
+
+Some criteria above carry "seeded issue" entries. These are things planted in \
+the assessment materials ON PURPOSE, to see whether the candidate digs them \
+up. They are the primary signal on this rubric -- more important than \
+production polish or writing quality.
+
+For every criterion that lists them, report each issue by key in exactly one \
+of two lists:
+
+  seeded_caught   the submission does what the "caught" line describes.
+  seeded_missed   it does not.
+
+Rules that decide those two lists and nothing else:
+
+  * Every issue listed under a criterion goes in one list or the other. Never \
+both, never neither. If you cannot tell, it is missed -- catching a planted \
+issue means the candidate showed you, not that they might have known.
+  * Use the keys exactly as written in the brackets. An unrecognised key is \
+discarded.
+  * Judge only what is on the page. "Caught" is not credited for a submission \
+that happens to avoid a trap without showing any sign of having seen it, \
+UNLESS the "caught" line says otherwise -- some of these are satisfied by \
+restraint, and those say so.
+  * These lists do not set the score by themselves. Mark the criterion against \
+its 5 / 3 / 1 anchors as you would anyway; the anchors already account for \
+these issues where they matter. The lists are what a reviewer reads to see \
+which traps this candidate walked into.
+"""
+
+
+def _seeded_rule(grid: dict) -> str:
+    """The seeded-issue instructions, or nothing on a grid without any."""
+    return SEEDED_RULE if pack.seeded_of(grid) else ""
+
+
+def _seeded_marks(grid: dict, criterion_key: str, raw) -> dict:
+    """
+    One criterion's caught/missed lists, reconciled against the pack.
+
+    The model is asked to put every issue in exactly one list. It will not
+    always do that, and the three ways it fails are all silent, so all three
+    are closed here rather than trusted:
+
+      * an issue named in neither list. Resolved to MISSED, which is the
+        prompt's own rule -- a planted issue counts as caught only when the
+        candidate showed you. Silence is not evidence.
+      * an issue named in both. Resolved to missed, for the same reason, and
+        the honest reading of a grader that could not decide.
+      * a key that is not in this criterion's list at all, including a
+        hallucinated one or one belonging to another row. Dropped.
+
+    The result is exhaustive by construction: caught plus missed is always
+    exactly this criterion's seeded issues, so a reviewer counting them never
+    sees a total that moves between candidates. Returns {} for a criterion
+    with nothing planted, which keeps the key off nineteen grids' rows
+    entirely rather than storing empty lists on every card in the system.
+
+    Takes the RAW reply for this criterion rather than the `_entry` dict.
+    `_entry` normalises a mark down to score, quote, missing and evidence
+    and drops every other key, so reading the lists off it came back empty
+    every time and marked every planted issue missed on every card.
+    """
+    issues = pack.seeded_for(grid, criterion_key)
+    if not issues:
+        return {}
+
+    entry = raw if isinstance(raw, dict) else {}
+
+    def named(field):
+        value = entry.get(field)
+        if isinstance(value, str):        # a single key sent unwrapped
+            value = [value]
+        return {str(v).strip() for v in value or () if str(v).strip()}
+
+    claimed = named("seeded_caught")
+    denied = named("seeded_missed")
+
+    caught, missed = [], []
+    for issue in issues:
+        key = issue["key"]
+        # In both lists, or in neither, resolves to missed.
+        if key in claimed and key not in denied:
+            caught.append(key)
+        else:
+            missed.append(key)
+    return {"seeded_caught": caught, "seeded_missed": missed}
+
+
+def seeded_tally(rows) -> dict:
+    """
+    Caught and missed across every row, for the card header and the list.
+
+    Flattened deliberately. A reviewer scanning a queue wants "caught 4 of 6"
+    before they want to know which row each one sat under, and the per-row
+    lists are still there for when they open it.
+
+    Counted by DISTINCT issue, not by row. Several issues are attached to two
+    criteria on purpose -- the say-do gap is checked in both the synthesis and
+    the design, the tagging tickets in both the roadmap and the spec -- and
+    counting the rows would put the denominator above the number of things the
+    pack actually planted. The first version of this said "5 of 7" on a grid
+    with six seeded issues, which is the sort of number a reviewer quietly
+    stops trusting.
+
+    An issue caught on any row counts as caught. That is the honest reading:
+    these are things the candidate either dug up or did not, and finding the
+    say-do gap in the synthesis is finding it, whatever the design then did
+    with it. The per-row lists still show where it was and was not credited.
+    """
+    caught, missed, order = set(), set(), []
+    for row in rows or ():
+        for key in (row.get("seeded_caught") or ()):
+            if key not in order:
+                order.append(key)
+            caught.add(key)
+        for key in (row.get("seeded_missed") or ()):
+            if key not in order:
+                order.append(key)
+            missed.add(key)
+    missed -= caught
+    if not order:
+        return {}
+    return {
+        "caught": [k for k in order if k in caught],
+        "missed": [k for k in order if k in missed],
+        "of": len(caught) + len(missed),
+        "count": len(caught),
+    }
 
 
 def _numbered(items) -> str:
@@ -1060,6 +1208,7 @@ SCORING GRID
 {grid}
 
 Rate every criterion 1 to 5 against its anchors.
+{seeded_rule}
 
 CALIBRATION -- read this before you mark anything.
 
@@ -1122,7 +1271,37 @@ Reply with JSON only, in exactly this shape:
   "cv_assessment": {{{cv_criteria_keys}}},
   "cv_check": {{"verdict": "<consistent|contradicted|no_cv>",
                "note": "<one sentence; what the CV did or did not corroborate>"}},
+  "consistency": {{"flag": "<none|video contradicts written submission>",
+                  "note": "<which decision differs, and what each one said>"}},
+  "compensation_policy": {{"flag": "<none|candidate stated current or most recent compensation>",
+                          "note": "<where, in a few words>"}},
+  "salary_expectation": "<what they asked for, as stated, or empty>",
   "brief": "<3-4 sentences>"}}
+
+THREE FIELDS THAT CHANGE NO POINTS. They are extracted for the reviewer and \
+they are not criteria. Do not let any of them move a mark.
+
+"salary_expectation" is what the candidate said they want, copied as they said \
+it -- "$120k", "18-20 an hour", "open to discussion". Every one of these \
+assessments asks for it in the video close, so it is usually there. Leave it \
+empty when they never state one. A number that seems high or low is not a \
+scoring event and must not reach the brief.
+
+"compensation_policy" flags a candidate stating what they CURRENTLY or MOST \
+RECENTLY earn. Every one of these assessments tells them not to, so it is a \
+policy note for the reviewer, never a mark against the candidate: they may \
+have volunteered it, and the instruction is ours to enforce, not theirs to be \
+punished for. Flag it, say where, and score exactly as if it were not there. \
+An expectation is not a current salary -- do not confuse the two.
+
+"consistency" flags the video stating a different decision than the written \
+submission: a different account prioritized, a different item ranked first, a \
+different call on ship-or-delay. Say which decision and what each version \
+said. Do not average the two and do not treat a difference in emphasis, \
+detail or wording as a contradiction -- a walkthrough is allowed to be shorter \
+than a document. Flag only a genuine change of answer. Where the grid's own \
+anchors already price a contradiction, mark them as written; this field is the \
+reviewer's copy of the finding, not a second penalty.
 
 "cv_assessment" is marked from the CANDIDATE CV section alone. {cv_share} \
 {cv_rule}
@@ -1671,7 +1850,7 @@ def background_criterion(grid: Optional[dict]) -> Optional[dict]:
     """
     This grid's in-grid track-record row, if it has one.
 
-    Three grids do, and they neither share a key nor agree on a price.
+    Five grids do, and they neither share a key nor agree on a price.
     `ai_strategy` and `ai_strategy_associate` are tiers of one another and put
     background and experience inside the 100 at 40 points, asking different
     questions of it under the same row key -- accomplishment at senior, raw
@@ -1679,11 +1858,13 @@ def background_criterion(grid: Optional[dict]) -> Optional[dict]:
     portfolio and prior work inside the 100 at 10, under a different key
     entirely (`prior_work`), for the opposite reason: not because the record
     decides that seat but because capping it at 10 is what stops it deciding
-    the seat. That is why this looks for the BLOCK rather than for any row key
-    -- a fourth grid will name its row something else again. Everything in this
-    module that treats the CV as a separate document has to know when that is
-    not true, and this is the one place that question is answered, so the three
-    callers cannot drift apart on it.
+    the seat. `gm_growth` has no assessment behind it and puts all 100 there.
+    `recruiting` is the intern case again at 10 points, under a third key
+    (`experience`). That is why this looks for the BLOCK rather than for any
+    row key -- the next grid will name its row something else again. Everything
+    in this module that treats the CV as a separate document has to know when
+    that is not true, and this is the one place that question is answered, so
+    the three callers cannot drift apart on it.
     """
     if not grid:
         return None
@@ -1718,18 +1899,41 @@ def _weighting_note(weight: float, grid: Optional[dict] = None) -> str:
     """
     row = background_criterion(grid)
     if row is not None:
-        points = row.get("weight")
+        points = row.get("weight") or 0
+        # Reading order is not the same instruction at every price, and getting
+        # it backwards is a real error rather than a stylistic one. At 40
+        # points the risk is halo: an impressive deck pulls an ambivalent
+        # background mark upward, so the row is marked first, cold. At 10 the
+        # risk runs the other way and the intern grid's own notes say so in as
+        # many words -- a thin file read first is what makes a grader mark
+        # rough-but-good work down for being rough -- so the row is marked
+        # last. The cut sits at 20 because nothing in the pack lands between 10
+        # and 40, and a future row that does gets the halo warning, which is
+        # the safer of the two to give wrongly.
+        if points >= 20:
+            weight_note = (
+                f"and mark it as deliberately as any other row: it is the "
+                f"single heaviest criterion in this grid.\n\n"
+                f"Read this section BEFORE the submission and mark that row "
+                f"first. At {points} points an impressive submission will pull "
+                f"an ambivalent background mark upward if you go in the other "
+                f"order, and that is halo rather than evidence."
+            )
+        else:
+            weight_note = (
+                f"and mark it as deliberately as any other row.\n\n"
+                f"Read this section AFTER the submission and mark that row "
+                f"last. At {points} points the record cannot decide this seat "
+                f"and is not meant to; the live risk is the reverse of halo, "
+                f"where a thin file read first makes rough work look worse "
+                f"than it is. Grade the work, then open the links."
+            )
         return (
             f"THIS SEAT IS THE EXCEPTION. The track record is not a second "
             f"document weighed against the assessment here -- it is a "
             f"criterion IN the grid above, [{row['key']}], worth {points} of "
             f"the 100 points. Mark it there, from this section, against its "
-            f"own anchors, and mark it as deliberately as any other row: it is "
-            f"the single heaviest criterion in this grid.\n\n"
-            f"Read this section BEFORE the submission and mark that row first. "
-            f"At {points} points an impressive submission will pull an "
-            f"ambivalent background mark upward if you go in the other order, "
-            f"and that is halo rather than evidence.\n\n"
+            f"own anchors, {weight_note}\n\n"
             f"The separation still holds in the other direction, and it is the "
             f"one that matters now: experience the candidate did not bring to "
             f"the task earns nothing in the work product, communication, AI or "
@@ -1903,6 +2107,50 @@ def _cv_check(raw) -> dict:
     if verdict not in _CV_VERDICTS:
         verdict = "no_cv"
     return {"verdict": verdict, "note": str(raw.get("note") or "").strip()}
+
+
+def _clean_text(raw, limit: int) -> str:
+    """One short free-text field off the model, trimmed and length-capped."""
+    if raw is None or isinstance(raw, (dict, list, tuple)):
+        return ""
+    text = " ".join(str(raw).split())
+    return text[:limit].strip()
+
+
+# The words that mean "nothing to report" whatever shape they arrive in. The
+# prompt asks for the literal string "none", but a model answering a field
+# called `flag` also reaches for false, null, "no", "n/a" and the empty string,
+# and every one of them means the same thing.
+_NO_FLAG = {"", "none", "no", "n/a", "na", "null", "false", "nil", "-"}
+
+
+def _flag_field(raw, raised: str) -> dict:
+    """
+    One of the two unscored flags, normalised to raised-or-not.
+
+    Deliberately binary rather than free text. Both of these fields exist to
+    be counted and filtered on a dashboard -- "show me everyone whose video
+    disagreed with their document" -- and a field whose value is whatever
+    sentence the model wrote that day cannot be filtered on. The sentence is
+    kept in `note`, where it belongs.
+
+    Defaults to not-raised on anything unrecognisable, for `_cv_check`'s
+    reason: an unparseable reply must not put a finding on a candidate's
+    record. Both flags read as mild accusations, and neither is worth a false
+    positive.
+    """
+    if isinstance(raw, dict):
+        value = raw.get("flag", raw.get("value", raw.get("verdict")))
+        note = _clean_text(raw.get("note") or raw.get("evidence"), 300)
+    else:
+        value, note = raw, ""
+    if isinstance(value, bool):
+        flagged = value
+    else:
+        flagged = str(value or "").strip().lower() not in _NO_FLAG
+    return {"flag": raised if flagged else "none",
+            "raised": flagged,
+            "note": note}
 
 
 def _triage_entry(raw) -> tuple[Optional[bool], str]:
@@ -2122,6 +2370,8 @@ def _parse_verdict(raw: str, grid: dict, answer: str = "",
             "quote": entry["quote"],
             "missing": entry["missing"],
             "grounded": _grounded(entry["quote"], corpus),
+            **_seeded_marks(grid, criterion["key"],
+                            marks.get(criterion["key"])),
         })
 
     # The one mark this function overrules, and the only one it ever should.
@@ -2327,6 +2577,21 @@ def _parse_verdict(raw: str, grid: dict, answer: str = "",
         # signal that has to emerge on its own from prose does not emerge. Asked
         # for as a named field, it comes back.
         "cv_check": _cv_check(data.get("cv_check")),
+        # Which planted issues this candidate dug up, flattened across rows.
+        # Empty for the nineteen grids with nothing planted, so a card can
+        # tell "caught none" from "this rubric does not track them".
+        "seeded": seeded_tally(rows),
+        # Three extracted facts that change no points. They live beside the
+        # score rather than in it, and the prompt says so three times, because
+        # each one is the kind of thing a grader will otherwise quietly price
+        # in: a salary number that reads as high, a policy breach that reads
+        # as carelessness, a video that disagrees with the document.
+        "consistency": _flag_field(
+            data.get("consistency"), "video contradicts written submission"),
+        "compensation_policy": _flag_field(
+            data.get("compensation_policy"),
+            "candidate stated current or most recent compensation"),
+        "salary_expectation": _clean_text(data.get("salary_expectation"), 120),
         "band": band["key"],
         # The ranking word a reviewer reads. An auto-fail is not a rank at all,
         # so it says so rather than borrowing the bottom band's word.
@@ -2392,13 +2657,30 @@ def _parse_verdict(raw: str, grid: dict, answer: str = "",
 
 
 def _criteria_keys(grid: dict) -> str:
-    return ", ".join(
-        f'"{c["key"]}": {{"score": <1-5>, '
-        f'"quote": "<verbatim from the submission, <=25 words>", '
-        f'"missing": "<what the 5 anchor asks for and this lacks>", '
-        f'"evidence": "<one sentence>"}}'
-        for c in grid["criteria"]
-    )
+    """
+    The per-criterion reply shape.
+
+    Criteria carrying seeded issues ask for two extra lists, and only those
+    criteria do: adding the fields everywhere would invite the model to
+    populate them on rows where nothing is planted, and an invented "caught"
+    is worse than no signal at all. The keys are spelled into the shape rather
+    than described, so the model is choosing from a closed list.
+    """
+    parts = []
+    for c in grid["criteria"]:
+        fields = (
+            f'"score": <1-5>, '
+            f'"quote": "<verbatim from the submission, <=25 words>", '
+            f'"missing": "<what the 5 anchor asks for and this lacks>", '
+            f'"evidence": "<one sentence>"'
+        )
+        issues = pack.seeded_for(grid, c["key"])
+        if issues:
+            names = "|".join(i["key"] for i in issues)
+            fields += (f', "seeded_caught": [<any of: {names}>], '
+                       f'"seeded_missed": [<the rest of: {names}>]')
+        parts.append(f'"{c["key"]}": {{{fields}}}')
+    return ", ".join(parts)
 
 
 def _triage_keys(grid: dict) -> str:
@@ -2453,6 +2735,7 @@ def evaluate(submission: dict, role: dict, grid: dict) -> dict:
             seat=grid.get("seat") or "",
             core_skill=grid.get("core_skill") or "",
             grid=grid_block(grid),
+            seeded_rule=_seeded_rule(grid),
             triage=_triage_block(grid),
             auto_fails=_numbered(pack.auto_fails_of(grid)),
             fraud_tells=_numbered(pack.FRAUD_TELLS),
@@ -2669,6 +2952,11 @@ def rubric_detail(role: dict, tier: Optional[str] = None) -> dict:
         ],
         "auto_fails": list(pack.auto_fails_of(grid)),
         "family_auto_fails": list(grid.get("auto_fails") or ()),
+        # What this assessment plants on purpose, and which row reports each
+        # one. Empty for every grid written before seeded issues existed, so a
+        # role page can leave the section off rather than render an empty
+        # heading on nineteen roles.
+        "seeded": [dict(issue) for issue in pack.seeded_of(grid)],
         "red_flags": list(grid.get("red_flags") or ()),
         "do_not_penalize": list(grid.get("do_not_penalize") or ()),
         "triage": [dict(check) for check in grid.get("triage") or ()],

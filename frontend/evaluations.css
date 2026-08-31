@@ -1456,3 +1456,50 @@ tr.is-picked > td { background: var(--surface-hover); }
 .reject-col th:nth-child(3) { width: 38%; }
 .reject-col th:nth-child(4) { width: auto; }
 .reject-col :is(th, td):nth-child(4) { white-space: normal; }
+
+/* --- Seeded issues -------------------------------------------------------
+ *
+ * The traps an assessment plants on purpose, reported under the criterion
+ * that scores them. Six grids carry these; on the other nineteen the markup
+ * is never emitted at all.
+ *
+ * Missed is listed first and is the louder of the two. That is the reading
+ * order a reviewer wants -- on a strong submission the missed list is short,
+ * and it is the part that decides whether to interview -- but it means the
+ * red chips must not read as errors in the system. They are muted and
+ * outlined rather than filled, so a card with three of them still looks like
+ * a scored card and not a stack trace. */
+.seeded-issues {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.seeded-chip {
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 1px 7px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.seeded-caught {
+  color: #1b6b3a;
+  background: #eaf6ee;
+  border-color: #c2e2cd;
+}
+
+.seeded-missed {
+  color: #9a3412;
+  background: #fdf1e7;
+  border-color: #f0d0b4;
+}
+
+/* The two unscored flags, in the drawer's notes block. Weighted like a
+ * finding without being coloured like a failure: neither of them moved a
+ * number, and the compensation one is a breach of a rule we set, not one the
+ * candidate broke. */
+.seeded-flag b { color: #9a3412; }
+.seeded-flag i { display: block; margin-top: 2px; }

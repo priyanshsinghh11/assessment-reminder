@@ -303,10 +303,12 @@ CV_WEIGHT_BY_SEAT = {
     # -- Scored inside the grid, so zero here -------------------------------
     # This is not "the CV does not matter on these seats". It is the opposite:
     # their rubrics score the record as a criterion IN the grid, with anchors,
-    # so it is already paid for by the time the blend runs. Three grids in the
-    # pack do that -- the two AI Strategist ones at 40 of 100 points, and the
-    # Social Media and Marketing Intern one at 10 -- and they are the only
-    # grids that open rubric_pack's `background` block.
+    # so it is already paid for by the time the blend runs. Five grids in the
+    # pack do that -- the two AI Strategist ones at 40 of 100 points, General
+    # Management and Growth at the whole 100 because it has no assessment
+    # behind it, and the Social Media and Marketing Intern and Recruiter ones
+    # at 10 -- and they are the only grids that open rubric_pack's
+    # `background` block.
     #
     # So the blend has to be off. Every other seat here reads "how much of the
     # decision is the resume", and the resume is marked separately in
@@ -351,6 +353,47 @@ CV_WEIGHT_BY_SEAT = {
     # documents but a rounding of one.
     "gm_growth": 0.0,
     "gm-head-of-growth": 0.0,
+
+    # The Recruiter seat, pinned for the intern seat's reason and by the same
+    # instruction. Grid 16 scores "Experience and public presence" at 10 of
+    # 100 and its source says "The Experience row adds, never blocks; score a
+    # missing signal 3, never 1." Recruiters are a population whose public
+    # record is thin far more often than it is damning -- a good one may have
+    # filled forty roles and published none of it -- so a 0.50 blend would
+    # hand roughly half the decision back to exactly the evidence the rubric
+    # capped at 10 to stop it deciding.
+    #
+    # Not to be confused with `recruitment-manager` at 0.50 further down. That
+    # is the adjacent seat, one level up, whose 180-minute assessment tests
+    # system design and whose grid is derived rather than packed; it carries
+    # no background row, so its CV is still marked outside the grid and
+    # blended in the ordinary way.
+    "recruiting": 0.0,
+    "recruiter": 0.0,
+
+    # The six seats added on 2026-08-31, all pinned for the same reason and by
+    # the same instruction. Every one of their rubrics carries an "Experience
+    # and public presence" row worth 10 inside the grid, under a rule stated
+    # once for all six: it "always adds, never blocks. A candidate with
+    # nothing to show there scores a 3 on that row, never a 1." A 0.50 blend
+    # would hand roughly half the decision back to the record the rubric
+    # deliberately capped at a tenth of it.
+    #
+    # Both the grid key and the portal slug are listed for each, because
+    # `cv_weight_for` resolves by slug first and by grid key second, and a
+    # caller may hold either one.
+    "marketing_associate": 0.0,
+    "marketing-associate": 0.0,
+    "marketing_head": 0.0,
+    "marketing-head": 0.0,
+    "technical_pm": 0.0,
+    "technical-project-manager": 0.0,
+    "design_lead": 0.0,
+    "design-lead": 0.0,
+    "product_manager": 0.0,
+    "product-manager": 0.0,
+    "client_delivery_lead": 0.0,
+    "client-delivery-lead": 0.0,
 
     # -- Assessment-dominant: the artefact is the job ----------------------
     # 4-6 hours of building, graded on a spike named "scope cut defense". What
@@ -651,6 +694,29 @@ ASSESSMENT_DIR = PROJECT_ROOT / "assessments"
 # again, delete the entry rather than editing it to match.
 ROLE_TITLES = {
     "ai-strategist": "AI Strategist",
+    # Job 40. The portal calls this one "Ajaia Recruiter Assessment", which is
+    # the failure this table was built for: it names the admin object, and a
+    # candidate reading "your application for Ajaia Recruiter Assessment" is
+    # being told the name of a file. The seat is called Recruiter, which is
+    # also what the Workable posting (EC24F51CB9) calls it, so this is a
+    # correction rather than a pin -- delete it if the portal is ever renamed
+    # to agree, because while it stands a rename there will not reach here.
+    "recruiter": "Recruiter",
+    # Jobs 41-46. The portal suffixes every one of these with "Assessment",
+    # which names the admin object rather than the seat -- the same correction
+    # as the Recruiter line above, six more times. The names on the right are
+    # the Workable posting titles, which is also what the grading instruction
+    # matches on, so pinning them here keeps one name for a seat across the
+    # dashboard, the shortlist email and the rubric.
+    #
+    # `marketing-head` is the slug; "Head of Marketing" is the seat. They do
+    # not match, and that is the portal's naming, not a typo here.
+    "marketing-associate": "Marketing Associate",
+    "marketing-head": "Head of Marketing",
+    "technical-project-manager": "Technical Project Manager",
+    "design-lead": "Design Lead",
+    "product-manager": "Product Manager",
+    "client-delivery-lead": "Client Delivery Lead",
 }
 
 # --- Brevo (email) ---
@@ -1232,6 +1298,59 @@ JOB_ASSESSMENTS = {
     # job did not exist before it.
     "9AB42204CE": ("Social Media and Marketing Intern", "39", "social-marketing-intern"),  # invite link in 8/8 sampled
 
+    # portal 40 -- Recruiter (new 2026-08-31)
+    #
+    # One posting, one assignment, and nothing to corroborate it with yet: the
+    # job was created at 08:47 UTC on 2026-08-31, has no candidates at all, and
+    # the portal assignment has no submissions. There is no overlap evidence to
+    # be had and no activity log to read an invite link out of, because nobody
+    # has applied.
+    #
+    # So this entry rests on the pairing itself rather than on sampled
+    # candidates, which is weaker evidence than every other line in this table
+    # and worth saying out loud. It is also the only pairing available: portal
+    # 40 is the only assignment whose slug, title and 60-minute Core Assignment
+    # match, its scenario is a recruiting intake and three salary calls, and
+    # EC24F51CB9 is the only Workable posting in the account with "Recruiter"
+    # in the title. Re-verify from the first applicant's activity log -- the
+    # invite link should point at /apply/ajaia/recruiter -- and this comment
+    # can then say so the way the others do.
+    #
+    # Invite automation is on and was on before the posting existed, so there
+    # is no INVITES_START_AT entry to add: every applicant will postdate it.
+    "EC24F51CB9": ("Recruiter", "40", "recruiter"),   # pairing unambiguous; no applicants yet to sample
+
+    # portals 41-46 -- the six seats posted on 2026-08-31
+    #
+    # One Workable posting per portal assignment, and for once the pairing
+    # needs no inference: each posting's title matches its assignment's title
+    # exactly, all twelve objects were created the same day, and no other
+    # posting in the account claims any of these titles. The instruction that
+    # came with these rubrics matches on the posting title for that reason,
+    # and says to refuse rather than guess when a title is not on the list --
+    # which is what this table does structurally, since a shortcode that is
+    # not here resolves to no assessment at all.
+    #
+    # Same caveat as portal 40 above: these went up hours ago, so none of the
+    # 63 candidates across them has submitted yet and no activity log has an
+    # invite link to corroborate with. Re-verify from the first submission on
+    # each.
+    #
+    # Watch the slug on Head of Marketing. The portal calls it
+    # `marketing-head` while the posting and the seat are both "Head of
+    # Marketing", so the obvious `head-of-marketing` is wrong and would
+    # silently map to nothing.
+    #
+    # Engagement Lead is deliberately absent. It is on hold and not yet
+    # posted, there is no Workable job for it, and the rubrics that arrived
+    # with these six explicitly exclude it.
+    "ABDD1D2556": ("Marketing Associate", "41", "marketing-associate"),
+    "2F71B2FA92": ("Head of Marketing", "42", "marketing-head"),
+    "E5946F1944": ("Technical Project Manager", "43", "technical-project-manager"),
+    "370B787999": ("Design Lead", "44", "design-lead"),
+    "782440C1B6": ("Product Manager", "45", "product-manager"),
+    "2CF95851A3": ("Client Delivery Lead", "46", "client-delivery-lead"),
+
     # portal 34 -- Operations Associate (no submissions yet, so overlap could
     # never have found these -- every one came from the invite link)
     "1E233EC268": ("Executive Associate to the CEO", "34", "operations-associate"),     # invite link in 2/2 sampled
@@ -1241,10 +1360,11 @@ JOB_ASSESSMENTS = {
     "D13B58CCFD": ("Executive Strategy Associate", "34", "operations-associate"),       # invite link in 2/2 sampled
 }
 
-# The portal has 29 assignments in total, up from 25: ai-strategist (38) and
-# information-security-analyst (37) both appeared on 2026-08-20, and
-# social-marketing-intern (39) on 2026-08-22. Two of the three are mapped
-# above; information-security-analyst is not, and joins the list below.
+# The portal has 30 assignments in total, up from 25: ai-strategist (38) and
+# information-security-analyst (37) both appeared on 2026-08-20,
+# social-marketing-intern (39) on 2026-08-22, and recruiter (40) on 2026-08-31.
+# Three of the four are mapped above; information-security-analyst is not, and
+# joins the list below.
 #
 # The 14 below still have no Workable job mapped to them -- no posting's invite
 # email points at their apply link, so whatever feeds them is not a Workable

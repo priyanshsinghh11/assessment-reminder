@@ -2023,6 +2023,10 @@ async function loadRubric(jobId) {
     // Someone can open a role, go back, and open another before this lands.
     if (state.activeRoleId !== jobId) return;
     state.rubric = rubric;
+    // The pack's own wording for each planted issue. Cards can render before
+    // this lands and fall back to the de-slugged key, so this only ever
+    // improves the chips -- it is never what makes them appear.
+    rememberSeededLabels(rubric.seeded);
   } catch {
     // Nothing on screen depends on this arriving: the criterion columns stay
     // empty and the bands fall back to FALLBACK_BANDS, which is what they
@@ -3467,19 +3471,60 @@ async function previewStageEmail(c, stage) {
   }
 }
 
+/* The planted issues reported under one criterion, caught and missed.
+ *
+ * Six grids carry these. They are the primary signal on those rubrics -- more
+ * than polish, more than writing quality -- so they sit inside the evidence
+ * cell of the row that reports them rather than in a panel further down the
+ * card, where a reviewer would read the mark first and the trap second.
+ *
+ * Caught and missed are always exhaustive together: the parser resolves every
+ * issue into exactly one list, so "2 of 6" here means the same thing on every
+ * card and can be compared across them. Missed is listed first, deliberately.
+ * It is the shorter list on a strong submission and the one a reviewer is
+ * actually looking for. */
+function seededRow(row) {
+  const caught = row.seeded_caught || [];
+  const missed = row.seeded_missed || [];
+  if (!caught.length && !missed.length) return '';
+  const chips = (keys, cls, mark) => keys.map((k) =>
+    `<span class="seeded-chip ${cls}">${mark} ${esc(seededLabel(k))}</span>`).join('');
+  return `
+    <div class="seeded-issues" title="Issues planted in this assessment's materials on purpose">
+      ${chips(missed, 'seeded-missed', '✗')}${chips(caught, 'seeded-caught', '✓')}
+    </div>`;
+}
+
+/* An issue key rendered for a human.
+ *
+ * The pack's own label is the right text and it arrives on the rubric payload,
+ * not on the verdict, so it is only available once the role page has been
+ * opened. Falling back to a de-slugged key rather than waiting for it keeps
+ * the chips readable on a cold card -- "say do gap" is not the pack's wording
+ * but nobody is misled by it. */
+const SEEDED_LABELS = new Map();
+function seededLabel(key) {
+  return SEEDED_LABELS.get(key) || String(key).replace(/_/g, ' ');
+}
+function rememberSeededLabels(seeded) {
+  (seeded || []).forEach((issue) => {
+    if (issue && issue.key && issue.label) SEEDED_LABELS.set(issue.key, issue.label);
+  });
+}
+
 /* The scored grid, one row per criterion, grouped into its blocks.
  *
  * Every row shows the mark, the anchor it was marked against, and the points
  * it contributed -- score x weight / 5 -- so the total can be added up by hand
  * and any single row argued with on its own.
  *
- * Four blocks on most seats. Three grids carry a fifth, Background and
- * experience: the AI Strategist pair splits 40/40/6/7/7 and the Social Media
- * and Marketing Intern grid splits 55/10/10/13/12, rather than 70/10/10/10.
- * Nothing here is hard-coded to any of those shapes -- the blocks, their
- * labels and their point totals all arrive on the verdict -- so a grid that
- * states its own split renders it without this function knowing which one it
- * is. */
+ * Four blocks on most seats. Five grids carry a fifth, Background and
+ * experience: the AI Strategist pair splits 40/40/6/7/7, the Social Media and
+ * Marketing Intern grid splits 55/10/10/13/12, and the six seats added on
+ * 2026-08-31 each open it at 10, rather than 70/10/10/10. Nothing here is
+ * hard-coded to any of those shapes -- the blocks, their labels and their
+ * point totals all arrive on the verdict -- so a grid that states its own
+ * split renders it without this function knowing which one it is. */
 function gridTable(ev) {
   if (!Array.isArray(ev?.grid) || !ev.grid.length) return legacyMatrixTable(ev);
 
@@ -3515,7 +3560,7 @@ function gridTable(ev) {
               : `${fmtScore(row.points)}<span class="of">/${row.max_points}</span>`}</td>
             <td class="matrix-evidence">${
               row.evidence ? esc(row.evidence)
-                : '<span class="dim">No evidence given</span>'}</td>
+                : '<span class="dim">No evidence given</span>'}${seededRow(row)}</td>
           </tr>`;
       }).join('')}`;
   }).join('');
@@ -3820,8 +3865,45 @@ function findingsBlock(ev) {
         and did not affect the band. Worth checking by hand if one looks real.</p>
     </div>` : '';
 
+  /* The three extracted facts that change no points.
+   *
+   * Grouped together and labelled as unscored, because that is the single
+   * most important thing about them and the easiest for a reader to forget:
+   * each one looks like a judgement and none of them moved the number. The
+   * compensation note in particular is a policy breach by us, not by the
+   * candidate -- every one of these assessments tells them not to state it,
+   * so it is surfaced for the reviewer and never held against the person who
+   * volunteered it.
+   *
+   * Rendered only when there is something to say. A candidate who stated an
+   * expectation and tripped neither flag shows one line, which is the normal
+   * case. */
+  const consistency = ev.consistency || {};
+  const compPolicy = ev.compensation_policy || {};
+  const notes = [];
+  if (consistency.raised) {
+    notes.push(`<li class="seeded-flag"><b>Video contradicts the written submission</b>${
+      consistency.note ? ` — ${esc(consistency.note)}` : ''}
+      <i class="dim">Flagged for a reviewer, not averaged into the marks.</i></li>`);
+  }
+  if (compPolicy.raised) {
+    notes.push(`<li class="seeded-flag"><b>Candidate stated current or recent compensation</b>${
+      compPolicy.note ? ` — ${esc(compPolicy.note)}` : ''}
+      <i class="dim">We ask for expectations only. A policy note, never a mark
+      against the candidate.</i></li>`);
+  }
+  if (ev.salary_expectation) {
+    notes.push(`<li>Salary expectation stated: <b>${esc(ev.salary_expectation)}</b>
+      <i class="dim">Extracted for the pipeline. Kept out of every score.</i></li>`);
+  }
+  const notesRow = notes.length ? `
+    <div class="rubric-block">
+      <h3>Noted, unscored</h3>
+      <ul>${notes.join('')}</ul>
+    </div>` : '';
+
   if (!t && !ev.auto_fails?.length && !ev.fraud_tells?.length && !cvRow
-      && !disputedRow) return '';
+      && !disputedRow && !notesRow) return '';
 
   return `
     <div class="drawer-section">
@@ -3840,6 +3922,7 @@ function findingsBlock(ev) {
              'Fraud tells — route to the fraud log, not to a score')}
       ${disputedRow}
       ${cvRow}
+      ${notesRow}
     </div>`;
 }
 
