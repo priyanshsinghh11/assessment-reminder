@@ -64,7 +64,7 @@ account named on the role's hiring-manager list, and it drives that manager's
 own review workspace (`/api/managers/review-link`, then the same
 `/api/review/<token>/invite*` routes the emailed review page uses), so the
 interview stage still has exactly one door into it. See `loadTopCandidates()`
-and `openComposer()` in `evaluations.js`.
+in `evaluations/08-shortlist.js` and `openComposer()` in `invite.js`.
 
 Only candidates who can actually be sent to get a checkbox: those who have not
 started and have not used up their reminders. Everything else is display-only
@@ -617,10 +617,19 @@ cover the gap in the meantime.
 
 ## Notes
 
+- **The evaluations page is twelve scripts, not one.** `evaluations.js` was a
+  single 4,470-line file; it is now `evaluations/01-core.js` through
+  `12-wiring.js`, loaded in numbered order. They are still classic scripts
+  sharing one scope, and the numbered order is the old file's own order, so
+  every function sees exactly what it saw before -- the split moved no code and
+  changed no line. `12-wiring.js` binds every listener and makes the opening
+  `loadRoles()` call, so it must stay last. Add a new panel as its own numbered
+  file before it.
+
 - `app.js` sets `const API = ""` (same origin). If you run the backend on a
   different port during development, set it and enable CORS there.
-- **Every page needs an account.** `session.js` loads before `app.js` and
-  `evaluations.js` on both dashboards: it wraps `window.fetch` so every request
+- **Every page needs an account.** `session.js` loads before `app.js` and the
+  `evaluations/` scripts on both dashboards: it wraps `window.fetch` so every request
   carries its CSRF header and a 401 sends the visitor to `/login.html?next=…`,
   and it draws the account chip in `.topbar-actions`. An admin sees every role;
   a hiring manager sees only the roles their address is listed on, and `/` and

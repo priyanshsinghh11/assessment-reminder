@@ -1617,6 +1617,8 @@ assessment-reminder/
 │       └── deployment. One image, two processes: dashboard and review-only.
 │
 ├── frontend/            Both dashboards — plain HTML/CSS/JS, no build step
+│   └── evaluations/    The evaluations page, twelve numbered scripts
+│                       loaded in order. Was one 4,470-line file.
 ├── assessments/         Crawled assessments and derived grids
 ├── tests/               test_access.py — the access-rule regression test
 ├── tools/               Scratch tools. Nothing in the pipeline imports them.
@@ -1673,6 +1675,7 @@ anywhere all find the same `.env`, `assessments/` and `state/`.
 | `tools/make_favicon.py` | Cuts the tab icon out of the wordmark. Re-run it if `assets/ajaia-logo.png` is ever replaced — nothing else keeps the two in step |
 | `frontend/login.html` | Sign-in, and the first-time password change |
 | `frontend/session.js` | The signed-in account on both dashboards: CSRF header, expiry handling, the account chip |
+| `frontend/evaluations/` | The evaluations dashboard as twelve numbered classic scripts, loaded in order by `evaluations.html`. `01-core.js` is state and the fetch wrapper; `12-wiring.js` binds every listener and starts the page, so it stays last |
 | `frontend/review.html` | The hiring manager's review page — token-scoped, deliberately no login, no scores |
 | `frontend/` | Both dashboards — plain HTML/CSS/JS, no build step |
 | `frontend/assets/` | The wordmark in both themes, and `ajaia-mark.png` — the square mark every page uses as its tab icon |

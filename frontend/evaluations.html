@@ -736,8 +736,24 @@
 <script src="session.js"></script>
 <!-- The composer, shared with the review page: it renders its own
      markup, so this page carries none of it. Loaded first, because
-     evaluations.js hands it its configuration on the way past. -->
+     12-wiring.js hands it its configuration on the way past. -->
 <script src="invite.js"></script>
-<script src="evaluations.js"></script>
+<!-- The dashboard itself. One 4,470-line file until it was split by
+     concern; these are the same classic scripts sharing the same scope,
+     and the numbered order IS the old file's order, so they still see
+     each other exactly as they did. 12-wiring.js binds every listener
+     and calls loadRoles(), so it stays last. -->
+<script src="evaluations/01-core.js"></script>
+<script src="evaluations/02-format.js"></script>
+<script src="evaluations/03-account-view.js"></script>
+<script src="evaluations/04-accounts.js"></script>
+<script src="evaluations/05-role-list.js"></script>
+<script src="evaluations/06-rejected.js"></script>
+<script src="evaluations/07-pipeline.js"></script>
+<script src="evaluations/08-shortlist.js"></script>
+<script src="evaluations/09-send.js"></script>
+<script src="evaluations/10-views.js"></script>
+<script src="evaluations/11-drawer.js"></script>
+<script src="evaluations/12-wiring.js"></script>
 </body>
 </html>
