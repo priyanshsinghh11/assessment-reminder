@@ -47,6 +47,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from backend.database import mongo_store as store
+from backend.core.utils import aware as _aware
 
 log = logging.getLogger(__name__)
 
@@ -68,27 +69,6 @@ def _collection():
         return store.get_db()[COLLECTION]
     except Exception as exc:
         raise ReminderLogUnavailable(str(exc)) from exc
-
-
-def _aware(value) -> Optional[datetime]:
-    """
-    A timezone-aware datetime from whatever the document holds.
-
-    Documents written here store real datetimes. Documents migrated from the
-    old JSON file hold ISO strings, because that is what json.dumps left
-    behind. Both are read, because a migration that rewrote every timestamp
-    would be a second chance to lose one.
-    """
-    if value is None:
-        return None
-    if isinstance(value, str):
-        try:
-            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-    if not isinstance(value, datetime):
-        return None
-    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 def get(key: str) -> Optional[dict]:

@@ -43,7 +43,7 @@ import logging
 import os
 
 from backend.core.config import AUTH_ENABLED
-from backend.notifications.reminder import setup_logging
+from backend.core.logging_setup import setup_logging
 
 from backend.accounts import auth
 from backend.database import mongo_store as store

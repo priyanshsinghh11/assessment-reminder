@@ -49,7 +49,7 @@ from backend.database import mongo_store as store
 from backend.scraping import portal_crawler
 from backend.scraping import resume_reader
 from backend.scraping.portal_scraper import REVIEW_BUCKETS, _download, _login
-from backend.notifications.reminder import setup_logging
+from backend.core.logging_setup import setup_logging
 
 log = logging.getLogger("ingest")
 

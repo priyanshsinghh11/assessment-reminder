@@ -38,12 +38,12 @@ from datetime import datetime
 from backend.core.config import (
     BREVO_SENDER_NAME,
     CANDIDATE_REPLY_TO,
-    INTERVIEW_BOOK_WITHIN_DAYS,
     PIPELINE_AUTO_EMAIL,
     PIPELINE_EMAILS_ENABLED,
 )
 from backend.notifications import brevo_client
 from backend.notifications import unsubscribe
+from backend.notifications.text import esc as _esc, first_name as _first_name
 from backend.database import mongo_store as store
 
 log = logging.getLogger(__name__)
@@ -307,19 +307,6 @@ def _paragraphs(text: str) -> str:
                    f'{_esc(block)}</p>' for block in blocks)
 
 
-def _first_name(full_name: str) -> str:
-    """"Viral Chovatiya" -> "Viral". The greeting is personal in both mails."""
-    name = str(full_name or "").strip()
-    return name.split()[0] if name else "there"
-
-
-def _esc(value) -> str:
-    """Escape for HTML. Names, role titles and manager notes are all free text."""
-    return (str(value if value is not None else "")
-            .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            .replace('"', "&quot;"))
-
-
 def _shell(body: str) -> str:
     """The Ajaia header and card both mails sit inside."""
     return f"""
@@ -335,14 +322,18 @@ def _shell(body: str) -> str:
     """
 
 
-# The shell, the paragraph renderer and the escaper, under public names.
+# The shell, the paragraph renderer, the escaper and the greeting, under
+# public names.
 #
 # rejections.py sends the bulk turn-down and has to sit inside the same navy
 # header and the same card as the two mails here, or the one candidate who gets
 # both a reminder and a rejection sees two different companies. These are the
-# same three functions rather than a second copy of them, for the reason
+# same functions rather than a second copy of them, for the reason
 # header_html() is shared with brevo_client: a shell copied into two files is a
 # shell that is right in one of them a release later.
+#
+# The last two are re-exports of notifications/text.py -- the aliases stay so
+# rejections.py's spelling does not have to change.
 shell_html = _shell
 paragraphs_html = _paragraphs
 esc_html = _esc

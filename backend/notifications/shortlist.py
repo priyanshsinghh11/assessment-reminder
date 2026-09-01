@@ -59,6 +59,7 @@ from backend.core.config import (
     SHORTLIST_SIZE,
 )
 from backend.notifications import brevo_client
+from backend.notifications.text import esc as _esc, first_name as _first_name
 from backend.database import mongo_store as store
 from backend.grading import rubric_pack
 from backend.grading import tier_resolver
@@ -425,11 +426,6 @@ def _partial_tag(row: dict) -> str:
             f'padding:1px 6px;">partly graded</span>')
 
 
-def _first_name(full_name: str) -> str:
-    name = (full_name or "").strip()
-    return name.split()[0] if name else "there"
-
-
 def build_email(role: dict, shortlist: list[dict], to_name: str = "",
                 note: str = "", review_url: str = "",
                 dashboard_url: str = "", preview: bool = False) -> dict:
@@ -688,13 +684,6 @@ def build_email(role: dict, shortlist: list[dict], to_name: str = "",
     ]
 
     return {"subject": subject, "html": html, "text": "\n".join(lines)}
-
-
-def _esc(value) -> str:
-    """Escape for HTML. Candidate names and recruiter notes are both free text."""
-    return (str(value if value is not None else "")
-            .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            .replace('"', "&quot;"))
 
 
 # ---------------------------------------------------------------------------

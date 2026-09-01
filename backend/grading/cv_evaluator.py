@@ -61,7 +61,7 @@ from backend.grading.evaluator import (
     # Re-exported, not used here: a caller that catches one of these
     # around evaluate_cv should not have to import two grader modules
     # to name the exceptions one of them raises.
-    QuotaExhausted,
+    QuotaExhausted,  # noqa: F401
     PACK_VERSION,
     _chat,
     _criteria_keys,

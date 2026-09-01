@@ -191,10 +191,10 @@ class TestOutagesFailClosed:
             claim()
 
     def test_should_send_reminder_reports_not_eligible(self, monkeypatch):
-        from backend.core import utils
+        from backend.database import reminder_state
 
         def boom(_key):
             raise reminder_log.ReminderLogUnavailable("down")
 
         monkeypatch.setattr(reminder_log, "get", boom)
-        assert utils.should_send_reminder("a@x.com", "31") is False
+        assert reminder_state.should_send_reminder("a@x.com", "31") is False

@@ -31,7 +31,7 @@ from backend.core.config import CV_ONLY_JOBS, LLM_CONCURRENCY, LLM_MODEL
 from backend.database import mongo_store as store
 from backend.grading import cv_evaluator, evaluator
 from backend.grading import rubric_pack as pack
-from backend.notifications.reminder import setup_logging
+from backend.core.logging_setup import setup_logging
 from backend.scraping import workable_candidates
 
 log = logging.getLogger("cv_role")

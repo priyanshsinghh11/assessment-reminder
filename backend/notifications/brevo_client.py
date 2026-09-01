@@ -14,6 +14,7 @@ import requests
 from backend.core.config import (BREVO_API_KEY, BREVO_SENDER_NAME, BREVO_SENDER_EMAIL,
                     EMAIL_LOGO_URL, PUBLIC_BASE_URL, UNSUBSCRIBE_MAILTO)
 from backend.notifications import unsubscribe
+from backend.notifications.text import first_name as _first_name
 
 log = logging.getLogger(__name__)
 
@@ -207,17 +208,6 @@ def send_reminder_email(
             detail = f" -- {exc.response.status_code}: {exc.response.text[:200]}"
         log.error("Brevo send failed for %s: %s%s", to_email, exc, detail)
         return False
-
-
-def _first_name(full_name: str) -> str:
-    """
-    "Viral Chovatiya" -> "Viral".
-
-    The greeting reads as a personal follow-up, so it uses the first name --
-    matching the original Workable invite, which opens "Dear Hashir,".
-    """
-    name = (full_name or "").strip()
-    return name.split()[0] if name else "there"
 
 
 # ---------------------------------------------------------------------------

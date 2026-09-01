@@ -1499,23 +1499,24 @@ containers, one environment variable apart.
 ### One worker. Not negotiable yet.
 
 `gunicorn.conf.py` pins `workers = 1`, and that is a correctness constraint
-rather than a tuning default. Two things depend on there being exactly one
-process:
+rather than a tuning default. One thing still depends on there being exactly
+one process:
 
-- **`_run_lock`** (`backend/web/server.py:88`) is a `threading.Lock`, and its
+- **`_run_lock`** (`backend/web/server.py:104`) is a `threading.Lock`, and its
   own comment says what it is for: *"Only one scan or send may run at a time.
   Without this, two clicks could double-send: both would pass the dedupe check
   before either recorded it."* A lock inside one process cannot see a second
   process. Two workers means two locks, each certain it holds the only one.
-- **The reminder dedupe log** is a JSON file written with a truncate-then-
-  rewrite that has no lock and no atomic swap (`backend/core/utils.py:73-75`).
-  Two writers lose each other's records silently, and a lost record is a
-  candidate who gets emailed again on the next run.
+
+The reminder dedupe log used to be the second reason, and is no longer. It was
+a JSON file written with an unlocked truncate-then-rewrite; it now lives in
+Mongo behind a single conditional update -- see the next section, and
+`backend/database/reminder_log.py` for the mechanism. Half of the condition
+below was therefore already met when this section still said otherwise.
 
 Concurrency comes from threads inside the single worker, where the lock still
 means something. CI fails the build if `workers` is not 1. Raise it only after
-the reminder state is in Mongo behind an atomic upsert **and** the run lock is
-something both processes can see.
+the run lock is something both processes can see.
 
 ### The dedupe state is in Mongo, not on disk
 
@@ -1632,10 +1633,14 @@ anywhere all find the same `.env`, `assessments/` and `state/`.
 | File | Purpose |
 |---|---|
 | `backend/core/config.py` | All configuration, job definitions, timing rules, and `PROJECT_ROOT` |
-| `backend/core/utils.py` | Business day math, reminder state tracking |
+| `backend/core/utils.py` | Business day math, the reminder dedupe key, and the tz-aware fix-up every Mongo timestamp goes through. Imports nothing else in the project |
+| `backend/core/logging_setup.py` | The one place logging is configured, for the CLIs, the dashboard and both deployment entry points |
 | `backend/notifications/unsubscribe.py` | Opt-out tokens, the suppression list, and the `List-Unsubscribe` headers |
 | `backend/database/mongo_store.py` | MongoDB access; keeps portal-owned and our-own fields apart |
+| `backend/database/reminder_log.py` | The reminder dedupe collection, and the conditional update that settles a race between two runs |
+| `backend/database/reminder_state.py` | The policy over that log: the maximum, the business-day gap, the suppression flag, and the claim a send has to win |
 | `backend/database/migrate_db.py` | Copies an older database into the one `MONGO_DB` points at |
+| `backend/database/migrate_reminder_log.py` | Moves the old `state/reminder_log.json` into Mongo |
 | `backend/scraping/portal_scraper.py` | Logs into the portal and downloads the CSV export |
 | `backend/scraping/portal_crawler.py` | Crawls roles and their live assessment markdown |
 | `backend/scraping/workable_client.py` | Workable API: auth, rate limiting, 429 back-off, pagination |
@@ -1654,6 +1659,8 @@ anywhere all find the same `.env`, `assessments/` and `state/`.
 | `backend/notifications/reminder.py` | Main orchestration: portal, Workable window, cross-reference, send |
 | `backend/notifications/brevo_client.py` | Sends reminder emails via Brevo, and the transport under the shortlist send |
 | `backend/notifications/candidate_mail.py` | The two candidate-facing outcome emails: the interview invitation with the manager's cal.com link, and the rejection after a human review |
+| `backend/notifications/text.py` | The escaper and the greeting every outbound mail shares, so there is one of each rather than four |
+| `backend/notifications/rejections.py` | The bulk turn-down, and the ledger of who has already been told |
 | `backend/notifications/shortlist.py` | Builds a role's top-N hand-off: the rows, the email and the spreadsheet, and sends it to its hiring managers |
 | `backend/accounts/auth.py` | Accounts, password hashing, sessions, and `visible_job_ids()` — the whole access rule |
 | `backend/accounts/manage_users.py` | CLI for accounts: the first admin, and the way back in when nobody can sign in |

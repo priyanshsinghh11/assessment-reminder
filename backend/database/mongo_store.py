@@ -25,7 +25,7 @@ from pymongo.errors import PyMongoError
 from backend.core.config import (CV_ONLY_ID_BASE, MONGO_URI, MONGO_DB,
                     REVIEW_LINK_DAYS, ROLE_TITLES,
                     SHORTLIST_REQUIRE_COMPLETE_GRID)
-from backend.scraping import resume_reader
+from backend.core.utils import aware as _aware
 
 log = logging.getLogger(__name__)
 
@@ -994,8 +994,17 @@ def needs_resume(retry_errors: bool = False, limit: int = 0,
         # A changed link is new work whatever the previous outcome was.
         stale = (doc.get("resume_source_link") or "").strip() != link
         error = doc.get("resume_error") or ""
+        # Imported here rather than at module scope on purpose. This is the
+        # store, and `scraping` sits above it -- a module-level import would be
+        # the one place in the project where a lower layer reaches up into a
+        # higher one, and it would make `import mongo_store` (which is to say,
+        # everything) pull in requests, pypdf and python-docx to answer one
+        # question about a string. is_transient() stays in resume_reader
+        # because which failures are worth retrying is that module's knowledge,
+        # not the database's.
+        from backend.scraping.resume_reader import is_transient
         wanted = bool(error) and (
-            resume_reader.is_transient(error) if transient_only else retry_errors
+            is_transient(error) if transient_only else retry_errors
         )
         if attempted and not stale and not wanted:
             continue
@@ -1586,21 +1595,15 @@ def review_link_state(link: Optional[dict]) -> str:
         return "unknown"
     if link.get("revoked"):
         return "revoked"
-    expires = link.get("expires_at")
-    if expires and _aware(expires) < now():
+    # `aware()` returns None for a field that holds neither a datetime nor an
+    # ISO string. Walrus rather than a bare truth test so an unusable value
+    # falls through to "ok" instead of raising -- the old spelling read
+    # `.tzinfo` off whatever it was handed, which turned one corrupt document
+    # into a 500 on the manager's review link.
+    expires = _aware(link.get("expires_at"))
+    if expires and expires < now():
         return "expired"
     return "ok"
-
-
-def _aware(value: datetime) -> datetime:
-    """
-    Mongo hands back naive UTC datetimes; now() is aware.
-
-    Comparing the two raises TypeError, which on the expiry check would turn
-    every manager's link into a 500. Normalised here rather than at each call
-    site so there is one place to be wrong.
-    """
-    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 def touch_review_link(token: str) -> None:

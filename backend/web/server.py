@@ -40,7 +40,6 @@ import secrets
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from urllib.parse import quote
 
 from flask import (Flask, Response, g, jsonify, redirect, request,
@@ -75,7 +74,8 @@ from backend.core.config import (
     UNSUBSCRIBE_MAILTO,
     PROJECT_ROOT,
 )
-from backend.notifications.reminder import gather_state, send_batch, setup_logging, PortalUnavailable
+from backend.core.logging_setup import setup_logging
+from backend.notifications.reminder import gather_state, send_batch, PortalUnavailable
 
 from backend.accounts import auth
 from backend.notifications import candidate_mail

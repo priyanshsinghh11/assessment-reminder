@@ -31,7 +31,7 @@ from backend.core.config import LLM_CONCURRENCY, LLM_MODEL
 from backend.grading import evaluator, grader
 from backend.database import mongo_store as store
 from backend.grading import tier_resolver
-from backend.notifications.reminder import setup_logging
+from backend.core.logging_setup import setup_logging
 
 log = logging.getLogger("grade")
 

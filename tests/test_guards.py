@@ -192,16 +192,16 @@ class TestLoggingWithoutAWritableDisk:
 
     def test_it_configures_rather_than_raising(self, readonly_disk):
         import logging
-        from backend.notifications import reminder
+        from backend.core import logging_setup
 
-        reminder.setup_logging()          # must not raise -- that is the bug
+        logging_setup.setup_logging()     # must not raise -- that is the bug
         assert getattr(logging.getLogger(), "_ajaia_configured", False)
 
     def test_stdout_still_gets_the_log(self, readonly_disk):
         import logging
-        from backend.notifications import reminder
+        from backend.core import logging_setup
 
-        reminder.setup_logging()
+        logging_setup.setup_logging()
         kinds = [type(h).__name__ for h in logging.getLogger().handlers]
         # StreamHandler and nothing else: the file handler is the half that
         # needed a disk, and serverless platforms collect stdout anyway.
@@ -211,18 +211,26 @@ class TestLoggingWithoutAWritableDisk:
     def test_a_writable_disk_still_gets_a_file(self, monkeypatch, tmp_path):
         # The fix must not quietly cost everyone else their log file.
         import logging
-        from backend.notifications import reminder
+        from backend.core import logging_setup
 
         self._reset()
-        monkeypatch.setattr(reminder, "LOG_DIR", tmp_path / "logs")
-        monkeypatch.setattr(reminder, "LOG_FILE", tmp_path / "logs" / "r.log")
+        monkeypatch.setattr(logging_setup, "LOG_DIR", tmp_path / "logs")
+        monkeypatch.setattr(logging_setup, "LOG_FILE", tmp_path / "logs" / "r.log")
         try:
-            reminder.setup_logging()
+            logging_setup.setup_logging()
             kinds = [type(h).__name__ for h in logging.getLogger().handlers]
             assert "RotatingFileHandler" in kinds
             assert "StreamHandler" in kinds
         finally:
             self._reset()
+
+    def test_reminder_still_re_exports_it(self):
+        # wsgi.py, the dashboard and four CLIs imported it from here for
+        # months. The move to core must not break the old spelling.
+        from backend.core import logging_setup
+        from backend.notifications import reminder
+
+        assert reminder.setup_logging is logging_setup.setup_logging
 
 
 class TestTheServerlessEntryPoint:

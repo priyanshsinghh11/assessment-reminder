@@ -53,6 +53,7 @@ from backend.core.config import (
     SESSION_TTL_HOURS,
 )
 from backend.database import mongo_store as store
+from backend.core.utils import aware as _aware
 
 log = logging.getLogger(__name__)
 
@@ -69,13 +70,6 @@ class AuthError(RuntimeError):
 
 def now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def _aware(value) -> Optional[datetime]:
-    """Mongo hands back naive UTC; comparisons here are all tz-aware."""
-    if not isinstance(value, datetime):
-        return None
-    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 def ensure_indexes() -> None:

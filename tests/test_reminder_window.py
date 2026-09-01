@@ -9,16 +9,16 @@ is somebody mailed a day early, or a second time, or not at all.
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
-
 from backend.core.utils import (
     business_days_ago,
     business_days_between,
     business_days_since,
+    state_key,
+)
+from backend.database.reminder_state import (
     claim_reminder,
     release_reminder,
     should_send_reminder,
-    state_key,
 )
 
 
@@ -120,8 +120,10 @@ class TestShouldSendReminder:
     def test_eligible_again_once_the_gap_has_passed(self, reminder_store, monkeypatch):
         claim_reminder("a@x.com", "30", "c1", "A", "SHORT1",
                        days_between_reminders=0)
-        from backend.core import utils
-        monkeypatch.setattr(utils, "business_days_since", lambda dt: 2)
+        # Patched on reminder_state, not on core.utils: should_send_reminder
+        # binds the name at import, so the copy that matters is that one.
+        from backend.database import reminder_state
+        monkeypatch.setattr(reminder_state, "business_days_since", lambda dt: 2)
         assert should_send_reminder("a@x.com", "30", days_between_reminders=2) is True
 
     def test_stops_at_the_maximum(self, reminder_store):
