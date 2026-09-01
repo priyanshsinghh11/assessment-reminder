@@ -1977,7 +1977,8 @@ def api_derive_rubric():
 
     Pack-covered roles are refused rather than regenerated: their grid is
     hand-authored against the live task content, and replacing it with model
-    output would throw that away silently. Edit rubric_pack.py to move that bar.
+    output would throw that away silently. Edit rubric_pack/_grids.py to move
+    that bar.
 
     force=true regenerates over an existing derived file, which discards any
     hand edits, so the UI asks first. Scores already on record were marked
@@ -2010,7 +2011,8 @@ def api_derive_rubric():
             "error": f"{role.get('title')} is covered by the "
                      f"{covered['unit']} grid in the rubric pack, which is "
                      f"hand-authored from the live assessment. Edit "
-                     f"rubric_pack.py to change that standard."
+                     f"backend/grading/rubric_pack/_grids.py to change that "
+                     f"standard."
         }), 409
 
     # Shares the run lock with grading and scanning: all three are slow

@@ -175,7 +175,7 @@ def run_role(shortcode: str, entry: tuple, args) -> dict:
     if grid is None:
         log.error("No grid in the pack for slug %r. A CV-only role cannot "
                   "derive one from an assessment, because it has none -- add "
-                  "a grid to rubric_pack.py claiming that slug.", slug)
+                  "a grid to rubric_pack/_grids.py claiming that slug.", slug)
         return {"graded": 0, "failed": 0}
 
     stats = {}

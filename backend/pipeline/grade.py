@@ -11,7 +11,7 @@ Run AI evaluation over pending submissions.
 Candidates are marked against the Ajaia rubric pack: the family grid for their
 assessment, 100 points across four blocks, banded Best 85 / Better 75 / Good 60
 / Okay below, with the advance bar at 75.
-Fourteen portal assessments have a hand-authored grid in rubric_pack.py and
+Fourteen portal assessments have a hand-authored grid in rubric_pack/ and
 never need --rubric-only; the rest derive one from their assessment text on
 first use, which is what the two rubric flags are for.
 

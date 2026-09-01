@@ -245,7 +245,7 @@ already submitted.
 
 The standard a role's candidates are marked against: its grid from the Ajaia
 rubric pack, or the derived grid file for a role the pack does not cover. Reads
-`rubric_pack.py` or `assessments/grid-<slug>.json`; derives nothing.
+`rubric_pack/` or `assessments/grid-<slug>.json`; derives nothing.
 
 ```json
 {

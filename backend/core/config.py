@@ -258,7 +258,7 @@ CV_ONLY_PROMPT_CHARS = int(os.environ.get("CV_ONLY_PROMPT_CHARS", "8000"))
 # How the two documents split the final score, seat by seat.
 #
 # Every candidate is marked twice, out of 100 each. The assessment is marked
-# against its family grid in rubric_pack.py; the CV is marked against its own
+# against its family grid in rubric_pack/; the CV is marked against its own
 # three criteria in evaluator.CV_CRITERIA, judged against the same seat. This
 # table is the only thing that decides how those two hundreds combine.
 #
@@ -585,7 +585,7 @@ CV_MISSING_POLICY = os.environ.get("CV_MISSING_POLICY", "forfeit").strip().lower
 
 # --- Evaluation matrix ---
 # The scoring architecture is the Ajaia Assessment Scoring Rubrics pack
-# (version 2026-08-12), which lives in rubric_pack.py: 100 points in four fixed
+# (version 2026-08-12), which lives in rubric_pack/: 100 points in four fixed
 # blocks -- Work product 70, AI-forwardness 10, Communication and judgment 10,
 # and a named family spike 10 -- with each criterion rated 1 to 5 against
 # behavioural anchors written from the real task content, then weighted
@@ -599,7 +599,7 @@ CV_MISSING_POLICY = os.environ.get("CV_MISSING_POLICY", "forfeit").strip().lower
 # interview system draws it, so an assessment score and an interview score still
 # mean the same thing.
 #
-# rubric_pack.py refuses to load a grid whose weights do not sum to exactly
+# rubric_pack/ refuses to load a grid whose weights do not sum to exactly
 # 100, so a hand-edit cannot silently rescale a family's scores. Editing a
 # weight still moves the bar for everyone in that family: re-grade it
 # afterwards, or old scores will be compared against a standard that has moved.

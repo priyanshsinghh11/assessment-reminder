@@ -631,7 +631,7 @@ gap between candidates with and without a readable one was +2.5 points against a
 standard error of 9.1, i.e. nothing.
 
 **Grading.** Candidates are marked against the **Ajaia Assessment Scoring
-Rubrics** pack (version 2026-08-12), which lives in `rubric_pack.py`: fourteen
+Rubrics** pack (version 2026-08-12), which lives in `rubric_pack/`: fourteen
 rubric units, seventeen scoring grids, covering all 36 live Workable postings.
 The grid for a role's assessment is looked up by slug — no model call — and the
 candidate's `submission_markdown` is marked against it once.
@@ -773,7 +773,7 @@ mean the same thing:
 
 What stays comparable across families is the blocks and the bands — an
 Investments 62 and a Marketing 62 are the same decision, and their
-AI-forwardness rows asked both candidates the same question. `rubric_pack.py`
+AI-forwardness rows asked both candidates the same question. `rubric_pack/`
 refuses to load a grid whose criteria do not sum to exactly 100, or whose
 blocks do not sum to the split that grid declares, so a hand-edit cannot
 silently rescale a family.
@@ -859,7 +859,7 @@ with:
 list.
 
 The **scoring rubric is deliberately not on the page.** The standard lives in
-`rubric_pack.py`, the derived grid files and the grader that reads them; the
+`rubric_pack/`, the derived grid files and the grader that reads them; the
 dashboard states only what came out of it — a score, a band, the per-criterion
 marks a candidate earned and the evidence for each. Publishing the anchors
 themselves to the same screen as the candidates invites marking against the
@@ -877,7 +877,7 @@ grid for a role the pack does not cover is a command-line job now rather than a
 button — `python grade.py --job <id> --rubric-only`, or just grade the role,
 which derives one first. Pack-covered roles never derive: their grid is
 hand-authored against the live assessment, and nothing overwrites it with model
-output — edit `rubric_pack.py` to move that bar.
+output — edit `rubric_pack/_grids.py` to move that bar.
 
 **Criterion columns** in the candidate table is the same grid read the other
 way. Ticking it adds one 1–5 column per criterion, each sortable, so "who
@@ -1594,7 +1594,7 @@ assessment-reminder/
 │   │                    Everything that reads the outside world — and so
 │   │                    everything that can fail because someone else's
 │   │                    service is down.
-│   ├── grading/         rubric_pack.py, evaluator.py, cv_evaluator.py,
+│   ├── grading/         rubric_pack/, evaluator.py, cv_evaluator.py,
 │   │                    tier_resolver.py
 │   │                    Decides what a submission is worth. Not when to
 │   │                    score one — that is pipeline/.
@@ -1647,7 +1647,7 @@ anywhere all find the same `.env`, `assessments/` and `state/`.
 | `backend/scraping/workable_scanner.py` | Selects candidates inside the reminder window |
 | `backend/scraping/resume_reader.py` | Fetches a candidate's resume file and extracts its text (PDF/DOCX) |
 | `backend/scraping/workable_candidates.py` | Builds gradeable records from a Workable posting that has no assessment |
-| `backend/grading/rubric_pack.py` | The Ajaia Assessment Scoring Rubrics pack as data: 17 grids, validated to 100 points each |
+| `backend/grading/rubric_pack/` | The Ajaia Assessment Scoring Rubrics pack as data, validated to 100 points each at import. `_grids.py` is the grids themselves, `_architecture.py` the blocks and bands they share, `__init__.py` the lookup every caller uses |
 | `backend/grading/evaluator.py` | Grid resolution, anchor scoring, auto-fails and triage, provider-agnostic |
 | `backend/grading/cv_evaluator.py` | Marks a candidate on their record alone, for roles with no work sample |
 | `backend/grading/tier_resolver.py` | Which of two postings a candidate applied to, where that decides which tier of a family's rubric marks them |

@@ -1,7 +1,7 @@
 """
 AI evaluation of candidate submissions, against the Ajaia rubric pack.
 
-The standard is `rubric_pack.py`: 100 points in four fixed blocks -- Work
+The standard is `rubric_pack/`: 100 points in four fixed blocks -- Work
 product 70, AI-forwardness 10, Communication and judgment 10, family spike 10 --
 split into criteria whose 5 / 3 / 1 anchors quote the assessment's real tasks.
 (One grid, AI Strategy, splits 40 / 40 / 6 / 7 / 7 and buys a fifth block for
