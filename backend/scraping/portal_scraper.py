@@ -29,7 +29,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Optional
 
-from backend.core.config import (
+from backend.config import (
     PORTAL_LOGIN_URL,
     PORTAL_EMAIL,
     PORTAL_PASSWORD,
@@ -39,7 +39,7 @@ from backend.core.config import (
     PORTAL_MIN_TOTAL_ROWS,
     PORTAL_BUCKET_DROP_TOLERANCE,
 )
-from backend.database import mongo_store as store
+from backend.db import store
 
 log = logging.getLogger(__name__)
 

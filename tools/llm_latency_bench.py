@@ -14,7 +14,7 @@ level, where it used to fire the moment anything touched this file.
 """
 
 import time, requests, statistics, concurrent.futures as cf
-from backend.core import config as C
+from backend import config as C
 url = C.LLM_BASE_URL.rstrip('/') + "/chat/completions"
 h = {"Authorization": f"Bearer {C.LLM_API_KEY}", "Content-Type": "application/json"}
 BUDGET = 55          # abandon if no first token by here

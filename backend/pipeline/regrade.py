@@ -2,8 +2,8 @@
 """
 Grade one named submission, rather than a whole role.
 
-    python regrade.py 6998            grade it
-    python regrade.py 6998 --dry-run  print the prompt, call nothing
+    python manage.py regrade 6998            grade it
+    python manage.py regrade 6998 --dry-run  print the prompt, call nothing
 
 grade.py works a role at a time, which is right for a queue and wrong for the
 single candidate a reviewer is arguing about: job 33 holds 76 ungraded rows, so
@@ -21,8 +21,8 @@ import logging
 import sys
 
 from backend.grading import evaluator, grader
-from backend.database import mongo_store as store
-from backend.core.logging_setup import setup_logging
+from backend.db import store
+from backend.logging_setup import setup_logging
 
 log = logging.getLogger("regrade")
 
@@ -84,7 +84,7 @@ def main() -> int:
     role = store.get_role(submission.get("job_id"))
     if role is None:
         log.error("Submission %s belongs to job %s, which is not in the "
-                  "database. Run `python ingest.py --roles-only`.",
+                  "database. Run `python manage.py ingest --roles-only`.",
                   args.submission_id, submission.get("job_id"))
         return 1
 

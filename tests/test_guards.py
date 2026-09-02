@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.web import server
+from backend.web import app as web_app, server
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -68,7 +68,7 @@ class TestUnauthenticatedDashboard:
         assert client.get(path).status_code in (302, 401)
 
     def test_the_unsubscribe_path_is_public(self, client, fixed_secret):
-        from backend.notifications import unsubscribe
+        from backend.mail import unsubscribe
         token = unsubscribe.token_for("ada@example.com")
         # No session, no CSRF token, and it must still answer -- the candidate
         # holding this link has no account and never will.
@@ -79,7 +79,7 @@ class TestUnauthenticatedDashboard:
         # PUBLIC_BASE_URL points at the review process, so this is the host the
         # link in every candidate email resolves to. Left off that allowlist,
         # every unsubscribe we send would 404.
-        from backend.notifications import unsubscribe
+        from backend.mail import unsubscribe
         token = unsubscribe.token_for("ada@example.com")
         assert review_only.get(f"/unsubscribe/{token}").status_code == 200
 
@@ -88,7 +88,7 @@ class TestUnauthenticatedDashboard:
         # Mail clients and scanners follow links to see where they go. An
         # opt-out caused by a prefetch is a decision the candidate never made,
         # which is why RFC 8058 one-click is a POST.
-        from backend.notifications import unsubscribe
+        from backend.mail import unsubscribe
         called = []
         monkeypatch.setattr(unsubscribe, "suppress",
                             lambda *a, **k: called.append(a) or True)
@@ -101,10 +101,10 @@ class TestUnauthenticatedDashboard:
 
 class TestClientIp:
     def _ip(self, monkeypatch, hops, headers, peer="10.0.0.1"):
-        monkeypatch.setattr(server, "TRUSTED_PROXY_HOPS", hops)
+        monkeypatch.setattr(web_app, "TRUSTED_PROXY_HOPS", hops)
         with server.app.test_request_context("/", headers=headers,
                                              environ_base={"REMOTE_ADDR": peer}):
-            return server._client_ip()
+            return web_app._client_ip()
 
     def test_no_proxies_ignores_the_header_entirely(self, monkeypatch):
         # THE IMPORTANT ONE. X-Forwarded-For is written by the client, so with
@@ -145,7 +145,7 @@ class TestThrottleConfiguration:
         # The whole mechanism. If a single source can make more failed attempts
         # than it takes to lock an account, the throttle never fires in time
         # and anyone who knows an admin's address can keep them signed out.
-        from backend.core.config import LOGIN_IP_MAX_ATTEMPTS, LOGIN_MAX_ATTEMPTS
+        from backend.config import LOGIN_IP_MAX_ATTEMPTS, LOGIN_MAX_ATTEMPTS
         assert LOGIN_IP_MAX_ATTEMPTS < LOGIN_MAX_ATTEMPTS
 
 
@@ -192,14 +192,14 @@ class TestLoggingWithoutAWritableDisk:
 
     def test_it_configures_rather_than_raising(self, readonly_disk):
         import logging
-        from backend.core import logging_setup
+        from backend import logging_setup
 
         logging_setup.setup_logging()     # must not raise -- that is the bug
         assert getattr(logging.getLogger(), "_ajaia_configured", False)
 
     def test_stdout_still_gets_the_log(self, readonly_disk):
         import logging
-        from backend.core import logging_setup
+        from backend import logging_setup
 
         logging_setup.setup_logging()
         kinds = [type(h).__name__ for h in logging.getLogger().handlers]
@@ -211,7 +211,7 @@ class TestLoggingWithoutAWritableDisk:
     def test_a_writable_disk_still_gets_a_file(self, monkeypatch, tmp_path):
         # The fix must not quietly cost everyone else their log file.
         import logging
-        from backend.core import logging_setup
+        from backend import logging_setup
 
         self._reset()
         monkeypatch.setattr(logging_setup, "LOG_DIR", tmp_path / "logs")
@@ -227,8 +227,8 @@ class TestLoggingWithoutAWritableDisk:
     def test_reminder_still_re_exports_it(self):
         # wsgi.py, the dashboard and four CLIs imported it from here for
         # months. The move to core must not break the old spelling.
-        from backend.core import logging_setup
-        from backend.notifications import reminder
+        from backend import logging_setup
+        from backend.mail import reminder
 
         assert reminder.setup_logging is logging_setup.setup_logging
 

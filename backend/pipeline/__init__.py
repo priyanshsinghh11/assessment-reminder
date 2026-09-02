@@ -7,5 +7,7 @@ The stages that get run.
     calibrate   is the grader using the scale, or just detecting missing
                 sections? A grid is only worth its anchors if marks spread.
 
-Each is a CLI with a matching launcher at the repository root.
+Each is a subcommand of manage.py at the repository root -- `python manage.py
+grade --job 33` runs grade.main() here, and `python -m backend.pipeline.grade
+--job 33` runs the same one directly.
 """

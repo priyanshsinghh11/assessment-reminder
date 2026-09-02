@@ -48,12 +48,12 @@ import logging
 import secrets
 from typing import Optional
 
-from backend.core.config import (
+from backend.config import (
     CV_ONLY_PROMPT_CHARS,
     LLM_MAX_OUTPUT_TOKENS,
     LLM_MODEL,
 )
-from backend.database import mongo_store as store
+from backend.db import store
 from backend.grading import rubric_pack as pack
 from backend.grading.evaluator import (
     EvaluationFailed,

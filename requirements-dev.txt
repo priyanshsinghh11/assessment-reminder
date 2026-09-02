@@ -10,6 +10,6 @@
 #
 # tests/test_access.py is deliberately NOT collected -- see pytest.ini. It is
 # the access-rule regression test, it needs a real populated MongoDB, and it is
-# run by hand against staging:  python test_access.py
+# run by hand against staging:  python manage.py test-access
 -r requirements.txt
 pytest>=8.0.0

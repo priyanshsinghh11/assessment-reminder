@@ -34,7 +34,7 @@ pack and against `_parse_verdict` with a hand-written reply. Runs in a second.
 import json
 import sys
 
-from backend.core.config import CV_ONLY_JOBS, CV_ONLY_ID_BASE, cv_only_job, cv_weight_for
+from backend.config import CV_ONLY_JOBS, CV_ONLY_ID_BASE, cv_only_job, cv_weight_for
 from backend.grading import cv_evaluator
 from backend.grading import rubric_pack as pack
 from backend.grading.evaluator import EvaluationFailed, _parse_verdict

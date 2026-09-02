@@ -2,7 +2,18 @@
 Fetch a candidate's resume file and pull the text out of it.
 
 Fetch and extract only. Nothing here reads the rubric, scores anything, or
-touches the evaluator -- the text is stored and, for now, nothing consumes it.
+touches the evaluator.
+
+What consumes the text is another matter, and it is no longer nothing -- this
+line said so until 2026-09-01, three weeks after it stopped being true, and
+that is a costly thing for it to have said. `evaluator._resume_block` puts the
+text in front of the grader, `_cv_assessment` marks it, and `_blend` folds it
+into the final score at the seat's own weight (config.CV_WEIGHT_BY_SEAT: 0.55
+on Chief of Staff, 0.60 on Customer Success). On a CV-only seat
+`cv_evaluator.evaluate_cv` marks it for the whole 100. So a link this module
+fails to open is not a gap in a side table; it is up to 60% of a hiring
+decision, which is why every failure is stored with a reason and why
+`is_transient` exists.
 
 What a resume_link actually is
 ------------------------------

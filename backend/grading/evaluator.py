@@ -48,7 +48,7 @@ from typing import Optional
 
 import requests
 
-from backend.core.config import (
+from backend.config import (
     ASSESSMENT_DIR,
     CV_MISSING_POLICY,
     CV_SCORE_WEIGHT,
@@ -67,7 +67,7 @@ from backend.core.config import (
     REQUIRED_ARTEFACTS,
     RESUME_PROMPT_CHARS,
 )
-from backend.database import mongo_store as store
+from backend.db import store
 from backend.grading import rubric_pack as pack
 
 log = logging.getLogger(__name__)
@@ -942,7 +942,7 @@ def derive_grid(role: dict, force: bool = False,
     if not assessment:
         raise EvaluationFailed(
             f"Role '{role.get('title')}' has no assessment text and is not "
-            f"covered by the rubric pack. Run `python ingest.py --roles-only` "
+            f"covered by the rubric pack. Run `python manage.py ingest --roles-only` "
             f"first, or write {grid_path(role['slug']).name} by hand."
         )
 
@@ -2040,19 +2040,32 @@ def _background_rule(grid: Optional[dict] = None, has_cv: bool = False) -> str:
     )
 
 
-def _cv_assessment(raw, has_cv: bool) -> dict:
+def _cv_assessment(raw, has_cv: bool, attempted: bool = True) -> dict:
     """
     The CV's own marks, and the 0-100 it contributes.
 
-    `scored` is False in two situations that look identical here and are not
+    `scored` is False in three situations that look identical here and are not
     remotely the same thing, so `reason` separates them:
 
-      "no_cv"     there was no CV text to mark. Nothing was asked of the model
-                  and nothing came back. CV_MISSING_POLICY decides what the
-                  score does with it.
-      "unmarked"  there WAS a CV and the model did not mark it. That is our
-                  failure, not the candidate's, and it must never be charged to
-                  them -- see _blend.
+      "no_cv"       the CV was fetched and there was no text to mark. Nothing
+                    was asked of the model and nothing came back.
+                    CV_MISSING_POLICY decides what the score does with it.
+      "not_fetched" nobody ever tried to read this candidate's CV. Their link
+                    may be perfectly good; --resumes has not reached them.
+                    Charged to nobody -- see _blend.
+      "unmarked"    there WAS a CV and the model did not mark it. That is our
+                    failure, not the candidate's, and it must never be charged
+                    to them -- see _blend.
+
+    "not_fetched" is the third of these and was added last, after it cost 79
+    graded candidates an average of 40 points each. It is the same distinction
+    "unmarked" draws, one step further out: `resume_fetched_at` is null, so
+    there is no `resume_error` to point at and nothing about the candidate's
+    link is known to be wrong. Nikash Kathuria (submission 10851, Chief of
+    Staff, w=0.55) was marked 73.6 on the rubric and recorded as 33.1 for a CV
+    that downloads in one second and extracts to 5,630 characters. Grading
+    simply ran ahead of the backfill. Collapsing that into "no_cv" charged a
+    candidate 40.5 points for a request nobody made.
 
     Conflating the two is what produced the worst score this system has issued.
     A Customer Success candidate with a perfectly readable CV -- the model even
@@ -2081,7 +2094,8 @@ def _cv_assessment(raw, has_cv: bool) -> dict:
 
     if not has_cv:
         return {"scored": False, "score": None, "criteria": rows,
-                "marked": len(marks), "reason": "no_cv"}
+                "marked": len(marks),
+                "reason": "no_cv" if attempted else "not_fetched"}
     if not marks:
         return {"scored": False, "score": None, "criteria": rows,
                 "marked": 0, "reason": "unmarked"}
@@ -2282,13 +2296,20 @@ def _blend(rubric_score: float, cv: dict, weight: float) -> tuple[float, bool]:
         blended = (1 - weight) * rubric_score + weight * cv["score"]
         return max(0.0, min(100.0, math.floor(blended * 10 + 0.5) / 10)), True
 
-    # The model had a CV and did not mark it. CV_MISSING_POLICY has no business
-    # here whatever it is set to: that setting decides what to do about a
-    # candidate whose CV we could not read, and this candidate's CV read fine.
-    # Charging them for a grading failure would be inventing a penalty out of
-    # our own bug, and at 0.60 it is a 34-point one. They are scored on the
-    # rubric alone; `cv_unmarked` on the verdict is how a reviewer finds out.
-    if cv.get("reason") == "unmarked":
+    # Two failures of ours, neither of them the candidate's to pay for.
+    # CV_MISSING_POLICY has no business in either whatever it is set to: that
+    # setting decides what to do about a candidate whose CV we could not read,
+    # and in both of these we never established that we could not.
+    #
+    #   "unmarked"     the model had a CV and did not mark it. Charging them
+    #                  for a grading failure would be inventing a penalty out
+    #                  of our own bug, and at 0.60 it is a 34-point one.
+    #   "not_fetched"  nobody ever ran --resumes over this row. Their link may
+    #                  be perfectly good, and for 79 candidates it was.
+    #
+    # Both are scored on the rubric alone; `cv_unmarked` and `cv_not_fetched`
+    # on the verdict are how a reviewer finds out which happened.
+    if cv.get("reason") in ("unmarked", "not_fetched"):
         return rubric_score, False
 
     if CV_MISSING_POLICY == "rescale":
@@ -2303,7 +2324,8 @@ def _parse_verdict(raw: str, grid: dict, answer: str = "",
                    cv_weight: Optional[float] = None,
                    cv_weight_source: str = "default",
                    resume: str = "",
-                   missing: tuple[str, ...] = ()) -> dict:
+                   missing: tuple[str, ...] = (),
+                   cv_fetch_attempted: bool = True) -> dict:
     """
     Turn the model's reply into a scored grid plus a computed total.
 
@@ -2470,7 +2492,8 @@ def _parse_verdict(raw: str, grid: dict, answer: str = "",
     weight = CV_SCORE_WEIGHT if cv_weight is None else cv_weight
     weight = max(0.0, min(1.0, weight))
 
-    cv_assessment = _cv_assessment(data.get("cv_assessment"), has_cv)
+    cv_assessment = _cv_assessment(data.get("cv_assessment"), has_cv,
+                                   cv_fetch_attempted)
     score, cv_applied = _blend(rubric_score, cv_assessment, weight)
 
     blocks = []
@@ -2558,6 +2581,12 @@ def _parse_verdict(raw: str, grid: dict, answer: str = "",
         # judged, and a reviewer deciding on them deserves to know that rather
         # than read a number built from half the evidence.
         "cv_unmarked": cv_assessment.get("reason") == "unmarked",
+        # True when this candidate's resume was never fetched at all, so the
+        # absence of CV text says nothing about them or their link. Costs them
+        # nothing, but it means the seat's whole CV weight went unjudged, and a
+        # reviewer should read the score as an assessment mark alone. Clears
+        # itself once --resumes reaches the row and they are re-graded.
+        "cv_not_fetched": cv_assessment.get("reason") == "not_fetched",
         # Set when this seat scores the CV inside the grid, the candidate had
         # no readable CV, and the grader marked that row below the anchor the
         # rubric fixes for absent information. Carries the mark it gave and the
@@ -2717,6 +2746,18 @@ def evaluate(submission: dict, role: dict, grid: dict) -> dict:
     # invents three marks for an empty CV section must not have them counted.
     has_cv = bool((submission.get("resume_text") or "").strip())
 
+    # Whether anybody ever tried to read this candidate's CV, which decides
+    # who pays for its absence. `resume_fetched_at` is set by set_resume() on
+    # both outcomes -- text extracted or a reason stored -- so a null here
+    # means the fetch never ran, not that it ran and failed.
+    #
+    # A candidate with no link at all counts as attempted: there was nothing
+    # to fetch, the artefact is genuinely theirs to supply, and CV_MISSING_
+    # POLICY should price that the way it always has. What this protects is
+    # only the row that HAS a link nobody has pulled yet.
+    cv_fetch_attempted = (submission.get("resume_fetched_at") is not None
+                          or not (submission.get("resume_link") or "").strip())
+
     # This seat's split between the two documents. Resolved once, here, and
     # used twice: the model is told what each side is worth so it marks the CV
     # with the right seriousness, and _parse_verdict does the arithmetic with
@@ -2774,7 +2815,8 @@ def evaluate(submission: dict, role: dict, grid: dict) -> dict:
     verdict = _parse_verdict(raw, grid, answer, artefacts, has_cv,
                              cv_weight, cv_weight_source,
                              resume=(submission.get("resume_text") or ""),
-                             missing=missing)
+                             missing=missing,
+                             cv_fetch_attempted=cv_fetch_attempted)
     verdict.update({
         "model": LLM_MODEL,
         "grid_key": grid.get("key"),

@@ -8,5 +8,7 @@ Everything that reads the outside world.
     resume_reader     fetches a resume file and extracts its text (PDF/DOCX)
 
 These are the modules that can fail because someone else's service is down, and
-they are grouped so that fact is visible from the directory listing.
+they are grouped so that fact is visible from the directory listing. The name is
+`scraping` rather than `portal` because half of it is the Workable API, which is
+not the portal -- what these have in common is the failure mode, not the host.
 """

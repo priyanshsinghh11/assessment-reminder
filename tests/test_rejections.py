@@ -21,7 +21,7 @@ here patches, which is the same seam the real code reads them through.
 
 import pytest
 
-from backend.notifications import rejections
+from backend.mail import rejections
 
 
 # ---------------------------------------------------------------------------
@@ -353,11 +353,12 @@ class TestSendBulk:
 @pytest.fixture
 def dashboard(monkeypatch):
     """The app with the session guard and the admin check stood down."""
-    from backend.web import server
+    from backend.web import app as web_app, server, views_shortlist
 
-    monkeypatch.setattr(server, "AUTH_ENABLED", False)
-    monkeypatch.setattr(server, "_require_admin", lambda: None)
-    monkeypatch.setattr(server, "_mongo_guard", lambda: None)
+    monkeypatch.setattr(web_app, "AUTH_ENABLED", False)
+    monkeypatch.setattr(views_shortlist, "AUTH_ENABLED", False)
+    monkeypatch.setattr(views_shortlist, "_require_admin", lambda: None)
+    monkeypatch.setattr(views_shortlist, "_mongo_guard", lambda: None)
     server.app.config["TESTING"] = True
     server.app.config["REVIEW_ONLY"] = False
     return server.app.test_client()
@@ -365,15 +366,15 @@ def dashboard(monkeypatch):
 
 class TestTheRoutes:
     def test_recording_sends_nothing(self, dashboard, seams, monkeypatch):
-        from backend.web import server
+        from backend.web import app as web_app, server, views_shortlist
 
         written = []
-        monkeypatch.setattr(server.store, "record_rejections",
+        monkeypatch.setattr(views_shortlist.store, "record_rejections",
                             lambda entries, **kw: (
                                 written.extend(entries),
                                 {"added": len(entries), "updated": 0,
                                  "total": len(entries)})[1])
-        monkeypatch.setattr(server.store, "rejection_stats", lambda: {})
+        monkeypatch.setattr(views_shortlist.store, "rejection_stats", lambda: {})
 
         response = dashboard.post("/api/rejections/import", json={
             "text": "a@x.com\nb@x.com"})
@@ -390,8 +391,8 @@ class TestTheRoutes:
 
     def test_checking_a_list_sends_nothing_and_records_nothing(
             self, dashboard, seams, monkeypatch):
-        from backend.web import server
-        monkeypatch.setattr(server.store, "clean_email",
+        from backend.web import app as web_app, server, views_shortlist
+        monkeypatch.setattr(views_shortlist.store, "clean_email",
                             lambda v: str(v or "").strip().lower())
 
         body = dashboard.post("/api/rejections/parse",
@@ -414,7 +415,7 @@ class TestTheRoutes:
     def test_a_send_returns_202_without_waiting_for_the_batch(
             self, dashboard, seams, monkeypatch):
         import time
-        from backend.web import server
+        from backend.web import app as web_app, server, views_shortlist
 
         def slow(**kw):
             time.sleep(0.4)
@@ -442,8 +443,8 @@ class TestTheRoutes:
         assert snapshot["state"] == "done"
         assert snapshot["totals"]["sent"] == 2
         # And the lock is back, so the next click is not refused for ever.
-        assert server._reject_lock.acquire(blocking=False)
-        server._reject_lock.release()
+        assert views_shortlist._reject_lock.acquire(blocking=False)
+        views_shortlist._reject_lock.release()
 
     def test_an_unknown_batch_is_404(self, dashboard):
         assert dashboard.get("/api/rejections/send/nope").status_code == 404
@@ -462,7 +463,7 @@ class TestReviewOnlyMode:
     def test_the_rejection_surface_does_not_exist(self, client, path):
         # 404, not 403. The process facing the internet must not admit that a
         # button which mails several hundred people exists behind it.
-        from backend.web import server
+        from backend.web import app as web_app, server, views_shortlist
         server.app.config["REVIEW_ONLY"] = True
         try:
             assert client.get(path).status_code == 404
@@ -486,7 +487,7 @@ class TestReviewOnlyMode:
 class TestTheRejectedQueueIsAnnotated:
     @pytest.fixture
     def queue(self, dashboard, monkeypatch):
-        from backend.web import server
+        from backend.web import app as web_app, server, views_shortlist
 
         rows = [
             {"_id": 1, "candidate_name": "A", "candidate_email": "a@x.com",
@@ -496,12 +497,12 @@ class TestTheRejectedQueueIsAnnotated:
             {"_id": 3, "candidate_name": "C", "candidate_email": "c@x.com",
              "job_id": 7, "decision": {"status": "rejected", "reason": "missing_video"}},
         ]
-        monkeypatch.setattr(server.store, "list_rejected", lambda **kw: rows)
+        monkeypatch.setattr(views_shortlist.store, "list_rejected", lambda **kw: rows)
         return dashboard
 
     def _ledger(self, monkeypatch, mapping):
-        from backend.web import server
-        monkeypatch.setattr(server.store, "rejections_for", lambda emails: mapping)
+        from backend.web import app as web_app, server, views_shortlist
+        monkeypatch.setattr(views_shortlist.store, "rejections_for", lambda emails: mapping)
 
     def test_nobody_told_yet_means_everybody_is_waiting(self, queue, monkeypatch):
         self._ledger(monkeypatch, {})
@@ -565,7 +566,7 @@ class TestTheRejectedQueueIsAnnotated:
         which is both wrong and the more dangerous of the two errors to show.
         """
         from pymongo.errors import PyMongoError
-        from backend.database import mongo_store as store
+        from backend.db import store
 
         class Broken:
             def find(self, *a, **k):

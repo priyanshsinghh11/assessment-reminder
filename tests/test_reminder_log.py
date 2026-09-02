@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from backend.database import reminder_log
+from backend.db import reminder_log
 
 
 NOW = datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc)
@@ -179,7 +179,7 @@ class TestOutagesFailClosed:
         # Patched at the store, so the real _collection() wrapper is the thing
         # under test -- patching _collection itself would skip the translation
         # from a driver error into ReminderLogUnavailable.
-        from backend.database import mongo_store as store
+        from backend.db import store
 
         def boom():
             raise RuntimeError("mongo is down")
@@ -191,7 +191,7 @@ class TestOutagesFailClosed:
             claim()
 
     def test_should_send_reminder_reports_not_eligible(self, monkeypatch):
-        from backend.database import reminder_state
+        from backend.db import reminder_state
 
         def boom(_key):
             raise reminder_log.ReminderLogUnavailable("down")

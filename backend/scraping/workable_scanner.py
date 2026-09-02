@@ -17,14 +17,14 @@ The whole scan is now one paginated candidate list per job.
 import logging
 from dataclasses import dataclass
 
-from backend.core.config import (
+from backend.config import (
     ELIGIBLE_STAGES,
     INVITES_START_AT,
     REMINDER_AFTER_BUSINESS_DAYS,
     REMINDER_UNTIL_BUSINESS_DAYS,
 )
 from backend.scraping.workable_client import get_job_candidates
-from backend.core.utils import business_days_since_iso, business_days_ago
+from backend.utils import business_days_since_iso, business_days_ago
 
 log = logging.getLogger(__name__)
 

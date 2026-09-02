@@ -6,7 +6,7 @@
 #   1. Uncomment the line below and install it with: crontab -e
 #   2. Set AUTOMATION_ENABLED=1 in .env
 #
-# Without step 2 the job still fires and reminder.py exits with a "paused" log
+# Without step 2 the job still fires and the run exits with a "paused" log
 # line, having scraped nothing and sent nothing.
 #
 # While paused, reminders go out from the dashboard: click Sync portal, review
@@ -15,8 +15,13 @@
 # Run the assessment reminder every weekday at 9:00 AM ET (13:00 UTC)
 # Logs go to assessment-reminder/logs/reminder.log
 #
-# The command below is unchanged by the move into backend/: reminder.py at the
-# repository root is a launcher for backend/notifications/reminder.py, and every
-# path the run needs is resolved from the repository root rather than from cwd.
+# manage.py at the repository root dispatches to backend/mail/reminder.py, and
+# every path the run needs is resolved from the repository root rather than from
+# cwd -- which is why the `cd` below matters and the rest does not.
+#
+# THE COMMAND CHANGED ONCE. It used to be `python3 reminder.py`, back when there
+# was a launcher file per command. If you are looking at an installed crontab
+# that still says that, it is stale and the run is failing silently into
+# logs/cron.log -- replace the line with this one.
 
-# 0 13 * * 1-5 cd /opt/assessment-reminder && /usr/bin/env python3 reminder.py >> logs/cron.log 2>&1
+# 0 13 * * 1-5 cd /opt/assessment-reminder && /usr/bin/env python3 manage.py reminder >> logs/cron.log 2>&1

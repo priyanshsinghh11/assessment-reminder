@@ -45,7 +45,8 @@
   margin-bottom: 16px;
 }
 
-.auth-field > span {
+.auth-field > span,
+.auth-field > label {
   display: block;
   font-size: var(--fs-body-sm);
   font-weight: 500;
@@ -65,6 +66,39 @@
 }
 
 .auth-field input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Show what was typed. Most failed sign-ins on this page are a right
+   password typed on a wrong keyboard layout, and a box that shows nothing
+   gives no way to notice. The button sits inside the box it belongs to
+   rather than one switch for the card, because the change form has three
+   boxes and they are rarely wrong together. */
+.auth-pw { position: relative; }
+
+/* Room for the button, so a long password does not run underneath it. */
+.auth-pw input { padding-right: 60px; }
+
+.auth-pw-toggle {
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  transform: translateY(-50%);
+  padding: 5px 7px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-faint);
+  background: none;
+  border: 0;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.auth-pw-toggle:hover { color: var(--text); background: var(--surface-hover); }
+
+.auth-pw-toggle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }

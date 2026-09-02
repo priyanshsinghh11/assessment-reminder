@@ -9,13 +9,13 @@ is somebody mailed a day early, or a second time, or not at all.
 
 from datetime import datetime, timedelta, timezone
 
-from backend.core.utils import (
+from backend.utils import (
     business_days_ago,
     business_days_between,
     business_days_since,
     state_key,
 )
-from backend.database.reminder_state import (
+from backend.db.reminder_state import (
     claim_reminder,
     release_reminder,
     should_send_reminder,
@@ -122,7 +122,7 @@ class TestShouldSendReminder:
                        days_between_reminders=0)
         # Patched on reminder_state, not on core.utils: should_send_reminder
         # binds the name at import, so the copy that matters is that one.
-        from backend.database import reminder_state
+        from backend.db import reminder_state
         monkeypatch.setattr(reminder_state, "business_days_since", lambda dt: 2)
         assert should_send_reminder("a@x.com", "30", days_between_reminders=2) is True
 

@@ -50,6 +50,43 @@ function setBusy(button, busy, label) {
   button.textContent = busy ? 'Working…' : label;
 }
 
+/* --- showing what was typed -------------------------------------------
+ *
+ * A box that shows nothing is where a sign-in quietly goes wrong: the
+ * password was right and the keyboard was not, and there is no way to see
+ * that. Every password box gets its own button.
+ *
+ * The state lives on the button's aria-pressed rather than in a variable,
+ * so what a screen reader announces and what the box is actually doing
+ * cannot drift apart.
+ */
+
+const pwToggles = Array.from(document.querySelectorAll('.auth-pw-toggle'));
+
+function setRevealed(button, revealed) {
+  const input = $(button.dataset.reveals);
+  input.type = revealed ? 'text' : 'password';
+  button.textContent = revealed ? 'Hide' : 'Show';
+  button.setAttribute('aria-pressed', String(revealed));
+  button.setAttribute('aria-label', `${revealed ? 'Hide' : 'Show'} ${button.dataset.noun}`);
+}
+
+/* Nothing stays revealed across a change of form. The password carried over
+ * from sign-in was typed on the other one, and a visible password should not
+ * outlive the step somebody chose to show it on. */
+function concealPasswords() {
+  pwToggles.forEach((button) => setRevealed(button, false));
+}
+
+pwToggles.forEach((button) => {
+  button.addEventListener('click', () => {
+    setRevealed(button, button.getAttribute('aria-pressed') !== 'true');
+    // Back to the box: the button is a detour in the middle of typing, not
+    // the end of it.
+    $(button.dataset.reveals).focus();
+  });
+});
+
 /* Where to go once we are in. The server names it; `next` only overrides it
  * when the visitor was bounced off a page they were already heading for. */
 function landing(result) {
@@ -68,6 +105,7 @@ const views = { signIn: $('signInView'), change: $('changeView') };
 function show(which) {
   views.signIn.hidden = which !== 'signIn';
   views.change.hidden = which !== 'change';
+  concealPasswords();
   const first = which === 'signIn' ? $('email') : $('currentPassword');
   first.focus();
 }

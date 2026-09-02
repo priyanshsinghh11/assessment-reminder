@@ -2,12 +2,12 @@
 """
 Ingest and grade a posting that has no assessment.
 
-    python cv_role.py                          every CV-only role: fetch, then grade
-    python cv_role.py --job EA7059EA8E         just that posting
-    python cv_role.py --fetch-only             pull candidates and resumes, no grading
-    python cv_role.py --grade-only             grade what is already stored
-    python cv_role.py --limit 5                five candidates, to sanity-check first
-    python cv_role.py --regrade                clear existing scores and mark again
+    python manage.py cv-role                          every CV-only role: fetch, then grade
+    python manage.py cv-role --job EA7059EA8E         just that posting
+    python manage.py cv-role --fetch-only             pull candidates and resumes, no grading
+    python manage.py cv-role --grade-only             grade what is already stored
+    python manage.py cv-role --limit 5                five candidates, to sanity-check first
+    python manage.py cv-role --regrade                clear existing scores and mark again
 
 One command rather than the ingest/grade pair the portal roles use, because
 there is no portal here and nothing to crawl. The whole path is: list the job's
@@ -27,11 +27,11 @@ import sys
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from typing import Optional
 
-from backend.core.config import CV_ONLY_JOBS, LLM_CONCURRENCY, LLM_MODEL
-from backend.database import mongo_store as store
+from backend.config import CV_ONLY_JOBS, LLM_CONCURRENCY, LLM_MODEL
+from backend.db import store
 from backend.grading import cv_evaluator, evaluator
 from backend.grading import rubric_pack as pack
-from backend.core.logging_setup import setup_logging
+from backend.logging_setup import setup_logging
 from backend.scraping import workable_candidates
 
 log = logging.getLogger("cv_role")

@@ -104,7 +104,7 @@ def reminder_store(monkeypatch):
     `reminder_log._collection` keeps every test off both the real database and
     the real dedupe log.
     """
-    from backend.database import reminder_log
+    from backend.db import reminder_log
 
     fake = FakeCollection()
     monkeypatch.setattr(reminder_log, "_collection", lambda: fake)
@@ -114,7 +114,7 @@ def reminder_store(monkeypatch):
 @pytest.fixture
 def fixed_secret(monkeypatch):
     """A stable signing key, so token tests never touch Mongo."""
-    from backend.database import mongo_store as store
+    from backend.db import store
 
     monkeypatch.setattr(store, "get_app_secret",
                         lambda: "test-secret-not-a-real-key")

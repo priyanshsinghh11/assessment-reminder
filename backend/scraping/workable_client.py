@@ -11,7 +11,7 @@ import requests
 from typing import Optional
 from urllib.parse import urlparse, parse_qs
 
-from backend.core.config import (
+from backend.config import (
     WORKABLE_BASE_URL,
     WORKABLE_API_TOKEN,
     WORKABLE_RATE_LIMIT,
