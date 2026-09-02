@@ -2,16 +2,16 @@
 """
 Run AI evaluation over pending submissions.
 
-    python grade.py --job 23                  grade every pending AI Trainer
-    python grade.py --job 31 --limit 10       ten of them, to sanity-check first
-    python grade.py --all --limit 50          across all roles
-    python grade.py --job 4 --rubric-only     write the grid, grade nothing
-    python grade.py --job 4 --force-rubric    regenerate the grid first
+    python manage.py grade --job 23                  grade every pending AI Trainer
+    python manage.py grade --job 31 --limit 10       ten of them, to sanity-check first
+    python manage.py grade --all --limit 50          across all roles
+    python manage.py grade --job 4 --rubric-only     write the grid, grade nothing
+    python manage.py grade --job 4 --force-rubric    regenerate the grid first
 
 Candidates are marked against the Ajaia rubric pack: the family grid for their
 assessment, 100 points across four blocks, banded Best 85 / Better 75 / Good 60
 / Okay below, with the advance bar at 75.
-Fourteen portal assessments have a hand-authored grid in rubric_pack.py and
+Fourteen portal assessments have a hand-authored grid in rubric_pack/ and
 never need --rubric-only; the rest derive one from their assessment text on
 first use, which is what the two rubric flags are for.
 
@@ -27,11 +27,11 @@ import sys
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from typing import Optional
 
-from backend.core.config import LLM_CONCURRENCY, LLM_MODEL
+from backend.config import LLM_CONCURRENCY, LLM_MODEL
 from backend.grading import evaluator, grader
-from backend.database import mongo_store as store
+from backend.db import store
 from backend.grading import tier_resolver
-from backend.notifications.reminder import setup_logging
+from backend.logging_setup import setup_logging
 
 log = logging.getLogger("grade")
 
@@ -135,7 +135,7 @@ def _grade_role(role: dict, limit: int, force_rubric: bool,
             log.warning("[%s] every one of the %d marks was a 5 or a 1. The "
                         "scale is being used as a binary -- the score is a "
                         "count of sections present, not a grade. Run "
-                        "`python calibrate.py --job %s`.",
+                        "`python manage.py calibrate --job %s`.",
                         title, len(marks), role["_id"])
         elif middle < len(marks) // 4:
             log.warning("[%s] only %d of %d marks used 2, 3 or 4. Thin spread.",
@@ -193,7 +193,7 @@ def main() -> int:
     else:
         role = store.get_role(args.job)
         if role is None:
-            log.error("No role with job id %s. Run `python ingest.py --roles-only`.",
+            log.error("No role with job id %s. Run `python manage.py ingest --roles-only`.",
                       args.job)
             return 1
         roles = [role]

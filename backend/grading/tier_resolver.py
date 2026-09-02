@@ -52,7 +52,7 @@ import logging
 from typing import Optional
 
 from backend.grading import rubric_pack as pack
-from backend.core.config import JOB_ASSESSMENTS, JOB_TIERS
+from backend.config import JOB_ASSESSMENTS, JOB_TIERS
 from backend.scraping.workable_client import get_job_candidates
 
 log = logging.getLogger(__name__)

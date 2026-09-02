@@ -49,7 +49,7 @@ if str(ROOT) not in sys.path:
 from pymongo import MongoClient, ReplaceOne          # noqa: E402
 from pymongo.errors import BulkWriteError, PyMongoError  # noqa: E402
 
-from backend.core.config import MONGO_DB, MONGO_URI  # noqa: E402
+from backend.config import MONGO_DB, MONGO_URI  # noqa: E402
 
 # Ephemeral. See the module docstring.
 SKIP = ("sessions", "login_attempts")
@@ -168,8 +168,8 @@ def main() -> int:
     # get_db(), and get_db() caches one client per process.
     print("\n  Creating indexes on Atlas...")
     try:
-        from backend.accounts import auth
-        from backend.database import mongo_store as store
+        from backend import auth
+        from backend.db import store
         store._client = client
         store.MONGO_DB = args.db
         store.ensure_indexes()

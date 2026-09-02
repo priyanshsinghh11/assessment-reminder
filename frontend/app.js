@@ -1,7 +1,7 @@
 /*
  * Assessment Reminders — dashboard
  *
- * Talks to server.py (see frontend/README.md for the contract):
+ * Talks to the backend (see frontend/README.md for the contract):
  *   GET  /api/state          everything needed to render
  *   GET  /api/logs?limit=200 tail of logs/reminder.log
  *   POST /api/run            {mode, limit, emails}
@@ -35,7 +35,7 @@ const state = {
 };
 
 // ---------------------------------------------------------------------------
-// Status derivation — mirrors the rules in reminder.py / config.py
+// Status derivation — mirrors the rules in backend/mail/reminder.py / backend/config.py
 // ---------------------------------------------------------------------------
 
 function deriveStatus(c) {

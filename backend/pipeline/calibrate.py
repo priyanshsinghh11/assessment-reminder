@@ -2,9 +2,9 @@
 """
 Is the grader using the scale, or just detecting missing sections?
 
-    python calibrate.py                  every graded role
-    python calibrate.py --job 33         one role
-    python calibrate.py --job 33 --rows  every criterion mark, worst first
+    python manage.py calibrate                  every graded role
+    python manage.py calibrate --job 33         one role
+    python manage.py calibrate --job 33 --rows  every criterion mark, worst first
 
 A grid is only worth its anchors if the marks spread across them. On
 2026-08-12 this run reported 94.5 percent 5s, 5.5 percent 1s and not one 2, 3
@@ -35,7 +35,7 @@ import argparse
 import collections
 import sys
 
-from backend.database import mongo_store as store
+from backend.db import store
 
 BAR_WIDTH = 44
 

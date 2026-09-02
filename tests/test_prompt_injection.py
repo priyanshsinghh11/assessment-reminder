@@ -13,8 +13,6 @@ without calling a model: the system message exists and says the right thing,
 and the fences cannot be closed by their contents.
 """
 
-import pytest
-
 from backend.grading import evaluator
 
 

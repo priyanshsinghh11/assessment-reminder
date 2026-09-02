@@ -11,7 +11,7 @@
 # running and report green, which is worse than not running it. It belongs on a
 # staging database, not here. Run it by hand before a release:
 #
-#     python test_access.py
+#     python manage.py test-access
 #
 name: CI
 
@@ -68,8 +68,47 @@ jobs:
           assert c.get("/healthz").status_code == 200, "probe must answer in review-only mode"
           assert c.get("/evaluations.html").status_code == 404, "dashboard must not exist in review-only mode"
           assert c.get("/app.js").status_code == 404, "dashboard JS names every endpoint; must not be served"
+          assert c.get("/evaluations.js").status_code == 404, "the evaluations dashboard names every endpoint too"
           assert c.get("/api/state").status_code == 404, "dashboard API must not exist in review-only mode"
+
+          # The other half, and it fails silently rather than loudly: the review
+          # page's own stylesheet and script are on the by-name allowlist and
+          # MUST still serve. When PROJECT_ROOT was resolved one directory too
+          # high, every one of these 404'd -- the app booted, registered all 51
+          # routes, and served a manager a blank page.
+          assert c.get("/styles.css").status_code == 200, "review page's stylesheet must serve"
+          assert c.get("/review.js").status_code == 200, "review page's script must serve"
           print("guards ok")
+          PY
+
+      - name: Paths resolve from the repository root
+        # PROJECT_ROOT anchors .env, assessments/, state/, logs/ and frontend/.
+        # It is derived from this package's location, so moving a module changes
+        # it, and nothing raises when it is wrong -- the app just stops finding
+        # its own files. Checked here because the symptom is a 404, not a stack
+        # trace.
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from backend.config import PROJECT_ROOT
+          expected = Path.cwd().resolve()
+          assert PROJECT_ROOT == expected, f"PROJECT_ROOT={PROJECT_ROOT}, expected {expected}"
+          for name in ("frontend/styles.css", "assessments", "backend/config.py", "manage.py"):
+              assert (PROJECT_ROOT / name).exists(), f"PROJECT_ROOT does not contain {name}"
+          print("PROJECT_ROOT =", PROJECT_ROOT)
+          PY
+
+      - name: Every manage.py command still dispatches
+        # The twelve root launchers are one file now. A typo in its table is a
+        # command that does not exist, and nothing else would catch it.
+        run: |
+          python - <<'PY'
+          import importlib
+          from manage import COMMANDS
+          for name, (module_path, _) in COMMANDS.items():
+              module = importlib.import_module(module_path)
+              assert callable(getattr(module, "main", None)), f"{name} -> {module_path} has no main()"
+          print(f"{len(COMMANDS)} commands, all dispatchable")
           PY
 
       - name: One gunicorn worker

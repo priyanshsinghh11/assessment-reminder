@@ -10,10 +10,10 @@ frontend/
   app.js       fetch, filter, sort, select, render
 ```
 
-Served by `server.py`:
+Served by `backend/web/`:
 
 ```bash
-python server.py     # http://127.0.0.1:5000
+python manage.py serve     # http://127.0.0.1:5000
 ```
 
 Opening `index.html` directly still works — it falls back to the `MOCK` object
@@ -64,13 +64,13 @@ account named on the role's hiring-manager list, and it drives that manager's
 own review workspace (`/api/managers/review-link`, then the same
 `/api/review/<token>/invite*` routes the emailed review page uses), so the
 interview stage still has exactly one door into it. See `loadTopCandidates()`
-and `openComposer()` in `evaluations.js`.
+in `evaluations.js` and `openComposer()` in `invite.js`.
 
 Only candidates who can actually be sent to get a checkbox: those who have not
 started and have not used up their reminders. Everything else is display-only
 and dimmed.
 
-Status is derived on the client from raw fields, mirroring `reminder.py`:
+Status is derived on the client from raw fields, mirroring `backend/mail/reminder.py`:
 
 | Status | Condition |
 |---|---|
@@ -245,7 +245,7 @@ already submitted.
 
 The standard a role's candidates are marked against: its grid from the Ajaia
 rubric pack, or the derived grid file for a role the pack does not cover. Reads
-`rubric_pack.py` or `assessments/grid-<slug>.json`; derives nothing.
+`rubric_pack/` or `assessments/grid-<slug>.json`; derives nothing.
 
 ```json
 {
@@ -454,7 +454,7 @@ message body the composer starts from.
 > The three routes below — `/parse`, `/preview` and `/send` — are the bulk
 > sender. **Nothing in the dashboard calls them.** Rejections are sent from the
 > recruiter's own mail client; the UI only records who. Kept because rebuilding
-> it is the expensive part. See the note above `_reject_jobs` in server.py.
+> it is the expensive part. See the note above `_reject_jobs` in backend/web/views_shortlist.py.
 
 ### `POST /api/rejections/parse`
 
@@ -617,20 +617,31 @@ cover the gap in the meantime.
 
 ## Notes
 
+- **The evaluations page is one script, and the order inside it is load
+  order.** `evaluations.js` was briefly twelve numbered files --
+  `evaluations/01-core.js` through `12-wiring.js` -- served as twelve classic
+  scripts sharing one scope. Twelve `<script>` tags whose only contract was
+  "keep the numbers in order" is a build step written in filenames, and it made
+  twelve requests to draw one page. They are concatenated back in exactly that
+  order, into exactly the same single scope, so every function sees what it
+  always saw; the section banners are where the file boundaries were. The last
+  section binds every listener and makes the opening `loadRoles()` call, so it
+  must stay last. Add a new panel as a new section above it.
+
 - `app.js` sets `const API = ""` (same origin). If you run the backend on a
   different port during development, set it and enable CORS there.
-- **Every page needs an account.** `session.js` loads before `app.js` and
+- **Every page needs an account.** `session.js` loads before `app.js` and the
   `evaluations.js` on both dashboards: it wraps `window.fetch` so every request
   carries its CSRF header and a 401 sends the visitor to `/login.html?next=…`,
   and it draws the account chip in `.topbar-actions`. An admin sees every role;
   a hiring manager sees only the roles their address is listed on, and `/` and
   `app.js` redirect them to the evaluations page.
 - **`is_admin` in the page decides what is DRAWN, never what is allowed.** Every
-  endpoint makes its own check in `server.py`, and a role outside an account's
+  endpoint makes its own check in `backend/web/`, and a role outside an account's
   scope answers 404. When adding an admin-only control, gate the route first and
   hide the button second — a control hidden with nothing behind it is not
   hidden.
-- `server.py` still binds to `127.0.0.1` by default. A sign-in narrows who gets
+- `manage.py serve` still binds to `127.0.0.1` by default. A sign-in narrows who gets
   in; it does not make plain HTTP on a public interface safe, and a session
   cookie sent in the clear is a session anyone on the path can take.
 - All interpolated values pass through `esc()`, so candidate names from Workable

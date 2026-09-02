@@ -100,7 +100,7 @@ def build_record(candidate: dict, job_id: int, job_title: str,
     One candidate, fetched and read, in submission shape.
 
     `submission_id` is left to the caller because it is allocated by Mongo on
-    first sight -- see mongo_store.upsert_workable_candidates. Nothing else
+    first sight -- see store.upsert_workable_candidates. Nothing else
     here needs it.
     """
     resume_url = candidate.get("resume_url") or ""
@@ -141,7 +141,7 @@ def build_record(candidate: dict, job_id: int, job_title: str,
         "cv_only": True,
         "auto_submitted": False,
         # Resume fields, written the same way ingest.py writes them so
-        # mongo_store.set_resume and the resume stats read both paths alike.
+        # store.set_resume and the resume stats read both paths alike.
         #
         # The two links are different on purpose, and it is the S3 one that
         # cannot be `resume_link`. The dashboard renders `resume_link` as "Open

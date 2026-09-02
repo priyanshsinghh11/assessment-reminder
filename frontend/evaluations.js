@@ -4,6 +4,42 @@
  * Roles come from Mongo in one request; a role's candidates are fetched only
  * when that role is opened. Loading all 4200 submissions up front would move
  * megabytes of answer text the user never looks at.
+ *
+ * ONE FILE, AND THE ORDER IN IT IS LOAD ORDER. This was briefly twelve numbered
+ * files -- 01-core.js through 12-wiring.js -- served as twelve classic scripts
+ * sharing one scope. Twelve <script> tags whose only contract was "keep the
+ * numbers in order" is a build step written in filenames, and it made twelve
+ * requests to draw one page. They are concatenated here in exactly that order,
+ * into exactly the same single scope, so nothing about how these functions see
+ * each other has changed. The section banners below are where the file
+ * boundaries were.
+ *
+ * THE LAST SECTION STILL HAS TO BE LAST. Everything in "Portal sync, every
+ * event listener, and the first load" binds a handler defined above it, and its
+ * final line is the loadRoles() that starts the page. Move it and the page
+ * loads to an empty table with no error.
+ */
+
+
+
+/* =======================================================================
+ * State, and the primitives everything below uses
+ ======================================================================= */
+
+/*
+ * The page's state object, and the primitives every other file here uses:
+ * element lookup, HTML escaping, the toast, and the fetch wrapper that every
+ * API call goes through.
+ *
+ * Loaded first because everything below refers to `state` and `$`.
+ */
+
+/*
+ * Evaluations dashboard.
+ *
+ * Roles come from Mongo in one request; a role's candidates are fetched only
+ * when that role is opened. Loading all 4200 submissions up front would move
+ * megabytes of answer text the user never looks at.
  */
 
 const state = {
@@ -189,6 +225,19 @@ function shortDate(iso) {
   if (Number.isNaN(d.getTime())) return '—';
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
+
+
+/* =======================================================================
+ * Formatting: labels, score cells, bands
+ ======================================================================= */
+
+/*
+ * Turning a stored value into what the reviewer reads: status and reason
+ * labels, the score cell, the provisional and partial marks, recommendation
+ * wording and the band a total falls in.
+ *
+ * Pure formatting. Nothing here fetches, and nothing here writes to the page.
+ */
 
 const STATUS_LABEL = {
   scored: 'Scored',
@@ -392,6 +441,19 @@ const recClass = (rec) => 'badge-' + String(rec || '').toLowerCase().replace(/\s
 
 /* --- roles ------------------------------------------------------------ */
 
+
+/* =======================================================================
+ * Loading the roles, and what this account may see
+ ======================================================================= */
+
+/*
+ * Loading the roles, and deciding what this account is allowed to see.
+ *
+ * applyAccountView() is the client half of the access rule -- the server half
+ * is auth.visible_job_ids(), which is the one that actually enforces it. This
+ * hides what a person may not act on; it is not the boundary.
+ */
+
 async function loadRoles() {
   $('runMeta').textContent = 'Loading roles…';
   try {
@@ -517,6 +579,16 @@ function applyAccountView() {
 }
 
 /* --- accounts (admin only) --------------------------------------------- */
+
+
+/* =======================================================================
+ * The accounts panel (admin only)
+ ======================================================================= */
+
+/*
+ * The accounts panel: the people who can sign in, the roles each of them is
+ * on, and the picker that assigns them. Admin only.
+ */
 
 async function loadUsers() {
   try {
@@ -969,6 +1041,19 @@ async function removeUser(email) {
   }
 }
 
+
+/* =======================================================================
+ * The role cards and the counters above them
+ ======================================================================= */
+
+/*
+ * The role cards and the counters above them -- the first thing on screen.
+ *
+ * Separate from 03-account-view.js, which loads the roles, because this is
+ * what draws them; the accounts panel sits between the two in load order and
+ * both halves have to keep their place.
+ */
+
 function renderStats() {
   const t = { total: 0, scored: 0, pending: 0, rejected: 0, in_progress: 0 };
   for (const role of state.roles) {
@@ -1139,6 +1224,19 @@ function renderRoles() {
 
 // Ticked rows, per column. Emails rather than row indexes, so a tick survives
 // a re-render and a change of role filter.
+
+
+/* =======================================================================
+ * The rejected list, and the clipboard/CSV helpers
+ ======================================================================= */
+
+/*
+ * The rejected list, in two columns: who has not been told, and who has.
+ *
+ * Also the clipboard and CSV helpers, which start here because this list was
+ * the first thing to need them. The pipeline board below reuses them.
+ */
+
 const waitingPicked = new Set();
 const mailedPicked = new Set();
 
@@ -1447,6 +1545,16 @@ function exportMailedCsv() {
  * mail merge, which is a different email to a different candidate.
  */
 
+
+/* =======================================================================
+ * The hiring pipeline board
+ ======================================================================= */
+
+/*
+ * The hiring pipeline board: which stage each candidate is at, moving them
+ * between stages, and the export.
+ */
+
 const STAGE_LABEL = {
   interview: 'Interview scheduled',
   hired: 'Hired',
@@ -1753,6 +1861,17 @@ function exportPipelineCsv() {
  *
  * It also settles who may be picked. The rows on screen are the workspace's
  * own list, so a tick can never be a candidate the server would refuse.
+ */
+
+
+/* =======================================================================
+ * The top N, the managers, and the interview invitation
+ ======================================================================= */
+
+/*
+ * The top N and everything the hiring manager does with it: the shortlist
+ * itself, the manager list, a manager's booking link, and the interview
+ * invitation they write.
  */
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -2478,6 +2597,16 @@ async function saveManagers() {
  * is the one legitimate reason to handle it by hand.
  */
 
+
+/* =======================================================================
+ * Review links, the spreadsheet, and the hand-off send
+ ======================================================================= */
+
+/*
+ * Review links, and the shortlist hand-off leaving the building: the preview,
+ * the spreadsheet and the send.
+ */
+
 const LINK_STATE_LABEL = {
   ok: 'live', revoked: 'revoked', expired: 'expired', unknown: 'unknown',
 };
@@ -2724,6 +2853,16 @@ async function sendShortlist() {
  * than revealing a panel below it: the previous page let you scroll from one
  * role's candidates back up into another role's totals, which is exactly the
  * confusion a hiring decision cannot afford.
+ */
+
+
+/* =======================================================================
+ * The two views, the tabs, and the candidate table
+ ======================================================================= */
+
+/*
+ * The two views -- the role list and one role's candidates -- the tabs
+ * between them, the URL hash that survives a reload, and the candidate table.
  */
 
 const ROLE_TABS = ['candidates', 'shortlist', 'pipeline'];
@@ -3131,7 +3270,7 @@ function renderCandHead() {
 
 /* The role's best N, by the SAME rule the shortlist email uses.
  *
- * This is a deliberate copy of mongo_store.top_candidates(), and the two have
+ * This is a deliberate copy of store.top_candidates(), and the two have
  * to stay in step: a manager reading "Top 20" here and a manager reading "top
  * 20" in their email must be looking at the same twenty people, or the next
  * conversation is about which list is the real one. The rule, in full:
@@ -3324,6 +3463,17 @@ async function gradePending() {
 }
 
 /* --- drawer ----------------------------------------------------------- */
+
+
+/* =======================================================================
+ * The candidate drawer
+ ======================================================================= */
+
+/*
+ * The candidate drawer: the grid, the CV table, the findings, the GIA read,
+ * the mail history and the stage controls. The longest file here because it
+ * is the whole of what a reviewer reads about one person.
+ */
 
 async function openDrawer(submissionId) {
   const drawer = $('drawer');
@@ -4239,6 +4389,20 @@ async function setDecision(submissionId, status) {
 function closeDrawer() { $('drawer').hidden = true; }
 
 /* --- portal sync ------------------------------------------------------ */
+
+
+/* =======================================================================
+ * Portal sync, every event listener, and the first load
+ ======================================================================= */
+
+/*
+ * Portal sync, the rejected-list toggle, and every event listener on the
+ * page. Ends with the loadRoles() that starts the dashboard.
+ *
+ * LOADED LAST, AND IT HAS TO BE. Every listener below binds a handler defined
+ * in one of the files above, and the loadRoles() call on the final line is the
+ * only thing here that runs rather than waits.
+ */
 
 async function syncPortal() {
   const btn = $('syncBtn');

@@ -16,17 +16,18 @@ import time
 
 import pytest
 
-from backend.web import server
+from backend.web import app as web_app, server, views_dashboard
 
 
 @pytest.fixture
 def dashboard(monkeypatch):
     """The app with the session guard and the admin check stood down."""
-    monkeypatch.setattr(server, "AUTH_ENABLED", False)
-    monkeypatch.setattr(server, "_require_admin", lambda: None)
+    monkeypatch.setattr(web_app, "AUTH_ENABLED", False)
+    monkeypatch.setattr(views_dashboard, "AUTH_ENABLED", False)
+    monkeypatch.setattr(views_dashboard, "_require_admin", lambda: None)
     server.app.config["REVIEW_ONLY"] = False
 
-    monkeypatch.setattr(server, "_last_state", {
+    monkeypatch.setattr(views_dashboard, "_last_state", {
         "candidates": [
             {"email": "a@example.com", "portal_status": None, "name": "A"},
             {"email": "b@example.com", "portal_status": None, "name": "B"},
@@ -35,7 +36,8 @@ def dashboard(monkeypatch):
     })
     # The staleness rule is tested by its own path; here it must simply not
     # reject the run before it starts.
-    monkeypatch.setattr(server, "_state_age", lambda state: server.timedelta(0))
+    monkeypatch.setattr(views_dashboard, "_state_age",
+                        lambda state: views_dashboard.timedelta(0))
     return server.app.test_client()
 
 
@@ -51,8 +53,8 @@ def settle(client, job_id, timeout=10.0):
 
 
 def lock_is_free() -> bool:
-    if server._run_lock.acquire(blocking=False):
-        server._run_lock.release()
+    if web_app._run_lock.acquire(blocking=False):
+        web_app._run_lock.release()
         return True
     return False
 
@@ -66,7 +68,7 @@ class TestLiveSendIsAsynchronous:
             time.sleep(1.0)
             return {"reminders_sent": 2, "errors": 0, "unsubscribed": 0}, []
 
-        monkeypatch.setattr(server, "send_batch", slow_batch)
+        monkeypatch.setattr(views_dashboard, "send_batch", slow_batch)
 
         began = time.time()
         response = dashboard.post("/api/run", json={"mode": "live"})
@@ -82,7 +84,7 @@ class TestLiveSendIsAsynchronous:
 
     def test_the_batch_runs_exactly_once(self, dashboard, monkeypatch):
         runs = []
-        monkeypatch.setattr(server, "send_batch", lambda c, **k: (
+        monkeypatch.setattr(views_dashboard, "send_batch", lambda c, **k: (
             runs.append(True),
             ({"reminders_sent": 1, "errors": 0, "unsubscribed": 0}, []))[1])
 
@@ -92,7 +94,7 @@ class TestLiveSendIsAsynchronous:
 
     def test_the_result_is_readable_afterwards(self, dashboard, monkeypatch):
         recorded = [{"email": "a@example.com", "portal_job_id": "31"}]
-        monkeypatch.setattr(server, "send_batch", lambda c, **k: (
+        monkeypatch.setattr(views_dashboard, "send_batch", lambda c, **k: (
             {"reminders_sent": 1, "errors": 0, "unsubscribed": 2}, recorded))
 
         job = dashboard.post("/api/run", json={"mode": "live"}).get_json()["job"]
@@ -112,7 +114,7 @@ class TestLiveSendIsAsynchronous:
 class TestTheRunLock:
     def test_a_second_click_is_refused_while_a_send_is_in_flight(
             self, dashboard, monkeypatch):
-        monkeypatch.setattr(server, "send_batch", lambda c, **k: (
+        monkeypatch.setattr(views_dashboard, "send_batch", lambda c, **k: (
             time.sleep(0.6),
             ({"reminders_sent": 1, "errors": 0, "unsubscribed": 0}, []))[1])
 
@@ -125,7 +127,7 @@ class TestTheRunLock:
         settle(dashboard, first.get_json()["job"])
 
     def test_released_when_the_job_succeeds(self, dashboard, monkeypatch):
-        monkeypatch.setattr(server, "send_batch", lambda c, **k: (
+        monkeypatch.setattr(views_dashboard, "send_batch", lambda c, **k: (
             {"reminders_sent": 1, "errors": 0, "unsubscribed": 0}, []))
         job = dashboard.post("/api/run", json={"mode": "live"}).get_json()["job"]
         settle(dashboard, job)
@@ -135,7 +137,7 @@ class TestTheRunLock:
         def boom(candidates, **kwargs):
             raise RuntimeError("Brevo exploded")
 
-        monkeypatch.setattr(server, "send_batch", boom)
+        monkeypatch.setattr(views_dashboard, "send_batch", boom)
         job = dashboard.post("/api/run", json={"mode": "live"}).get_json()["job"]
         snapshot = settle(dashboard, job)
 
@@ -151,7 +153,7 @@ class TestOtherModesStaySynchronous:
     def test_answer_in_one_round_trip(self, dashboard, monkeypatch, mode):
         # Neither touches the network, so both finish in the time it takes to
         # format the text. Making the page poll for them would be ceremony.
-        monkeypatch.setattr(server, "send_batch", lambda c, **k: (
+        monkeypatch.setattr(views_dashboard, "send_batch", lambda c, **k: (
             {"reminders_sent": 0, "previewed": 2, "errors": 0,
              "unsubscribed": 0}, []))
         response = dashboard.post("/api/run", json={"mode": mode})

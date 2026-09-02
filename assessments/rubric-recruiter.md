@@ -1,7 +1,7 @@
 <!-- The source rubric for the Recruiter seat (portal assignment 40, Workable
      EC24F51CB9), received 2026-08-31 and kept verbatim below. This file is
      the record, not the implementation: the live grid is `recruiting` in
-     backend/grading/rubric_pack.py, which carries these six rows at these six
+     backend/grading/rubric_pack/, which carries these six rows at these six
      weights and adds the anchors, triage, auto-fails, red flags and reviewer
      path the pack requires around them. Edit the pack to change a score; edit
      this file only if the source document itself is reissued. -->

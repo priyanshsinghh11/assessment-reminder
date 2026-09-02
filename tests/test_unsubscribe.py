@@ -10,7 +10,7 @@ import base64
 
 import pytest
 
-from backend.notifications import unsubscribe
+from backend.mail import unsubscribe
 
 
 def b64(raw: bytes) -> str:
@@ -53,7 +53,7 @@ class TestTokenForgery:
         assert unsubscribe.email_for(f"{body}.AAAAAAAAAAAAAAAAAAAAAA") is None
 
     def test_a_different_secret_invalidates_every_token(self, monkeypatch):
-        from backend.database import mongo_store as store
+        from backend.db import store
         monkeypatch.setattr(store, "get_app_secret", lambda: "secret-one")
         token = unsubscribe.token_for("ada@example.com")
         monkeypatch.setattr(store, "get_app_secret", lambda: "secret-two")
@@ -109,7 +109,7 @@ class TestSuppressionFailsClosed:
         # The one read in this system that must fail CLOSED: mailing somebody
         # who asked us to stop cannot be undone, so a database we cannot reach
         # stops the send rather than waving it through.
-        from backend.database import mongo_store as store
+        from backend.db import store
 
         def boom():
             raise RuntimeError("mongo is down")
@@ -118,7 +118,7 @@ class TestSuppressionFailsClosed:
         assert unsubscribe.is_suppressed("ada@example.com") is True
 
     def test_bulk_read_fails_closed_for_every_address(self, monkeypatch):
-        from backend.database import mongo_store as store
+        from backend.db import store
 
         def boom():
             raise RuntimeError("mongo is down")
@@ -128,7 +128,7 @@ class TestSuppressionFailsClosed:
         assert unsubscribe.suppressed_among(addresses) == set(addresses)
 
     def test_empty_input_needs_no_database_at_all(self, monkeypatch):
-        from backend.database import mongo_store as store
+        from backend.db import store
 
         def boom():
             raise AssertionError("should not have queried")

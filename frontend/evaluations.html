@@ -738,6 +738,11 @@
      markup, so this page carries none of it. Loaded first, because
      evaluations.js hands it its configuration on the way past. -->
 <script src="invite.js"></script>
+<!-- The dashboard itself: one classic script, one scope. It was briefly
+     twelve numbered files loaded in order, which is a build step written
+     in filenames and twelve requests to draw one page; they are
+     concatenated back in exactly that order. The last section in it binds
+     every listener and calls loadRoles(), so it stays last in the file. -->
 <script src="evaluations.js"></script>
 </body>
 </html>

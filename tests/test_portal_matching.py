@@ -13,7 +13,7 @@ successful scrape, and plausible-looking counts for a job nobody has begun.
 
 import pytest
 
-from backend.core import config
+from backend import config
 from backend.scraping.portal_scraper import PortalRecord, get_portal_emails
 
 

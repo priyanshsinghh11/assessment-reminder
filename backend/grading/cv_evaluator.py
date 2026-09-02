@@ -48,12 +48,12 @@ import logging
 import secrets
 from typing import Optional
 
-from backend.core.config import (
+from backend.config import (
     CV_ONLY_PROMPT_CHARS,
     LLM_MAX_OUTPUT_TOKENS,
     LLM_MODEL,
 )
-from backend.database import mongo_store as store
+from backend.db import store
 from backend.grading import rubric_pack as pack
 from backend.grading.evaluator import (
     EvaluationFailed,
@@ -61,7 +61,7 @@ from backend.grading.evaluator import (
     # Re-exported, not used here: a caller that catches one of these
     # around evaluate_cv should not have to import two grader modules
     # to name the exceptions one of them raises.
-    QuotaExhausted,
+    QuotaExhausted,  # noqa: F401
     PACK_VERSION,
     _chat,
     _criteria_keys,

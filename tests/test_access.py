@@ -2,7 +2,7 @@
 """
 Regression test for the access rules: who can sign in, and which roles they see.
 
-    python test_access.py
+    python manage.py test-access
 
 WHY THIS FILE AND NOT THE OTHERS. Most of this system is checkable by reading
 it -- a wrong reminder window shows up on the dashboard, a wrong grid shows up
@@ -26,10 +26,10 @@ below is the closest thing this repo has to a map of the guarded surface.
 
 import sys
 
-from backend.accounts import auth
-from backend.database import mongo_store as store
-from backend.web import server
-from backend.core.config import AUTH_ENABLED
+from backend import auth
+from backend.db import store
+from backend.web import app as web_app, server
+from backend.config import AUTH_ENABLED
 
 ADMIN = "zz-access-test-admin@ajaia.ai"
 PASSWORD = "zz-access-test-password-92"
@@ -297,11 +297,11 @@ def run(manager_email: str) -> int:
     # --- open redirect ----------------------------------------------------
     print("\n--- where ?next= may point ---")
     check("an absolute URL is refused",
-          server._safe_next("https://evil.invalid") == "/")
+          web_app._safe_next("https://evil.invalid") == "/")
     check("a protocol-relative URL is refused",
-          server._safe_next("//evil.invalid") == "/")
+          web_app._safe_next("//evil.invalid") == "/")
     check("a real path survives",
-          server._safe_next("/evaluations.html#role=29") == "/evaluations.html#role=29")
+          web_app._safe_next("/evaluations.html#role=29") == "/evaluations.html#role=29")
 
     print()
     if failures:

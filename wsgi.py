@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-WSGI entry point. This is what a real server imports; `python server.py` is not.
+WSGI entry point. This is what a real server imports; `python manage.py serve` is not.
 
     gunicorn -c gunicorn.conf.py wsgi:app
 
-WHY THIS FILE EXISTS AT ALL. `server.py` ends in `app.run()`, which is
+WHY THIS FILE EXISTS AT ALL. `manage.py serve` ends in `app.run()`, which is
 Werkzeug's development server -- single-threaded by default, no request queue,
 no timeouts, and it says so in the log every time it starts. But the startup
 work that makes the app usable does not live in the `app` object; it lives in
@@ -26,12 +26,12 @@ at a container, so the mode is read from the environment instead:
     REVIEW_ONLY=0   the full dashboard: every role, every candidate's address,
                     and every send button, behind a sign-in. (default)
 
-Those are the same two modes `server.py --review-only` selects, and they are
+Those are the same two modes `manage.py serve --review-only` selects, and they are
 still two processes. Running one container in each is the deployment shape;
 one container serving both puts the send buttons on whatever hostname the
 review links are mailed from.
 
-THE BIND ADDRESS IS NOT DEFENDED HERE. `server.py` defaults to 127.0.0.1
+THE BIND ADDRESS IS NOT DEFENDED HERE. `manage.py serve` defaults to 127.0.0.1
 because a flag is a thing a person types. A container has no loopback worth
 binding to -- nothing outside it could reach the app -- so gunicorn binds
 0.0.0.0 and the boundary moves outward, to the platform: put TLS in front of
@@ -42,11 +42,11 @@ sent in the clear to anyone on the path.
 import logging
 import os
 
-from backend.core.config import AUTH_ENABLED
-from backend.notifications.reminder import setup_logging
+from backend.config import AUTH_ENABLED
+from backend.logging_setup import setup_logging
 
-from backend.accounts import auth
-from backend.database import mongo_store as store
+from backend import auth
+from backend.db import store
 from backend.web.server import app
 
 log = logging.getLogger("wsgi")
@@ -77,7 +77,7 @@ if not REVIEW_ONLY and AUTH_ENABLED:
         if not auth.admin_count():
             log.warning(
                 "NO ADMIN ACCOUNT EXISTS -- nobody can sign in. Create one "
-                "with:  python manage_users.py add --admin <email>  (inside "
+                "with:  python manage.py users add --admin <email>  (inside "
                 "the container, or against the same MONGO_URI from anywhere)")
     except store.MongoUnavailable as exc:
         log.error("Cannot reach MongoDB, so nobody can sign in yet: %s", exc)

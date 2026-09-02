@@ -53,11 +53,17 @@
                  required autofocus spellcheck="false" placeholder="you@ajaia.ai">
         </label>
 
-        <label class="auth-field">
-          <span>Password</span>
-          <input type="password" id="password" name="password"
-                 autocomplete="current-password" required>
-        </label>
+        <div class="auth-field">
+          <label for="password">Password</label>
+          <div class="auth-pw">
+            <input type="password" id="password" name="password"
+                   autocomplete="current-password"
+                   required>
+            <button type="button" class="auth-pw-toggle"
+                    data-reveals="password" data-noun="password"
+                    aria-pressed="false" aria-label="Show password">Show</button>
+          </div>
+        </div>
 
         <p class="auth-error" id="signInError" role="alert" hidden></p>
 
@@ -89,24 +95,42 @@
         <input type="email" id="changeEmail" autocomplete="username"
                hidden aria-hidden="true" tabindex="-1">
 
-        <label class="auth-field">
-          <span>Current password</span>
-          <input type="password" id="currentPassword"
-                 autocomplete="current-password" required>
-        </label>
+        <div class="auth-field">
+          <label for="currentPassword">Current password</label>
+          <div class="auth-pw">
+            <input type="password" id="currentPassword"
+                   autocomplete="current-password"
+                   required>
+            <button type="button" class="auth-pw-toggle"
+                    data-reveals="currentPassword" data-noun="current password"
+                    aria-pressed="false" aria-label="Show current password">Show</button>
+          </div>
+        </div>
 
-        <label class="auth-field">
-          <span>New password</span>
-          <input type="password" id="newPassword" autocomplete="new-password"
-                 required>
+        <div class="auth-field">
+          <label for="newPassword">New password</label>
+          <div class="auth-pw">
+            <input type="password" id="newPassword"
+                   autocomplete="new-password"
+                   required>
+            <button type="button" class="auth-pw-toggle"
+                    data-reveals="newPassword" data-noun="new password"
+                    aria-pressed="false" aria-label="Show new password">Show</button>
+          </div>
           <small class="auth-hint" id="pwHint">At least 12 characters.</small>
-        </label>
+        </div>
 
-        <label class="auth-field">
-          <span>New password again</span>
-          <input type="password" id="confirmPassword"
-                 autocomplete="new-password" required>
-        </label>
+        <div class="auth-field">
+          <label for="confirmPassword">New password again</label>
+          <div class="auth-pw">
+            <input type="password" id="confirmPassword"
+                   autocomplete="new-password"
+                   required>
+            <button type="button" class="auth-pw-toggle"
+                    data-reveals="confirmPassword" data-noun="the repeated new password"
+                    aria-pressed="false" aria-label="Show the repeated new password">Show</button>
+          </div>
+        </div>
 
         <p class="auth-error" id="changeError" role="alert" hidden></p>
 

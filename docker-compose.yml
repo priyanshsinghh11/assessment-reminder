@@ -2,13 +2,13 @@
 #
 #   cp .env.example .env   # fill it in first
 #   docker compose up -d --build
-#   docker compose exec dashboard python manage_users.py add you@ajaia.ai --admin
+#   docker compose exec dashboard python manage.py users add you@ajaia.ai --admin
 #
 # TWO CONTAINERS FROM ONE IMAGE, and that is the whole point of the file. The
 # dashboard shows every role, every candidate's address and every send button;
 # the review surface shows one manager the one shortlist their token names.
 # They are different exposure decisions, so they are different processes with
-# different port bindings -- exactly the split server.py's --review-only flag
+# different port bindings -- exactly the split manage.py serve --review-only
 # exists for.
 #
 # THE DEDUPE STATE IS IN MONGO, not in a volume. It used to be a JSON file
@@ -28,7 +28,7 @@ services:
       REVIEW_ONLY: "0"
       PORT: "8080"
       MONGO_URI: mongodb://mongo:27017
-    # BOUND TO THE HOST'S LOOPBACK, matching server.py's own default. This is
+    # BOUND TO THE HOST'S LOOPBACK, matching `manage.py serve`'s own default. This is
     # the process with the send buttons on it. Reaching it from another machine
     # should mean an SSH tunnel or a VPN, or a reverse proxy you configured on
     # purpose with TLS and SESSION_COOKIE_SECURE=1 -- not editing this line to

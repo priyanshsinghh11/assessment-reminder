@@ -10,7 +10,7 @@ now. There is no scheduled run, and opening the dashboard no longer scans —
 **scraping happens only when someone clicks "Sync portal"**, on either page.
 
 - `AUTOMATION_ENABLED` in `config.py` (set from `.env`) is off. While it is off,
-  a plain `python reminder.py` logs a "paused" line and exits without scanning
+  a plain `python manage.py reminder` logs a "paused" line and exits without scanning
   or sending. Read-only modes (`--scan-only`, `--dry-run`, `--preview`) still
   work, and `--force` sends from a run you are watching.
 - The cron entry in `crontab.example` is commented out.
@@ -23,7 +23,7 @@ cron entry.
 
 ## How it works
 
-Each run — a Sync portal click, or `reminder.py` once automation is back on —
+Each run — a Sync portal click, or `manage.py reminder` once automation is back on —
 does three steps.
 
 **Step 1 (portal):** Logs into the assessment portal at
@@ -119,7 +119,7 @@ the portal's own `submission_status` — 1,586 rows are `in_progress` with the
 review column moved on, so promoting those to "submitted" would only put a
 wrong badge on the dashboard.
 
-**`ingest.py` fetches two of those queues, not all five and not just one.**
+**`manage.py ingest` fetches two of those queues, not all five and not just one.**
 `INGEST_REVIEW_BUCKETS` in `config.py` is `("new", "pending")`: the untouched
 queue plus the portal's Pending Review section. Both are submissions nobody has
 reached a verdict on, which is exactly what the grader is for. The other three
@@ -156,7 +156,7 @@ cd assessment-reminder
 pip install -r requirements.txt
 cp .env.example .env
 # Fill in all four values in .env
-python manage_users.py add you@ajaia.ai --admin   # the first account
+python manage.py users add you@ajaia.ai --admin   # the first account
 ```
 
 That last line prints a password once and asks you to change it at first
@@ -233,20 +233,20 @@ and never-invited candidates at once.
 Scan only — see who qualifies, send nothing:
 
 ```bash
-python reminder.py --scan-only
+python manage.py reminder --scan-only
 ```
 
 Dry run — full flow including dedupe, but no emails:
 
 ```bash
-python reminder.py --dry-run
+python manage.py reminder --dry-run
 ```
 
 Production run — blocked while automation is paused, see above:
 
 ```bash
-python reminder.py
-python reminder.py --force    # send anyway, paused or not
+python manage.py reminder
+python manage.py reminder --force    # send anyway, paused or not
 ```
 
 Useful flags:
@@ -262,7 +262,7 @@ Useful flags:
 A review-then-send UI over the same pipeline:
 
 ```bash
-python server.py     # http://127.0.0.1:5000
+python manage.py serve     # http://127.0.0.1:5000
 ```
 
 It shows everyone in the current window with their portal status and reminder
@@ -274,7 +274,7 @@ Loading the page costs nothing: it draws the last scan the server holds (kept in
 was. **Sync portal** is the only control that goes out to the portal and
 Workable; on the evaluations page it is the same button, re-crawling into Mongo.
 
-The dashboard and the CLI call the same two functions in `reminder.py` —
+The dashboard and the CLI call the same two functions in `backend/mail/reminder.py` —
 `gather_state()` decides who qualifies, `send_batch()` does the sending — so the
 two can never drift apart. A selection narrows the send; it cannot bypass the
 window, stage filter, portal check or dedupe, all of which still run server-side.
@@ -283,7 +283,7 @@ This page is recruiting-team only — it lists candidates across every role and
 its buttons send real mail, so a hiring-manager account is redirected to the
 evaluations page instead. See **Accounts: who sees which roles** below.
 
-`server.py` still binds to localhost by default. A sign-in is the right lock on
+`manage.py serve` still binds to localhost by default. A sign-in is the right lock on
 who reads what; it is not a reason to put a box that mails hundreds of
 candidates on a public port without TLS in front of it. See
 `frontend/README.md` for the API contract.
@@ -351,8 +351,8 @@ to Interview — the same act, said out loud in both places.
 ### First run
 
 ```bash
-python manage_users.py add you@ajaia.ai --admin   # prints a password, once
-python server.py
+python manage.py users add you@ajaia.ai --admin   # prints a password, once
+python manage.py serve
 ```
 
 Open <http://127.0.0.1:5000>, sign in, and set your own password when it asks.
@@ -360,7 +360,7 @@ Everyone else is created from **Accounts** on the evaluations page. Setting
 `PORTAL_ADMINS` and `PORTAL_ADMIN_PASSWORD` in `.env` does the same thing at
 startup, for a deployment where nobody has a shell.
 
-`manage_users.py` also has `list`, `passwd`, `promote`, `demote`, `disable`,
+`manage.py users` also has `list`, `passwd`, `promote`, `demote`, `disable`,
 `enable`, `remove` and `roles <email>` — the last one prints exactly what an
 account can open, read the way the server reads it, which is the fastest answer
 to "why is their dashboard empty". (Usually: they have an account but nobody has
@@ -394,7 +394,7 @@ put them on a role yet.)
 
 Hiding a button is never the lock. Every route makes its own check, and the
 page's `is_admin` only stops a manager being offered controls that would answer
-403 anyway. When adding an admin-only feature: gate it in `server.py` first,
+403 anyway. When adding an admin-only feature: gate it in `backend/web/` first,
 hide it in the frontend second.
 
 ### Sessions and passwords
@@ -433,7 +433,7 @@ nothing else. See **Managers deciding for themselves** below.
 ### Checking it still holds
 
 ```bash
-python test_access.py
+python manage.py test-access
 ```
 
 Signs in as a throwaway admin and a throwaway manager, borrows a real
@@ -456,15 +456,15 @@ A second pipeline, independent of reminders. Reminders chase people who have
 *not* started; this scores the ones who *have* finished.
 
 ```bash
-python ingest.py                 # portal -> MongoDB (roles, assessments, submissions)
-python ingest.py --resumes       # fetch + extract resume text (opt-in, nothing reads it yet)
-python grade.py --job 23 --limit 5   # AI-score five pending candidates for one role
-python server.py                 # dashboard at /evaluations.html
+python manage.py ingest                 # portal -> MongoDB (roles, assessments, submissions)
+python manage.py ingest --resumes       # fetch + extract resume text (opt-in; run it BEFORE grading)
+python manage.py grade --job 23 --limit 5   # AI-score five pending candidates for one role
+python manage.py serve                 # dashboard at /evaluations.html
 ```
 
 ### How it works
 
-**Ingest.** `ingest.py` crawls all 28 roles and each one's LIVE assignment
+**Ingest.** `manage.py ingest` crawls all 28 roles and each one's LIVE assignment
 markdown off `/admin/jobs`, then downloads the submissions CSV. That export
 already contains every candidate's full answer text in `submission_markdown`,
 so there is nothing to scrape per candidate. Each role's assessment is also
@@ -483,10 +483,10 @@ without ever reaching a model: there is nothing to review. Measured across all
 in practice this rule is "no video, no review", but both artefacts are checked
 in case the form stops requiring one.
 
-**Resume text.** `python ingest.py --resumes` fetches each submitted
+**Resume text.** `python manage.py ingest --resumes` fetches each submitted
 candidate's resume, extracts the text, and stores it on the submission as
 `resume_text` / `resume_fetched_at` / `resume_error`. It is its own command,
-never part of a normal `ingest.py` run: the first backfill is ~3,700 requests
+never part of a normal `manage.py ingest` run: the first backfill is ~3,700 requests
 to third-party hosts.
 
 Re-running is cheap: a row whose link has already been read is skipped, so a
@@ -514,7 +514,7 @@ deleted, ~4% point at a folder, and ~10% of the PDFs that do arrive are scans
 with no text layer. Reading those needs OCR or a headless browser; both were
 ruled out to keep `requirements.txt` free of system binaries.
 
-The extracted fields are written by `mongo_store.set_resume()` with its own
+The extracted fields are written by `store.set_resume()` with its own
 targeted `$set` and are deliberately **not** in `PORTAL_FIELDS` — that list is
 applied as `{k: rec.get(k) for k in PORTAL_FIELDS}`, so a field listed there
 but absent from the CSV would be set to `None` on every ingest and wipe the
@@ -631,7 +631,7 @@ gap between candidates with and without a readable one was +2.5 points against a
 standard error of 9.1, i.e. nothing.
 
 **Grading.** Candidates are marked against the **Ajaia Assessment Scoring
-Rubrics** pack (version 2026-08-12), which lives in `rubric_pack.py`: fourteen
+Rubrics** pack (version 2026-08-12), which lives in `rubric_pack/`: fourteen
 rubric units, seventeen scoring grids, covering all 36 live Workable postings.
 The grid for a role's assessment is looked up by slug — no model call — and the
 candidate's `submission_markdown` is marked against it once.
@@ -663,7 +663,7 @@ llama-3.3-70b 100,000 tokens *per day* and 12,000 *per minute*, which is
 ~15 candidates a day — the full backlog would take months. Three things follow:
 
 - **Each model has its own quota.** When the 70b's daily allowance ran out,
-  `LLM_MODEL=openai/gpt-oss-120b python grade.py …` kept working. Every
+  `LLM_MODEL=openai/gpt-oss-120b python manage.py grade …` kept working. Every
   evaluation records the model that produced it, and a derived grid records it
   as `derived_by`, so a mixed run stays auditable.
 - **The longest answers cannot be graded on a free tier at all.** A submission
@@ -773,7 +773,7 @@ mean the same thing:
 
 What stays comparable across families is the blocks and the bands — an
 Investments 62 and a Marketing 62 are the same decision, and their
-AI-forwardness rows asked both candidates the same question. `rubric_pack.py`
+AI-forwardness rows asked both candidates the same question. `rubric_pack/`
 refuses to load a grid whose criteria do not sum to exactly 100, or whose
 blocks do not sum to the split that grid declares, so a hand-edit cannot
 silently rescale a family.
@@ -859,7 +859,7 @@ with:
 list.
 
 The **scoring rubric is deliberately not on the page.** The standard lives in
-`rubric_pack.py`, the derived grid files and the grader that reads them; the
+`rubric_pack/`, the derived grid files and the grader that reads them; the
 dashboard states only what came out of it — a score, a band, the per-criterion
 marks a candidate earned and the evidence for each. Publishing the anchors
 themselves to the same screen as the candidates invites marking against the
@@ -874,10 +874,10 @@ Neither renders the standard.
 `GET /api/evaluations/rubric/<job_id>` and the derive endpoint behind it are
 unchanged, so the grid is still inspectable by anyone who wants it. Deriving a
 grid for a role the pack does not cover is a command-line job now rather than a
-button — `python grade.py --job <id> --rubric-only`, or just grade the role,
+button — `python manage.py grade --job <id> --rubric-only`, or just grade the role,
 which derives one first. Pack-covered roles never derive: their grid is
 hand-authored against the live assessment, and nothing overwrites it with model
-output — edit `rubric_pack.py` to move that bar.
+output — edit `rubric_pack/_grids.py` to move that bar.
 
 **Criterion columns** in the candidate table is the same grid read the other
 way. Ticking it adds one 1–5 column per criterion, each sortable, so "who
@@ -1226,13 +1226,13 @@ anything already decided.
 
 #### Letting managers actually reach it
 
-`server.py` asks for a sign-in, but review links do not, and `/api/run` and
+`manage.py serve` asks for a sign-in, but review links do not, and `/api/run` and
 `/api/shortlist/send` are not endpoints to put on the internet on the strength
 of a password form. So exposure is still a separate process:
 
 ```bash
-python server.py                                       # the dashboard, private
-python server.py --review-only --host 0.0.0.0 --port 5051   # managers, public
+python manage.py serve                                       # the dashboard, private
+python manage.py serve --review-only --host 0.0.0.0 --port 5051   # managers, public
 ```
 
 In `--review-only` mode every path outside `/review/`, `/api/review/` and three
@@ -1295,7 +1295,7 @@ told. One click on **Select all** is the right price for that.
 
 #### There is a bulk sender, and nothing calls it
 
-`backend/notifications/rejections.py` plus `/api/rejections/parse`,
+`backend/mail/rejections.py` plus `/api/rejections/parse`,
 `/preview` and `/send` will mail everyone one personalised copy in the
 background, respecting the ledger and the opt-out list, recording each as it
 goes. It is complete and tested and **no part of the UI reaches it** — sending
@@ -1329,7 +1329,7 @@ automatically it would either fail on a machine with no database or, worse,
 skip its way to green against an empty one. Run it by hand against staging:
 
 ```bash
-python test_access.py
+python manage.py test-access
 ```
 
 ## Candidate opt-outs
@@ -1342,7 +1342,7 @@ bulk mail without one is scored down.
 The header is only half of it. An unsubscribe link that records nothing means
 the next run mails that person again, which is worse than never offering one:
 they asked, we said yes, and then we did it anyway. So
-[unsubscribe.py](backend/notifications/unsubscribe.py) owns the token, the
+[unsubscribe.py](backend/mail/unsubscribe.py) owns the token, the
 suppression list and the check, and `send_batch` filters the opt-out list in
 bulk before the loop while `send_reminder_email` checks again per candidate — a
 run is minutes long, and somebody who unsubscribes mid-batch must not be mailed
@@ -1388,7 +1388,7 @@ still gets the same 409 it always did.
 
 ## Deploying
 
-`python server.py` ends in Werkzeug's development server, and Werkzeug prints a
+`python manage.py serve` ends in Werkzeug's development server, and Werkzeug prints a
 warning into the log saying not to use it for anything else. It means it: one
 request at a time, no queue, no request timeouts, and no way to restart a
 worker that has wedged. It is the right thing on a laptop and the wrong thing
@@ -1401,7 +1401,7 @@ gunicorn -c gunicorn.conf.py wsgi:app
 ```
 
 `wsgi.py` exists because the startup work — logging, account indexes, seeding
-the first admin, choosing the mode — lives in `server.py`'s `main()`, next to
+the first admin, choosing the mode — lives in `backend/web/server.py`'s `main()`, next to
 the argparse, and a WSGI server never calls `main()`. Importing
 `backend.web.server:app` directly gets you a dashboard with no logging
 configured and no admin account. `wsgi.py` is `main()` minus the argparse and
@@ -1489,7 +1489,7 @@ image. `tests/test_guards.py` pins it, because a laptop always has a writable
 ```bash
 cp .env.example .env          # fill it in first
 docker compose up -d --build
-docker compose exec dashboard python manage_users.py add you@ajaia.ai --admin
+docker compose exec dashboard python manage.py users add you@ajaia.ai --admin
 ```
 
 That brings up both processes and a Mongo, with the dashboard bound to the
@@ -1499,23 +1499,24 @@ containers, one environment variable apart.
 ### One worker. Not negotiable yet.
 
 `gunicorn.conf.py` pins `workers = 1`, and that is a correctness constraint
-rather than a tuning default. Two things depend on there being exactly one
-process:
+rather than a tuning default. One thing still depends on there being exactly
+one process:
 
-- **`_run_lock`** (`backend/web/server.py:88`) is a `threading.Lock`, and its
+- **`_run_lock`** (`backend/web/app.py:64`) is a `threading.Lock`, and its
   own comment says what it is for: *"Only one scan or send may run at a time.
   Without this, two clicks could double-send: both would pass the dedupe check
   before either recorded it."* A lock inside one process cannot see a second
   process. Two workers means two locks, each certain it holds the only one.
-- **The reminder dedupe log** is a JSON file written with a truncate-then-
-  rewrite that has no lock and no atomic swap (`backend/core/utils.py:73-75`).
-  Two writers lose each other's records silently, and a lost record is a
-  candidate who gets emailed again on the next run.
+
+The reminder dedupe log used to be the second reason, and is no longer. It was
+a JSON file written with an unlocked truncate-then-rewrite; it now lives in
+Mongo behind a single conditional update -- see the next section, and
+`backend/db/reminder_log.py` for the mechanism. Half of the condition
+below was therefore already met when this section still said otherwise.
 
 Concurrency comes from threads inside the single worker, where the lock still
 means something. CI fails the build if `workers` is not 1. Raise it only after
-the reminder state is in Mongo behind an atomic upsert **and** the run lock is
-something both processes can see.
+the run lock is something both processes can see.
 
 ### The dedupe state is in Mongo, not on disk
 
@@ -1570,22 +1571,25 @@ report green. Run it by hand against staging before a release.
 
 ## Project layout
 
-The Python modules live in `backend/`, grouped by the job they do. The commands
-are unchanged: each CLI keeps a thin launcher at the root, so `python
-reminder.py --scan-only` and the crontab entry still work exactly as before.
+Everything Python lives in `backend/`, grouped by the job it does, and there is
+one command: `python manage.py <command>`.
 
 ```
 assessment-reminder/
-├── reminder.py  server.py  ingest.py  grade.py  regrade.py
-├── calibrate.py  cv_role.py  manage_users.py  migrate_db.py  test_access.py
-│       └── launchers. Three lines each; the code is in backend/.
+├── manage.py            Every CLI, as subcommands. `python manage.py` lists
+│                        them. Was twelve launcher files at this level, each
+│                        one seventeen lines around a single import.
 │
 ├── backend/
-│   ├── core/            config.py, utils.py
-│   │                    Config, job definitions, timing rules, PROJECT_ROOT.
-│   │                    Imports nothing else in the project — which is what
-│   │                    keeps the dependency graph acyclic.
-│   ├── database/        mongo_store.py, migrate_db.py
+│   ├── config.py        Config, job definitions, timing rules, PROJECT_ROOT.
+│   ├── utils.py         Business-day arithmetic, the dedupe key, tz fix-ups.
+│   ├── logging_setup.py The one place logging is configured.
+│   ├── auth.py          Who may sign in, and which roles they see.
+│   ├── manage_users.py  Accounts from the terminal: the first admin.
+│   │                    ── These five import nothing from the packages below,
+│   │                       which is what keeps the dependency graph acyclic.
+│   │
+│   ├── db/              store.py, reminder_log.py, reminder_state.py
 │   │                    The only modules that talk to MongoDB.
 │   ├── scraping/        portal_scraper.py, portal_crawler.py,
 │   │                    workable_client.py, workable_scanner.py,
@@ -1593,32 +1597,38 @@ assessment-reminder/
 │   │                    Everything that reads the outside world — and so
 │   │                    everything that can fail because someone else's
 │   │                    service is down.
-│   ├── grading/         rubric_pack.py, evaluator.py, cv_evaluator.py,
-│   │                    tier_resolver.py
+│   ├── grading/         rubric_pack/, evaluator.py, cv_evaluator.py,
+│   │                    grader.py, tier_resolver.py
 │   │                    Decides what a submission is worth. Not when to
 │   │                    score one — that is pipeline/.
 │   ├── pipeline/        ingest.py, grade.py, regrade.py, calibrate.py,
 │   │                    cv_role.py
 │   │                    The stages that get run.
-│   ├── notifications/   brevo_client.py, reminder.py, candidate_mail.py,
-│   │                    shortlist.py, rejections.py, unsubscribe.py
+│   ├── mail/            brevo_client.py, reminder.py, candidate_mail.py,
+│   │                    shortlist.py, rejections.py, unsubscribe.py, text.py
 │   │                    If a message leaves this system, it leaves from here.
 │   │                    One directory to read before changing anything a real
 │   │                    person receives.
-│   ├── accounts/        auth.py, manage_users.py
-│   │                    Who may sign in, and which roles they see.
-│   └── web/             server.py
-│                        The Flask dashboard and every endpoint behind it.
+│   └── web/             app.py       the Flask object and what the views share
+│                        server.py    the entry point; imports the four below
+│                        views_dashboard.py    sign-in, the reminder dashboard
+│                        views_evaluations.py  roles, rubrics, grading, stages
+│                        views_shortlist.py    the hand-off, and the rejections
+│                        views_review.py       the manager review surface
 │
-├── wsgi.py              What a real server imports. server.py is the laptop.
+├── wsgi.py              What a real server imports. `manage.py serve` is the
+│                        laptop. Both boot through this module.
 ├── gunicorn.conf.py     Worker config — read the one-worker note before editing
+├── api/index.py         Vercel's entry point. Three lines; it imports wsgi.
 ├── Dockerfile  docker-compose.yml  Procfile  .dockerignore
 │       └── deployment. One image, two processes: dashboard and review-only.
 │
-├── frontend/            Both dashboards — plain HTML/CSS/JS, no build step
+├── frontend/            Both dashboards — plain HTML/CSS/JS, no build step.
+│                        evaluations.js is one classic script; the section
+│                        banners in it are where twelve numbered files were.
 ├── assessments/         Crawled assessments and derived grids
 ├── tests/               test_access.py — the access-rule regression test
-├── tools/               Scratch tools. Nothing in the pipeline imports them.
+├── tools/               One-off scripts, run by hand. Nothing imports them.
 ├── state/               Runtime state (auto-created, gitignored)
 └── logs/                Run logs (auto-created, gitignored)
 ```
@@ -1627,22 +1637,52 @@ Every path in the project is resolved from `config.PROJECT_ROOT`, never from
 the current working directory, so cron, a systemd unit and a shell sitting
 anywhere all find the same `.env`, `assessments/` and `state/`.
 
+`PROJECT_ROOT` is derived from where `backend/config.py` sits, and getting it
+wrong is silent: the app boots, registers every route, and then answers 404 for
+its own stylesheet because `frontend/` is not where it thinks. CI checks it, and
+`config.py` refuses to import if it resolves somewhere without a `backend/` in
+it.
+
+### What this used to look like
+
+Worth knowing if you are reading an older branch, a stale crontab, or the audit
+report:
+
+| Was | Is |
+|---|---|
+| `python grade.py --job 33`, and eleven more like it | `python manage.py grade --job 33` |
+| `backend/core/` | `backend/config.py`, `backend/utils.py`, `backend/logging_setup.py` |
+| `backend/accounts/` | `backend/auth.py`, `backend/manage_users.py` |
+| `backend/database/mongo_store.py` | `backend/db/store.py` |
+| `backend/database/migrate_*.py` | `tools/migrate_*.py` |
+| `backend/notifications/` | `backend/mail/` |
+| `backend/web/views_*.py` × 9 | × 4, one per surface |
+| `frontend/evaluations/01-core.js` … `12-wiring.js` | `frontend/evaluations.js` |
+
+`python -m backend.pipeline.grade --job 33` still runs the same `main()`.
+`manage.py` is the short way to say it, not a wrapper around it.
+
 ## Files
 
 | File | Purpose |
 |---|---|
-| `backend/core/config.py` | All configuration, job definitions, timing rules, and `PROJECT_ROOT` |
-| `backend/core/utils.py` | Business day math, reminder state tracking |
-| `backend/notifications/unsubscribe.py` | Opt-out tokens, the suppression list, and the `List-Unsubscribe` headers |
-| `backend/database/mongo_store.py` | MongoDB access; keeps portal-owned and our-own fields apart |
-| `backend/database/migrate_db.py` | Copies an older database into the one `MONGO_DB` points at |
+| `manage.py` | Every CLI, as subcommands. `python manage.py` lists them; each one still owns its own `--help` |
+| `backend/config.py` | All configuration, job definitions, timing rules, and `PROJECT_ROOT` |
+| `backend/utils.py` | Business day math, the reminder dedupe key, and the tz-aware fix-up every Mongo timestamp goes through. Imports nothing else in the project |
+| `backend/logging_setup.py` | The one place logging is configured, for the CLIs, the dashboard and both deployment entry points |
+| `backend/mail/unsubscribe.py` | Opt-out tokens, the suppression list, and the `List-Unsubscribe` headers |
+| `backend/db/store.py` | MongoDB access; keeps portal-owned and our-own fields apart |
+| `backend/db/reminder_log.py` | The reminder dedupe collection, and the conditional update that settles a race between two runs |
+| `backend/db/reminder_state.py` | The policy over that log: the maximum, the business-day gap, the suppression flag, and the claim a send has to win |
+| `tools/migrate_db.py` | Copies an older database into the one `MONGO_DB` points at |
+| `tools/migrate_reminder_log.py` | Moves the old `state/reminder_log.json` into Mongo |
 | `backend/scraping/portal_scraper.py` | Logs into the portal and downloads the CSV export |
 | `backend/scraping/portal_crawler.py` | Crawls roles and their live assessment markdown |
 | `backend/scraping/workable_client.py` | Workable API: auth, rate limiting, 429 back-off, pagination |
 | `backend/scraping/workable_scanner.py` | Selects candidates inside the reminder window |
 | `backend/scraping/resume_reader.py` | Fetches a candidate's resume file and extracts its text (PDF/DOCX) |
 | `backend/scraping/workable_candidates.py` | Builds gradeable records from a Workable posting that has no assessment |
-| `backend/grading/rubric_pack.py` | The Ajaia Assessment Scoring Rubrics pack as data: 17 grids, validated to 100 points each |
+| `backend/grading/rubric_pack/` | The Ajaia Assessment Scoring Rubrics pack as data, validated to 100 points each at import. `_grids.py` is the grids themselves, `_architecture.py` the blocks and bands they share, `__init__.py` the lookup every caller uses |
 | `backend/grading/evaluator.py` | Grid resolution, anchor scoring, auto-fails and triage, provider-agnostic |
 | `backend/grading/cv_evaluator.py` | Marks a candidate on their record alone, for roles with no work sample |
 | `backend/grading/tier_resolver.py` | Which of two postings a candidate applied to, where that decides which tier of a family's rubric marks them |
@@ -1651,31 +1691,40 @@ anywhere all find the same `.env`, `assessments/` and `state/`.
 | `backend/pipeline/cv_role.py` | CLI for a CV-only role: fetch from Workable, read the resumes, grade |
 | `backend/pipeline/regrade.py` | Re-scores submissions that already carry a verdict |
 | `backend/pipeline/calibrate.py` | Checks the grader is using the whole scale, not just detecting missing sections |
-| `backend/notifications/reminder.py` | Main orchestration: portal, Workable window, cross-reference, send |
-| `backend/notifications/brevo_client.py` | Sends reminder emails via Brevo, and the transport under the shortlist send |
-| `backend/notifications/candidate_mail.py` | The two candidate-facing outcome emails: the interview invitation with the manager's cal.com link, and the rejection after a human review |
-| `backend/notifications/shortlist.py` | Builds a role's top-N hand-off: the rows, the email and the spreadsheet, and sends it to its hiring managers |
-| `backend/accounts/auth.py` | Accounts, password hashing, sessions, and `visible_job_ids()` — the whole access rule |
-| `backend/accounts/manage_users.py` | CLI for accounts: the first admin, and the way back in when nobody can sign in |
-| `backend/web/server.py` | Dashboard backend: serves `frontend/` plus the reminder and evaluation endpoints, and enforces who may see which role |
-| `wsgi.py` | WSGI entry point — what gunicorn imports; `server.py`'s `main()` without the argparse or `app.run()` |
+| `backend/mail/reminder.py` | Main orchestration: portal, Workable window, cross-reference, send |
+| `backend/mail/brevo_client.py` | Sends reminder emails via Brevo, and the transport under the shortlist send |
+| `backend/mail/candidate_mail.py` | The two candidate-facing outcome emails: the interview invitation with the manager's cal.com link, and the rejection after a human review |
+| `backend/mail/text.py` | The escaper and the greeting every outbound mail shares, so there is one of each rather than four |
+| `backend/mail/rejections.py` | The bulk turn-down, and the ledger of who has already been told |
+| `backend/mail/shortlist.py` | Builds a role's top-N hand-off: the rows, the email and the spreadsheet, and sends it to its hiring managers |
+| `backend/auth.py` | Accounts, password hashing, sessions, and `visible_job_ids()` — the whole access rule |
+| `backend/manage_users.py` | CLI for accounts: the first admin, and the way back in when nobody can sign in |
+| `backend/web/server.py` | The dashboard's entry point: imports `app` and the four view modules — importing them is what registers the 51 routes — and holds `main()` |
+| `backend/web/app.py` | The Flask object and everything the views share: the two `before_request` guards, session helpers, the role and submission scope checks, and `_run_lock` |
+| `backend/web/views_dashboard.py` | Sign-in, accounts, the static frontend, the last portal scan, the log tail, and the reminder run |
+| `backend/web/views_evaluations.py` | The evaluations page's API: roles, candidates, rubrics, grading and ingest runs, pipeline stages |
+| `backend/web/views_shortlist.py` | The top N, the managers it goes to, the review links, the spreadsheet, and the bulk rejection sender |
+| `backend/web/views_review.py` | The manager review surface — token-scoped, no login, no scores. The one that may face the internet |
+| `wsgi.py` | WSGI entry point — what gunicorn imports; `backend/web/server.py`'s `main()` without the argparse or `app.run()` |
 | `gunicorn.conf.py` | Worker, timeout and logging config. `workers = 1` is a correctness constraint, not a default |
+| `api/index.py` | Vercel's entry point. Three lines of code around `from wsgi import app`, and a docstring saying why it must not be shortened further |
 | `Dockerfile` / `docker-compose.yml` / `Procfile` | Deployment. One image, two processes: dashboard and review-only |
 | `tests/test_access.py` | Regression test for the access rules — run it after adding any route that names a role |
 | `tools/llm_latency_bench.py` | Scratch LLM latency benchmark. Spends real tokens; run it deliberately, never imported |
 | `tools/make_favicon.py` | Cuts the tab icon out of the wordmark. Re-run it if `assets/ajaia-logo.png` is ever replaced — nothing else keeps the two in step |
 | `frontend/login.html` | Sign-in, and the first-time password change |
 | `frontend/session.js` | The signed-in account on both dashboards: CSRF header, expiry handling, the account chip |
+| `frontend/evaluations.js` | The evaluations dashboard: one classic script, one scope. The section banners in it are where twelve numbered files used to be, and the order is theirs — the last section binds every listener and calls `loadRoles()`, so it stays last |
 | `frontend/review.html` | The hiring manager's review page — token-scoped, deliberately no login, no scores |
 | `frontend/` | Both dashboards — plain HTML/CSS/JS, no build step |
 | `frontend/assets/` | The wordmark in both themes, and `ajaia-mark.png` — the square mark every page uses as its tab icon |
 | `assessments/` | Crawled assessments (`<slug>.md`) and grids derived for roles the pack does not cover (`grid-<slug>.json`) |
-| `state/reminder_log.json` | Tracks which reminders have been sent (auto-created) |
+| `state/last_scan.json` | The last portal scan, so a restart does not leave the dashboard blank. Rebuilt by the next Sync portal click; the reminder dedupe is in MongoDB, not here |
 | `logs/reminder.log` | Run logs (auto-created) |
 
 ## Failure modes worth knowing
 
-**The portal is the safety catch.** If it returns no records, `reminder.py`
+**The portal is the safety catch.** If it returns no records, `manage.py reminder`
 aborts rather than treating every candidate as "never started" and emailing all
 of them. Any change to the portal that breaks the download fails loudly instead
 of sending a mass mailing.

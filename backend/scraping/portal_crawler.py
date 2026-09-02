@@ -23,7 +23,7 @@ from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 
-from backend.core.config import PORTAL_BASE_URL, PORTAL_COMPANY_ID, PORTAL_CRAWL_DELAY
+from backend.config import PORTAL_BASE_URL, PORTAL_COMPANY_ID, PORTAL_CRAWL_DELAY
 from backend.scraping.portal_scraper import _login
 
 log = logging.getLogger(__name__)

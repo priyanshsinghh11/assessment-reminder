@@ -81,7 +81,7 @@ class TestBucketShrink:
     def test_an_absolute_row_floor_would_not_have_caught_that(self):
         # 83 rows disappearing does not move a total-row threshold when the
         # export is ~8,600 rows. This is why the check is relative.
-        from backend.core.config import PORTAL_MIN_TOTAL_ROWS
+        from backend.config import PORTAL_MIN_TOTAL_ROWS
         assert 8600 - 83 > PORTAL_MIN_TOTAL_ROWS
 
     def test_normal_movement_between_buckets_is_fine(self):
@@ -108,7 +108,7 @@ class TestRememberedCounts:
         # memory should cost the check, not the run -- refusing every fetch
         # because a settings document could not be read would be its own
         # outage.
-        from backend.database import mongo_store as store
+        from backend.db import store
 
         def boom():
             raise RuntimeError("mongo down")
@@ -117,7 +117,7 @@ class TestRememberedCounts:
         assert portal_scraper._remembered_bucket_counts() == {}
 
     def test_recording_counts_never_raises(self, monkeypatch):
-        from backend.database import mongo_store as store
+        from backend.db import store
 
         def boom():
             raise RuntimeError("mongo down")

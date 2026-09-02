@@ -22,7 +22,7 @@ bind = f"0.0.0.0:{os.environ.get('PORT', '8080')}"
 #
 # ONE WORKER. NOT A PERFORMANCE CHOICE -- A CORRECTNESS ONE.
 #
-# backend/web/server.py:88 guards every scan, send and grading run with
+# backend/web/app.py:64 guards every scan, send and grading run with
 #
 #     _run_lock = threading.Lock()
 #
@@ -40,7 +40,7 @@ bind = f"0.0.0.0:{os.environ.get('PORT', '8080')}"
 # THE REMINDER LOG NO LONGER ADDS TO THIS. That dedupe state used to be an
 # unlocked JSON file, so two workers writing it lost each other's records
 # silently. It now lives in MongoDB behind an atomic claim
-# (backend/database/reminder_log.py) and settles its own races, so a second
+# (backend/db/reminder_log.py) and settles its own races, so a second
 # worker would no longer double-send a reminder.
 #
 # The run lock is the reason that remains, and it is enough on its own: two
