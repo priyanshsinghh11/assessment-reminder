@@ -867,6 +867,25 @@ def set_evaluation(submission_id: int, evaluation: dict) -> None:
     )
 
 
+def block_cv_evaluation(submission_id: int, reason: str = "cv_cannot_be_fetched") -> None:
+    """Remove a score when the required CV was not readable.
+
+    A missing CV is an evidence problem, not a low assessment score. Keeping
+    an older evaluation here would make the dashboard present an unsupported
+    number as current, so the candidate returns to the visible pending queue.
+    """
+    get_db().submissions.update_one(
+        {"_id": submission_id},
+        {"$unset": {"evaluation": ""},
+         "$set": {
+             "decision.status": "pending",
+             "decision.reason": reason,
+             "decision.source": "auto",
+             "decision.at": now(),
+         }},
+    )
+
+
 def set_rubric_tier(submission_id: int, tier: Optional[str], source: str,
                     shortcode: Optional[str] = None,
                     note: str = "") -> None:
@@ -991,8 +1010,6 @@ def needs_resume(retry_errors: bool = False, limit: int = 0,
     for doc in get_db().submissions.find(query, projection):
         link = (doc.get("resume_link") or "").strip()
         attempted = doc.get("resume_fetched_at") is not None
-        # A changed link is new work whatever the previous outcome was.
-        stale = (doc.get("resume_source_link") or "").strip() != link
         error = doc.get("resume_error") or ""
         # Imported here rather than at module scope on purpose. This is the
         # store, and `scraping` sits above it -- a module-level import would be
@@ -1006,7 +1023,7 @@ def needs_resume(retry_errors: bool = False, limit: int = 0,
         wanted = bool(error) and (
             is_transient(error) if transient_only else retry_errors
         )
-        if attempted and not stale and not wanted:
+        if attempted and not wanted:
             continue
         rows.append(doc)
         if limit and len(rows) >= limit:

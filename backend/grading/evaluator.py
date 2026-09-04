@@ -56,9 +56,11 @@ from backend.config import (
     GRID_MIN_COVERAGE,
     LLM_API_KEY,
     LLM_BASE_URL,
+    LLM_CANDIDATE_BUDGET,
     LLM_MAX_BACKOFF,
     LLM_MAX_OUTPUT_TOKENS,
     LLM_MAX_RETRIES,
+    LLM_MAX_VERDICT_DRAWS,
     LLM_MODEL,
     LLM_REASONING_EFFORT,
     LLM_TIMEOUT,
@@ -240,7 +242,12 @@ PACK_VERSION = "2026-08-12"
 #     well as the answer. Checked against the answer alone, every quote for
 #     that row would report unevidenced by construction -- the same failure the
 #     artefact block fixed for video links, one document further out.
-PROMPT_VERSION = "2026-08-21"
+# 2026-09-04: the brief became five labelled parts written from the CV as
+# well as the answer. No anchor moved, so scores stay comparable across
+# this bump -- but a stored verdict older than this date carries a brief
+# in the old free-prose shape, and the dashboard reads this field to know
+# which of the two it is holding.
+PROMPT_VERSION = "2026-09-04"
 
 
 class EvaluatorNotConfigured(RuntimeError):
@@ -495,11 +502,14 @@ def _chat(messages: list[dict], max_tokens: int = 1500,
     # measure rather than a presentation one.
     payload["stream"] = True
     # A reasoning model spends part of max_tokens thinking before it writes a
-    # character of JSON. At the default effort gpt-oss-120b spent all 3,000 of
-    # it and returned an empty completion, which the provider reports as a 400
-    # json_validate_failed with an empty failed_generation -- a confusing way to
-    # be told the answer did not fit. Low effort leaves room for the schema and
-    # is enough for this task: the marking judgment is in the anchors.
+    # character of JSON, so this parameter and LLM_MAX_OUTPUT_TOKENS bracket
+    # each other and neither can be set alone. Too much effort for the budget
+    # and the thinking eats it: gpt-oss-120b at default effort spent all 3,000
+    # and returned an empty completion, and gpt-oss-20b does the same at high.
+    # Too little and the model stops discriminating -- 20b at low effort marked
+    # a whole role in 5s and 1s. Which end a given model sits at is measured in
+    # .env, not assumed here; the marking judgment is in the anchors, but the
+    # model still has to think long enough to read them.
     if LLM_REASONING_EFFORT:
         payload["reasoning_effort"] = LLM_REASONING_EFFORT
 
@@ -1276,7 +1286,7 @@ Reply with JSON only, in exactly this shape:
   "compensation_policy": {{"flag": "<none|candidate stated current or most recent compensation>",
                           "note": "<where, in a few words>"}},
   "salary_expectation": "<what they asked for, as stated, or empty>",
-  "brief": "<3-4 sentences>"}}
+  "brief": "Submission: <what they handed in and how the work actually performed, good and bad>. Past experience: <employers, roles, dates, scope and outcomes from the resume>. Why to consider: <2-3 evidence-based reasons this candidate fits the seat>. Why not to consider: <2-3 evidence-based reasons against -- gaps, risks or claims to verify>. Screen focus: <the single most useful interview probe>"}}
 
 THREE FIELDS THAT CHANGE NO POINTS. They are extracted for the reviewer and \
 they are not criteria. Do not let any of them move a mark.
@@ -1358,9 +1368,38 @@ That is the normal case.
 Do not return an overall score, a total or a band. Those are computed from your \
 marks.
 
-The brief must explain the shape of the result in 3-4 sentences: where the \
-candidate is strong, where they are weak, and what a reviewer should look at \
-first. Name actual content. No generic praise.
+THE BRIEF IS READ ON ITS OWN. It is the only part of this verdict a hiring \
+manager sees before they decide whether to open the candidate at all, so it \
+has to answer two separate questions -- how the work went, and whether the \
+person behind it is worth an interview -- and it needs BOTH documents to do \
+it. The CANDIDATE SUBMISSION answers the first. The CANDIDATE CV answers the \
+second, and that half cannot be written from the submission: name the actual \
+employers, roles, dates, scope and outcomes the CV section contains. When that \
+section says no CV text is available, write "Past experience: no resume text \
+on file" and raise it again under "Why not to consider" as a gap in OUR \
+records rather than a fault of the candidate's. Never reconstruct a career \
+from the answer text.
+
+Write it as exactly these five labelled parts, in this order, each part \
+starting with its label and separated from the next by a new line. One or two \
+sentences each:
+
+"Submission:" what they handed in and how the work actually performed -- both \
+what was done well and what was thin, wrong or missing.
+"Past experience:" who they have worked for, in what roles, at what scope and \
+with what outcomes, from the resume. Real employers, titles, dates and figures.
+"Why to consider:" 2-3 reasons this person fits THIS seat, each tied to \
+something specific in the resume or the submission -- prior experience that \
+transfers, a result that meets the bar, a skill the grid rewarded.
+"Why not to consider:" 2-3 reasons against, held to the same standard -- \
+missing experience, a level or domain mismatch, a weak section of the answer, \
+a claim that wants verifying, an unread CV. Never leave this part empty: a \
+candidate you have no reservations about still has something worth checking.
+"Screen focus:" the one interview probe that would settle the most.
+
+Name actual content, employers and figures throughout. Do not write generic \
+praise, do not repeat the score, and do not hide missing evidence behind words \
+like "strong profile" or "good communicator".
 
 ARTEFACTS SUBMITTED WITH THIS ANSWER
 ------------------------------------
@@ -2106,6 +2145,53 @@ def _cv_assessment(raw, has_cv: bool, attempted: bool = True) -> dict:
             "marked": len(marks), "reason": None}
 
 
+def _resume_screening(rows: list[dict], grid: dict, has_cv: bool,
+                      attempted: bool, cv_assessment: dict) -> dict:
+    """Return one explicit resume-screen record for every rubric family.
+
+    Most grids score the resume in ``cv_assessment``.  The Strategist,
+    intern, recruiter and CV-only grids instead score it in the rubric's
+    ``background`` block.  Those rows were previously only visible as ordinary
+    rubric rows, which made the resume screen appear to be skipped (and made
+    it impossible for the API/UI to answer that question consistently).
+    Keep the scoring source intact, but expose the same audit shape for both
+    arrangements.  This function never adds points; it only reports marks
+    that have already been computed by the rubric.
+    """
+    background = [row for row in rows if row["block"] == "background"]
+    if not background:
+        return {
+            "scored": bool(cv_assessment.get("scored")),
+            "score": cv_assessment.get("score"),
+            "criteria": cv_assessment.get("criteria") or [],
+            "marked": cv_assessment.get("marked", 0),
+            "reason": cv_assessment.get("reason"),
+            "source": "cv_assessment",
+        }
+
+    marked = [row for row in background if row.get("score") is not None]
+    total_weight = sum(row["weight"] for row in background)
+    earned = sum(row["points"] for row in marked)
+    score = (math.floor((earned * 100 / total_weight) * 10 + 0.5) / 10
+             if marked and total_weight else None)
+    reason = None if has_cv and marked else (
+        "no_cv" if not has_cv and attempted else
+        "not_fetched" if not has_cv else "unmarked")
+    return {
+        "scored": bool(has_cv and marked),
+        "score": score if has_cv else None,
+        "criteria": [{
+            "key": row["key"], "label": row["label"],
+            "score": row["score"], "evidence": row["evidence"],
+            "quote": row["quote"], "missing": row["missing"],
+            "grounded": row["grounded"],
+        } for row in background],
+        "marked": len(marked),
+        "reason": reason,
+        "source": "rubric_background",
+    }
+
+
 def _cv_check(raw) -> dict:
     """
     The model's read on whether the CV and the submission can both be true.
@@ -2494,6 +2580,12 @@ def _parse_verdict(raw: str, grid: dict, answer: str = "",
 
     cv_assessment = _cv_assessment(data.get("cv_assessment"), has_cv,
                                    cv_fetch_attempted)
+    # Normalize the two legitimate resume-scoring arrangements into one
+    # reviewer-facing field.  In-grid background rows are the source of truth
+    # for roles such as AI Strategist; a separate cv_assessment is the source
+    # for the other roles.  Neither path is scored twice.
+    resume_screening = _resume_screening(
+        rows, grid, has_cv, cv_fetch_attempted, cv_assessment)
     score, cv_applied = _blend(rubric_score, cv_assessment, weight)
 
     blocks = []
@@ -2558,6 +2650,8 @@ def _parse_verdict(raw: str, grid: dict, answer: str = "",
         # arguing about a score needs to see which half moved it.
         "rubric_score": rubric_score,
         "cv_assessment": cv_assessment,
+        "resume_screening": resume_screening,
+        "resume_screened": resume_screening["scored"],
         # This seat's split, not the company's. Stored per verdict because it
         # is what makes the arithmetic on the dashboard reproducible: the same
         # rubric total and the same CV mark land on different final scores in
@@ -2769,7 +2863,7 @@ def evaluate(submission: dict, role: dict, grid: dict) -> dict:
     # _fence(): a candidate cannot end a block they cannot guess the name of.
     nonce = secrets.token_hex(8)
 
-    raw = _chat(
+    messages = (
         [{"role": "system", "content": GRADER_SYSTEM_PROMPT},
          {"role": "user", "content": EVAL_PROMPT.format(
             unit=grid.get("unit") or role.get("title") or "role",
@@ -2795,28 +2889,86 @@ def evaluate(submission: dict, role: dict, grid: dict) -> dict:
             cv_rule=_cv_rule(has_cv),
             answer_words=f"{len(answer.split()):,}",
             answer=_fence("CANDIDATE SUBMISSION", answer, nonce),
-        )}],
-        # Seven criteria, now each carrying a quote and a missing-list on top
-        # of the evidence, plus six triage notes, the GIA read and the brief.
-        # 1400 truncated the JSON on the longer grids; 2600 was the working
-        # figure before the quotes, which cost roughly 350 tokens more, and a
-        # reasoning model spends several hundred more again before it starts.
-        #
-        # This is a reservation, not a bill for what comes back, but Groq
-        # counts it in full against both the minute and the day either way --
-        # so on the free tier every 1,000 tokens of unused headroom here is
-        # about two fewer candidates graded that day, and a longer submission
-        # that no longer fits under the per-minute ceiling at all. Tunable from
-        # .env because the right figure moves with the model.
-        max_tokens=LLM_MAX_OUTPUT_TOKENS,
-        json_mode=True,
-    )
+        )}])
 
-    verdict = _parse_verdict(raw, grid, answer, artefacts, has_cv,
-                             cv_weight, cv_weight_source,
-                             resume=(submission.get("resume_text") or ""),
-                             missing=missing,
-                             cv_fetch_attempted=cv_fetch_attempted)
+    # A DRAW THAT PARSES IS NOT GUARANTEED, AND AN UNUSABLE ONE SAYS NOTHING
+    # ABOUT THE CANDIDATE.
+    #
+    # `_chat` already retries the faults it can see -- a 429, a 500, a stalled
+    # stream, a completion that came back empty. What it cannot see is a 200
+    # carrying a well-formed reply that is not a verdict: every criterion left
+    # unmarked, half the grid missing, or the brief returned as "". Those three
+    # are the only ways _parse_verdict refuses a reply, and all three are
+    # properties of THIS generation rather than of the submission, so the fix
+    # is another draw at the same prompt.
+    #
+    # Measured on nvidia/nemotron-3-ultra over twelve real grading calls at
+    # LLM_CONCURRENCY=4: ten verdicts, one with no criteria marked and one with
+    # an empty brief. Roughly one in six, and without this loop each one is a
+    # candidate left ungraded until somebody notices and runs grade again --
+    # which on a 10,000-row backlog is not somebody noticing, it is 1,600
+    # people quietly missing a score.
+    #
+    # Bounded by LLM_MAX_VERDICT_DRAWS and NOT by LLM_MAX_RETRIES, which is
+    # the budget for the transport retries inside `_chat`. Sharing one number
+    # across both loops multiplies them: four redraws each allowed four
+    # attempts is sixteen calls, and at the configured timeouts that is over an
+    # hour of one worker slot spent on a single candidate. The two failures are
+    # different -- a stalled request is abandoned in seconds to minutes, an
+    # unusable verdict has already cost a full generation -- so they get
+    # different budgets. LLM_CANDIDATE_BUDGET caps the total either way.
+    #
+    # The last failure is re-raised rather than swallowed: a model that cannot
+    # produce a verdict for this submission is a real failure and the run
+    # should say so.
+    last_parse_failure = None
+    started = time.monotonic()
+    for attempt in range(max(1, LLM_MAX_VERDICT_DRAWS)):
+        # Do not open a draw there is no time left to finish. Redrawing here
+        # costs a whole generation, so a candidate who has already spent the
+        # budget on slow calls should fail now rather than in ten more minutes.
+        if (attempt and LLM_CANDIDATE_BUDGET
+                and time.monotonic() - started > LLM_CANDIDATE_BUDGET):
+            raise EvaluationFailed(
+                f"Spent {time.monotonic() - started:.0f}s on this submission "
+                f"without a usable verdict (budget "
+                f"{LLM_CANDIDATE_BUDGET:.0f}s). Last: {last_parse_failure}"
+            ) from last_parse_failure
+        raw = _chat(
+            messages,
+            # Seven criteria, now each carrying a quote and a missing-list on
+            # top of the evidence, plus six triage notes, the GIA read and the
+            # brief. 1400 truncated the JSON on the longer grids; 2600 was the
+            # working figure before the quotes, which cost roughly 350 tokens
+            # more, and a reasoning model spends several hundred more again
+            # before it starts.
+            #
+            # This is a reservation, not a bill for what comes back, but Groq
+            # counts it in full against both the minute and the day either way
+            # -- so on the free tier every 1,000 tokens of unused headroom here
+            # is about two fewer candidates graded that day, and a longer
+            # submission that no longer fits under the per-minute ceiling at
+            # all. Tunable from .env because the right figure moves with the
+            # model.
+            max_tokens=LLM_MAX_OUTPUT_TOKENS,
+            json_mode=True,
+        )
+        try:
+            verdict = _parse_verdict(raw, grid, answer, artefacts, has_cv,
+                                     cv_weight, cv_weight_source,
+                                     resume=(submission.get("resume_text") or ""),
+                                     missing=missing,
+                                     cv_fetch_attempted=cv_fetch_attempted)
+        except EvaluationFailed as exc:
+            last_parse_failure = exc
+            log.warning("Unusable verdict, redrawing (draw %d/%d): %s",
+                        attempt + 1, LLM_MAX_VERDICT_DRAWS, exc)
+            continue
+        break
+    else:
+        raise EvaluationFailed(
+            f"Gave up after {LLM_MAX_VERDICT_DRAWS} draw(s). "
+            f"Last: {last_parse_failure}") from last_parse_failure
     verdict.update({
         "model": LLM_MODEL,
         "grid_key": grid.get("key"),
@@ -2852,8 +3004,15 @@ def evaluate_and_store(submission: dict, role: dict, grid: dict) -> dict:
     which families those are. `evaluate` still marks against exactly the grid
     it is handed, which is what makes a dry run truthful.
     """
-    verdict = evaluate(submission, role, grid_for_submission(submission, role,
-                                                             grid))
+    effective_grid = grid_for_submission(submission, role, grid)
+    if ((submission.get("resume_link") or "").strip()
+            and not (submission.get("resume_text") or "").strip()):
+        store.block_cv_evaluation(submission["_id"])
+        raise EvaluationFailed(
+            "CV cannot be fetched or read; candidate was not scored. "
+            "Fetch the resume and re-grade after readable text is stored."
+        )
+    verdict = evaluate(submission, role, effective_grid)
     store.set_evaluation(submission["_id"], verdict)
     return verdict
 

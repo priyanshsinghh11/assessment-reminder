@@ -269,6 +269,7 @@ const REASON_LABEL = {
   missing_video: 'No video submitted',
   missing_resume: 'No resume submitted',
   missing_video_and_resume: 'No video or resume',
+  cv_cannot_be_fetched: 'CV cannot be fetched',
   manual_override: 'Set by hand',
   awaiting_evaluation: 'Awaiting AI evaluation',
   ai_evaluated: 'Evaluated by AI',
@@ -318,6 +319,9 @@ const isProvisional = (ev) => !!ev
  * `grading_incomplete` still reaches them and still shows: it is the one fact
  * about the marking they need, because it is why somebody sits where they sit. */
 function scoreCell(ev, row) {
+  if (row?.cv_fetch_status === 'cv_cannot_be_fetched') {
+    return '<td class="num"><span class="badge badge-rejected">CV cannot be fetched</span></td>';
+  }
   if (!state.scoresVisible) {
     return `<td class="num dim" title="Scores are the recruiting team's. `
       + `Rank and the work itself are what this page shows you.">${
@@ -526,6 +530,7 @@ async function loadRoles() {
 
 function applyAccountView() {
   const admin = state.isAdmin;
+  document.body.classList.toggle('manager-view', !admin);
 
   // Portal sync is a full re-crawl on behalf of the whole company, and the
   // reminders dashboard lists candidates across every role. Neither belongs
@@ -546,6 +551,13 @@ function applyAccountView() {
   // two do not. Their booking link, the one control on it that was theirs,
   // moves to the role header; see renderHeroCal().
   setHidden('tabShortlist', !admin);
+
+  // Managers keep the original single-column page. These small navbar links
+  // are shortcuts into the existing top-candidate and pipeline sections.
+  setHidden('tabPipeline', false);
+  for (const nav of document.querySelectorAll('[data-manager-nav]')) {
+    nav.hidden = admin;
+  }
 
   // Everyone opens on everyone. The twenty a manager was sent are a section of
   // their own now -- the top of the Pipeline tab, above the board they feed --
@@ -1753,7 +1765,7 @@ function renderPipeline() {
         ${scoreCell(ev, c)}
         <td class="nowrap">${when}</td>
         <td class="dim">${second}</td>
-        <td><div class="brief-cell">${who}${esc(words || '')}</div></td>
+        <td><div class="brief-cell brief-plain">${who}${esc(words || '')}</div></td>
         <td class="nowrap stage-actions">${stageActions(c)}</td>
       </tr>`;
   }).join('');
@@ -2949,9 +2961,16 @@ function setRoleTab(tab, updateHash = true) {
     btn.classList.toggle('is-active', on);
     btn.setAttribute('aria-selected', String(on));
   }
+  for (const btn of $('roleTabs').querySelectorAll('[data-manager-nav]')) {
+    btn.classList.remove('is-active');
+    btn.setAttribute('aria-selected', 'false');
+  }
   for (const pane of $('viewRole').querySelectorAll('.tabpane')) {
     pane.classList.toggle('is-active', pane.dataset.pane === tab);
   }
+  // A direct visit to Pipeline is the full workspace. Manager shortcut
+  // buttons add the focused class again after this function returns.
+  $('pipelinePanel')?.classList.remove('manager-stage-focus');
   // A tab clicked from the bottom of a long table should land at the top of
   // what it opened, not partway down it.
   if (updateHash) {
@@ -2974,6 +2993,31 @@ function setRoleTab(tab, updateHash = true) {
   // changed or something asked it to re-read. Hides itself for an account
   // that is not a hiring manager on this role.
   if (tab === 'pipeline') loadTopCandidates();
+}
+
+function jumpToManagerSection(section) {
+  setRoleTab('pipeline');
+  const shortcut = document.querySelector(`[data-manager-nav="${section}"]`);
+  shortcut?.classList.add('is-active');
+  shortcut?.setAttribute('aria-selected', 'true');
+  // These shortcuts are focused views, not a request to show the whole
+  // pipeline workspace. Keep exactly one panel visible at a time.
+  const top = $('topPanel');
+  const pipeline = $('pipelinePanel');
+  if (section === 'top') {
+    setHidden('topPanel', false);
+    setHidden('pipelinePanel', true);
+    loadTopCandidates();
+  } else {
+    setHidden('topPanel', true);
+    setHidden('pipelinePanel', false);
+    pipeline.classList.add('manager-stage-focus');
+    selectStage(section);
+  }
+  window.setTimeout(() => {
+    const target = section === 'top' ? top : pipeline;
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 0);
 }
 
 /* #role=12&tab=shortlist -- a section of a role is a thing worth pasting to
@@ -3324,10 +3368,17 @@ function topCandidateIds(limit) {
 function visibleCandidates() {
   const term = $('candSearch').value.trim().toLowerCase();
   const status = $('statusFilter').value;
-  const top = topCandidateIds(Number($('topN').value) || 0);
+  const view = state.candidateView || 'all';
+  const top = view === 'top'
+    ? topCandidateIds(Number($('topN').value) || 20) : null;
 
   const rows = state.candidates.filter((c) => {
     const s = c.decision?.status;
+    if (view !== 'all' && view !== 'top') {
+      const stage = stageOf(c);
+      const rejected = s === 'rejected' || stage === 'rejected';
+      if (view === 'rejected' ? !rejected : stage !== view) return false;
+    }
     if (top && !top.has(c.id)) return false;
     if (status && s !== status) return false;
     if (term && !`${c.candidate_name || ''} ${c.candidate_email || ''}`
@@ -3358,6 +3409,160 @@ function visibleCandidates() {
   });
 }
 
+function setCandidateView(view) {
+  state.candidateView = view;
+  if (view === 'top') {
+    $('topN').value = '20';
+    state.topN = 20;
+    $('statusFilter').value = '';
+  } else if (view !== 'all') {
+    $('topN').value = '0';
+    state.topN = 0;
+    $('statusFilter').value = '';
+  } else {
+    $('topN').value = '0';
+    state.topN = 0;
+    $('statusFilter').value = '';
+  }
+  for (const btn of document.querySelectorAll('[data-candidate-view]')) {
+    const active = btn.dataset.candidateView === view;
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-pressed', String(active));
+  }
+  renderCandidates();
+}
+
+/* --- The brief, in parts -----------------------------------------------
+ *
+ * Since 2026-09-04 the graders write the brief as five labelled parts --
+ * what was submitted, what the resume shows, why to consider them, why not,
+ * and what to probe -- because a hiring manager scanning a role page is
+ * answering "interview or not", and a paragraph makes them read the whole
+ * thing to find the two halves of that.
+ *
+ * Parsed rather than stored structured, and that is a deliberate trade. The
+ * brief is one string in every verdict Mongo already holds; splitting the
+ * field would have meant a migration over 10,000 rows to change how a
+ * paragraph is displayed. So the labels are the contract, the parser is
+ * tolerant, and anything it cannot read falls back to the plain paragraph --
+ * which is exactly what every verdict written before that date needs anyway.
+ */
+
+/* Old labels map onto new ones. A brief written under the 2026-08 prompt says
+ * "Good points" where this one says "Why to consider"; they are the same
+ * question, so the older verdicts render in the new shape rather than being
+ * dropped to the fallback paragraph. */
+const BRIEF_ALIASES = {
+  'submission': 'Submission',
+  'past experience': 'Past experience',
+  'resume read': 'Resume read',
+  'why to consider': 'Why to consider',
+  'good points': 'Why to consider',
+  'why not to consider': 'Why not to consider',
+  'bad points / risks': 'Why not to consider',
+  'bad points/risks': 'Why not to consider',
+  'bad points': 'Why not to consider',
+  'risks': 'Why not to consider',
+  'screen focus': 'Screen focus',
+};
+
+/* Which parts read as an argument for and which against, so the two can be
+ * told apart at a glance without reading either. */
+const BRIEF_TONE = {
+  'Why to consider': 'good',
+  'Why not to consider': 'risk',
+};
+
+/* Longest first, so "Bad points / risks" is matched whole rather than as
+ * "Bad points" with " / risks" left dangling at the head of its body.
+ *
+ * No regex-escaping pass: the alternatives are the literal keys above, and
+ * the only character among them a RegExp would read as syntax is the "/" in
+ * "bad points / risks", which is inert inside a RegExp built from a string.
+ * The one substitution that matters is spaces, which become \s+ so a model
+ * that writes "Why  not to consider" or wraps the label across a line still
+ * matches. */
+const BRIEF_LABEL_RE = new RegExp(
+  '(' + Object.keys(BRIEF_ALIASES)
+    .sort((a, b) => b.length - a.length)
+    .map((l) => l.replace(/ /g, '\\s+'))
+    .join('|') + ')\\s*:', 'gi');
+
+function parseBrief(text) {
+  const brief = String(text ?? '').trim();
+  if (!brief) return [];
+
+  const hits = [];
+  BRIEF_LABEL_RE.lastIndex = 0;
+  let m;
+  while ((m = BRIEF_LABEL_RE.exec(brief)) !== null) {
+    // A label only starts a part when it starts a sentence. Without this a
+    // brief that says "the submission: a 900-word memo" mid-paragraph would
+    // be cut in half at the colon.
+    const before = brief.slice(0, m.index).replace(/\s+$/, '');
+    if (before && !/[.;:\n•\-]$/.test(before)) continue;
+    hits.push({ key: m[1].toLowerCase().replace(/\s+/g, ' '),
+                at: m.index, from: m.index + m[0].length });
+  }
+  if (!hits.length) return [];
+
+  const parts = [];
+  hits.forEach((hit, i) => {
+    const end = i + 1 < hits.length ? hits[i + 1].at : brief.length;
+    const body = brief.slice(hit.from, end).replace(/^[\s.;]+|[\s;.]+$/g, '');
+    if (!body) return;
+    const label = BRIEF_ALIASES[hit.key] || BRIEF_ALIASES[hit.key.replace(/\s*\/\s*/, '/')];
+    if (!label) return;
+    // A model that repeats a label writes the second one as a continuation of
+    // the first rather than a second heading with the same name.
+    const seen = parts.find((p) => p.label === label);
+    if (seen) seen.body += ' ' + body;
+    else parts.push({ label, tone: BRIEF_TONE[label] || '', body });
+  });
+  return parts;
+}
+
+/* One renderer for both places the brief appears. `compact` is the role
+ * table, where the cell is two lines tall and the labels have to sit inline
+ * with their text; the drawer gets the full stack. */
+function briefBlock(text, { compact = false, fallbackClass = 'verdict-brief' } = {}) {
+  let parts = parseBrief(text);
+  if (!parts.length) {
+    const plain = String(text ?? '').trim();
+    if (compact) {
+      const short = plain.length > 150 ? `${plain.slice(0, 147).trim()}…` : plain;
+      return short ? `<div class="brief-cell brief-compact">${esc(short)}</div>` : '';
+    }
+    return plain ? `<p class="${fallbackClass}">${esc(plain)}</p>` : '';
+  }
+  // The table row is for deciding who to open, and "Screen focus" is an
+  // instruction for after that decision. It stays in the drawer rather than
+  // costing every row a line nobody reads while scanning.
+  if (compact) {
+    const primary = parts.find((part) => part.label === 'Submission') || parts[0];
+    const short = primary.body.length > 150
+      ? `${primary.body.slice(0, 147).trim()}…` : primary.body;
+    return `<div class="brief-cell brief-compact">${esc(short)}</div>`;
+  }
+  return `<dl class="brief-parts${compact ? ' is-compact' : ''}">${parts.map((p) => `
+    <div class="brief-part${p.tone ? ` is-${p.tone}` : ''}">
+      <dt>${esc(p.label)}</dt><dd>${esc(p.body)}</dd>
+    </div>`).join('')}</dl>`;
+}
+
+function resumeBriefBlock(text) {
+  const parts = parseBrief(text).filter((part) =>
+    ['Past experience', 'Resume read', 'Why to consider', 'Why not to consider']
+      .includes(part.label));
+  if (!parts.length) {
+    return '<p class="matrix-note">Resume brief is not available for this older evaluation. Re-evaluate the candidate after confirming the CV is readable.</p>';
+  }
+  return `<dl class="brief-parts resume-brief-parts">${parts.map((part) => `
+    <div class="brief-part${part.tone ? ` is-${part.tone}` : ''}">
+      <dt>${esc(part.label)}</dt><dd>${esc(part.body)}</dd>
+    </div>`).join('')}</dl>`;
+}
+
 function renderCandidates() {
   const rows = visibleCandidates();
   const cats = categoryColumns();
@@ -3375,8 +3580,10 @@ function renderCandidates() {
     const ev = c.evaluation;
     const status = c.decision?.status || 'unknown';
     const reason = REASON_LABEL[c.decision?.reason] || c.decision?.reason || '';
-    const artefact = (present, label) =>
-      `<span class="artefact ${present ? 'has' : 'missing'}">${label}</span>`;
+    const artefact = (url, label) => url
+      ? `<a class="artefact has" href="${esc(url)}" target="_blank"
+           rel="noopener noreferrer" title="Open ${esc(label)}">${label}</a>`
+      : `<span class="artefact missing" title="Not provided">${label}</span>`;
 
     return `
       <tr class="row-click${status === 'rejected' || status === 'in_progress' ? ' row-inert' : ''}"
@@ -3401,9 +3608,11 @@ function renderCandidates() {
         }).join('')}
         <td>${ev ? `<span class="badge ${recClass(recLabel(ev))}">${
           esc(recLabel(ev))}</span>` : '<span class="dim">—</span>'}</td>
-        <td><div class="brief-cell">${esc(ev?.brief || reason)}</div></td>
+        <td><div class="brief-cell">${ev?.brief
+          ? briefBlock(ev.brief, { compact: true, fallbackClass: 'brief-plain' })
+          : esc(reason)}</div></td>
         <td><span class="artefacts">${
-          artefact(!!c.video_link, 'VID')}${artefact(!!c.resume_link, 'CV')}</span></td>
+          artefact(c.video_link, 'VID')}${artefact(c.resume_link, 'CV')}</span></td>
         <td class="nowrap dim">${shortDate(c.submitted_at)}</td>
         <td><span class="badge ${STATUS_CLASS[status] || ''}">${
           esc(STATUS_LABEL[status] || status)}</span></td>
@@ -3411,7 +3620,12 @@ function renderCandidates() {
   }).join('');
 
   for (const tr of $('candBody').querySelectorAll('tr')) {
-    tr.addEventListener('click', () => openDrawer(Number(tr.dataset.id)));
+    tr.addEventListener('click', (e) => {
+      // The role table now has direct CV/video links. Opening one must not
+      // also open the candidate drawer underneath it.
+      if (e.target.closest('a')) return;
+      openDrawer(Number(tr.dataset.id));
+    });
   }
 }
 
@@ -3496,6 +3710,10 @@ async function openDrawer(submissionId) {
     const evaluate = $('drawerBody').querySelector('[data-evaluate]');
     if (evaluate) {
       evaluate.addEventListener('click', () => evaluateOne(c.id, evaluate));
+    }
+    const directInvite = $('drawerBody').querySelector('[data-direct-invite]');
+    if (directInvite) {
+      directInvite.addEventListener('click', () => inviteFromDrawer(c));
     }
 
     for (const btn of $('drawerBody').querySelectorAll('[data-stage]')) {
@@ -3762,7 +3980,7 @@ function gridTable(ev) {
 
   return `
     <div class="drawer-section">
-      <h3>Scoring grid ${ev.grid_unit ? `<span class="dim">· ${esc(ev.grid_unit)}${
+      <h3>Assessment scoring grid ${ev.grid_unit ? `<span class="dim">· ${esc(ev.grid_unit)}${
         ev.grid_tier ? `, ${esc(ev.grid_tier)} tier` : ''}</span>` : ''}</h3>
       <table class="matrix grid">
         <thead>
@@ -3810,11 +4028,16 @@ function blendNote(ev) {
    * where it is deliberately the lightest. */
   const bg = (ev.blocks || []).find((b) => b.key === 'background');
   if (bg && !weight) {
+    const blockFormula = (ev.blocks || [])
+      .filter((block) => block.earned != null)
+      .map((block) => fmtScore(block.earned))
+      .join(' + ');
     return `Each row is score × weight ÷ 5. Total ${fmtScore(ev.score)} of 100 —
       ${tail} Experience is scored <b>inside</b> this grid, in the
       ${esc(bg.label)} row worth ${bg.points} points, not blended in afterwards
       — so there is no separate CV score on this seat and nothing is forfeited
-      when a CV cannot be read.`;
+      when a CV cannot be read. The block calculation is
+      <b>${blockFormula} = ${fmtScore(ev.score)}</b>.`;
   }
 
   if (!weight) {
@@ -3939,6 +4162,28 @@ function cvTable(ev) {
         answer is scored on its own.
       </p>
     </div>`;
+}
+
+/* Some rubrics (notably AI Strategist) score resume evidence inside the
+ * background block. Keep that rubric design, but make the resume-screen
+ * result explicit in the candidate drawer so reviewers can tell it happened.
+ */
+function resumeScreeningTable(ev) {
+  const screen = ev?.resume_screening;
+  if (!screen || screen.source !== 'rubric_background' ||
+      !Array.isArray(screen.criteria) || !screen.criteria.length) return '';
+  const rows = screen.criteria.map((row) => {
+    const marked = typeof row.score === 'number';
+    return `<tr><th scope="row">${esc(row.label || row.key)}</th>
+      <td class="num"><span class="matrix-score ${marked ? ratingClass(row.score) : 'score-none'}">${marked ? row.score : '—'}</span></td>
+      <td class="matrix-evidence">${row.evidence ? esc(row.evidence) : '<span class="dim">No evidence given</span>'}</td></tr>`;
+  }).join('');
+  const note = screen.scored
+    ? `Resume screen completed from the rubric background criteria: <b>${fmtScore(screen.score)} of 100</b>. This is already included in the grid total and is not added again.`
+    : 'Resume screen could not be completed because no readable resume text was available; the rubric’s missing-CV rule applies.';
+  return `<div class="drawer-section"><h3>Resume screening <span class="dim">· inside this rubric</span></h3>
+    <table class="matrix grid"><thead><tr><th scope="col">Criterion</th><th scope="col" class="num">1–5</th><th scope="col">What earned it</th></tr></thead>
+    <tbody>${rows}</tbody></table><p class="matrix-note">${note}</p></div>`;
 }
 
 /* Evaluations graded before the pack rewrite carry the old five-category
@@ -4164,6 +4409,9 @@ function pipelineSection(c) {
   const history = (p.history || []).slice().reverse();
   const managers = (c.managers || []).filter((m) => m.email);
   const owner = managerFor(c);
+  const inManagerQueue = !state.isAdmin && topSectionMine()
+    && state.top.rows.some((row) => row.submission_id === c.id)
+    && invitable(c);
 
   const label = stage
     ? `<span class="badge ${STAGE_CLASS[stage]}">${esc(STAGE_LABEL[stage])}</span>`
@@ -4233,6 +4481,7 @@ function pipelineSection(c) {
            button that 403s is worse than no button -- see the note below,
            which says where the invitation is actually written. -->
       <div class="drawer-actions">
+        ${inManagerQueue ? '<button class="btn btn-primary" data-direct-invite>Invite to interview</button>' : ''}
         <button class="btn btn-primary" data-stage="hired">Mark hired</button>
         <button class="btn" data-stage="rejected">Mark rejected</button>
         ${stage ? '<button class="btn btn-ghost" data-stage="">Remove from pipeline</button>' : ''}
@@ -4273,10 +4522,25 @@ function pipelineSection(c) {
     </div>`;
 }
 
+/* A manager can start the same invitation flow from the candidate drawer.
+ * This keeps the common action to: open candidate -> review -> invite, while
+ * still using the one secured composer and one server-side invite path. */
+function inviteFromDrawer(c) {
+  if (!topSectionMine() || !invitable(c)) return;
+  if (!state.top.token || !state.top.rows.some((row) => row.submission_id === c.id)) {
+    loadTopCandidates(true).then(() => inviteFromDrawer(c));
+    return;
+  }
+  state.top.picked = new Set([c.id]);
+  InviteComposer.open([c.id]);
+}
+
 function drawerContent(c) {
   const ev = c.evaluation;
   const status = c.decision?.status || 'unknown';
   const reason = REASON_LABEL[c.decision?.reason] || c.decision?.reason || '—';
+  const cvUnavailable = c.cv_fetch_status === 'cv_cannot_be_fetched'
+    || Boolean((c.resume_link || '').trim() && !(c.resume_text || '').trim());
   const link = (url, label) => url
     ? `<a class="link" href="${esc(url)}" target="_blank" rel="noopener">${label}</a>`
     : '<span class="dim">Not submitted</span>';
@@ -4292,7 +4556,6 @@ function drawerContent(c) {
         ${ev.grid_source === 'derived'
           ? '<span class="badge badge-derived">derived grid</span>' : ''}
         ${withoutMark(ev)}
-        <p class="verdict-brief">${esc(ev.brief)}</p>
       </div>
     </div>` : `
     <div class="verdict-card">
@@ -4302,11 +4565,89 @@ function drawerContent(c) {
         <p class="verdict-brief">${esc(reason)}</p></div>
     </div>`;
 
+  const briefSection = `
+    <div class="drawer-section">
+      <h3>Brief</h3>
+      ${cvUnavailable
+        ? '<p class="verdict-brief warn"><b>CV cannot be fetched.</b> This candidate is not scored until a readable resume is available.</p>'
+        : ev?.brief ? briefBlock(ev.brief) : `<p class="verdict-brief">${esc(reason)}</p>`}
+    </div>`;
+
+  const cvBlock = ev?.blocks?.find((block) => block.key === 'background');
+  const cvScoreLine = cvUnavailable
+    ? '<p class="cv-score-callout warn"><b>CV score unavailable:</b> the resume could not be fetched, so no CV score is valid.</p>'
+    : cvBlock && cvBlock.earned != null
+    ? `<p class="cv-score-callout"><b>CV rubric score:</b> ${fmtScore(cvBlock.earned)} / ${cvBlock.points} points</p>`
+    : ev?.cv_assessment?.scored && typeof ev.cv_assessment.score === 'number'
+      ? `<p class="cv-score-callout"><b>CV score:</b> ${fmtScore(ev.cv_assessment.score)} / 100 (${Math.round(Number(ev.cv_weight || 0) * 100)}% of final score)</p>`
+      : '';
+
+  const cvSummary = cvUnavailable
+    ? 'Score unavailable'
+    : cvBlock && cvBlock.earned != null
+      ? `${fmtScore(cvBlock.earned)} / ${cvBlock.points} points`
+      : ev?.cv_assessment?.scored && typeof ev.cv_assessment.score === 'number'
+        ? `${fmtScore(ev.cv_assessment.score)} / 100`
+        : 'Not scored';
+
+  const cvSection = `
+    <div class="drawer-section">
+      <h3>CV score and resume</h3>
+      <p>${link(c.resume_link, 'Open resume')}</p>
+      <h4 class="subsection-label">Resume brief</h4>
+      ${cvUnavailable
+        ? '<p class="matrix-note warn">The resume could not be read, so no resume brief or CV score is valid.</p>'
+        : resumeBriefBlock(ev?.brief)}
+      ${cvScoreLine}
+      ${ev?.blocks?.some((block) => block.key === 'background')
+        ? '<p class="matrix-note">This role scores CV evidence inside the Background and experience row of the assessment grid below.</p>'
+        : ev?.cv_weight
+          ? `<p class="matrix-note">The CV contributes ${Math.round(Number(ev.cv_weight) * 100)}% of the final score. Its criteria and formula are shown below.</p>`
+          : ''}
+    </div>
+    ${resumeScreeningTable(ev)}
+    ${cvTable(ev)}`;
+
+  const submissionSection = `
+    <div class="drawer-section">
+      <h3>Submission</h3>
+      <div class="answer">${esc(c.submission_markdown || 'No answer text.')}</div>
+    </div>`;
+
+  const scoreDisclosure = (label, score, content) => `
+    <details class="drawer-section score-disclosure">
+      <summary><span>${esc(label)}</span><strong>${esc(score)}</strong></summary>
+      <div class="score-disclosure-body">${content}</div>
+    </details>`;
+
+  // Managers need a decision brief, the evidence behind the score, and a
+  // source link. Keep operational metadata and pipeline controls out of this
+  // drawer; those actions are available in the role workspace itself.
+  if (!state.isAdmin) {
+    return `<div class="drawer-section">
+        <h3>Portal view</h3>
+        <p class="matrix-note">Open the original application and submitted materials in Workable.</p>
+        <p>${link(c.admin_url, 'Open candidate in portal')}</p>
+      </div>
+      ${briefSection}
+      ${scoreDisclosure('CV score', cvSummary, cvSection)}
+      ${cvUnavailable ? '' : scoreDisclosure('Assessment score',
+        `${fmtScore(ev.rubric_score ?? ev.score)} / 100`, gridTable(ev))}
+      ${!cvUnavailable && evaluateButton(c) ? `<div class="drawer-section drawer-actions">
+        ${evaluateButton(c)}
+      </div>` : cvUnavailable ? `<div class="drawer-section drawer-actions">
+        <button class="btn" type="button" disabled>CV cannot be fetched</button>
+      </div>` : ''}
+      ${submissionSection}
+      `;
+  }
+
   return `
     ${verdict}
     ${pipelineSection(c)}
+    ${briefSection}
     ${gridTable(ev)}
-    ${cvTable(ev)}
+    ${cvSection}
     ${findingsBlock(ev)}
     ${giaRead(ev)}
     <div class="drawer-section">
@@ -4340,10 +4681,7 @@ function drawerContent(c) {
           : '<button class="btn" data-reject>Move to rejected</button>'}
       </div>
     </div>
-    <div class="drawer-section">
-      <h3>Submission</h3>
-      <div class="answer">${esc(c.submission_markdown || 'No answer text.')}</div>
-    </div>`;
+    ${submissionSection}`;
 }
 
 /* One model call, one candidate. Slow enough (10-30s) that the button has to
@@ -4533,6 +4871,10 @@ $('roleSearch').addEventListener('input', renderRoles);
 $('roleFilter').addEventListener('change', renderRoles);
 $('candSearch').addEventListener('input', renderCandidates);
 $('statusFilter').addEventListener('change', renderCandidates);
+$('candidatePanel').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-candidate-view]');
+  if (btn) setCandidateView(btn.dataset.candidateView);
+});
 $('topN').addEventListener('change', () => {
   // Remembered, so it survives clicking into a candidate and back out, and
   // clicking through to the next role. A manager works one shortlist at a
@@ -4546,6 +4888,9 @@ $('backBtn').addEventListener('click', backToRoles);
 $('heroCalBtn')?.addEventListener('click', editHeroCal);
 for (const tab of $('roleTabs').querySelectorAll('.viewtab')) {
   tab.addEventListener('click', () => setRoleTab(tab.dataset.tab));
+}
+for (const nav of $('roleTabs').querySelectorAll('[data-manager-nav]')) {
+  nav.addEventListener('click', () => jumpToManagerSection(nav.dataset.managerNav));
 }
 // Back out of a role with Escape, the same key that shuts the drawer over it.
 // The drawer wins while it is up: one Escape should close one thing.

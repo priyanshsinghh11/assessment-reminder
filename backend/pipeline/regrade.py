@@ -42,6 +42,11 @@ def _dry_run(submission: dict, role: dict, grid: dict) -> int:
 
     evaluator._chat = capture
     try:
+        # So the printed prompt is the one a real run would send. Without this
+        # the CV section reads "no CV text available" for every candidate whose
+        # resume the grading path would have fetched a moment later, which is
+        # exactly the thing a dry run exists to let you check.
+        grader.ensure_resume(submission, persist=False)
         evaluator.evaluate(submission, role, grid)
     except _Captured as captured:
         print(captured.prompt)

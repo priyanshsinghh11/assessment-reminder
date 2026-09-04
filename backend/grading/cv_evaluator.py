@@ -46,11 +46,14 @@ matter:
 
 import logging
 import secrets
+import time
 from typing import Optional
 
 from backend.config import (
     CV_ONLY_PROMPT_CHARS,
+    LLM_CANDIDATE_BUDGET,
     LLM_MAX_OUTPUT_TOKENS,
+    LLM_MAX_VERDICT_DRAWS,
     LLM_MODEL,
 )
 from backend.db import store
@@ -80,7 +83,9 @@ log = logging.getLogger(__name__)
 # evaluator.PROMPT_VERSION and deliberately so: the two prompts are edited for
 # different reasons and a candidate marked under one is not comparable with a
 # candidate marked under the other anyway.
-CV_PROMPT_VERSION = "2026-08-25"
+# 2026-09-04: same brief rewrite as evaluator.PROMPT_VERSION. Marks are
+# unchanged; the brief shape is not.
+CV_PROMPT_VERSION = "2026-09-04"
 
 # The pack's fraud tells, minus the one that cannot apply and plus the one this
 # path is exposed to.
@@ -197,7 +202,7 @@ Reply with JSON only, in exactly this shape:
   "fraud_tells": [{{"tell": "<which>", "evidence": "<where>"}}],
   "gia": {{"read": "<2-3 sentences on the proxies above>",
           "scales": {{"<scale name>": "<what this record shows>"}}}},
-  "brief": "<3-4 sentences>"}}
+  "brief": "Submission: <what the candidate's record shows; note that this seat has no work sample>. Past experience: <employers, roles, dates, scope and outcomes>. Why to consider: <2-3 evidence-based reasons this candidate fits the seat>. Why not to consider: <2-3 evidence-based reasons against -- gaps, risks or claims to verify>. Screen focus: <the single most useful interview probe>"}}
 
 Every criterion carries four fields:
 
@@ -232,10 +237,31 @@ That is the normal case.
 Do not return an overall score, a total or a band. Those are computed from your \
 marks.
 
-The brief must explain the shape of the result in 3-4 sentences: what this \
-candidate has actually done, where the record is thin against this seat, and \
-the one thing a reviewer should check at screen. Name real employers and real \
-figures from the record. No generic praise.
+THE BRIEF IS READ ON ITS OWN, and on this seat it is written from the resume \
+record alone -- there is no assessment answer to fall back on. When the record \
+carries readable resume text, name the actual employers, roles, dates, scope, \
+outcomes and gaps in it; when it does not, say so plainly and do not invent a \
+career from the application fields.
+
+Write it as exactly these five labelled parts, in this order, each part \
+starting with its label and separated from the next by a new line. One or two \
+sentences each:
+
+"Submission:" what the record itself shows -- how complete it is, how it is \
+presented, and what the candidate chose to put in it. This seat has no work \
+sample, so say that rather than implying one was marked.
+"Past experience:" who they have worked for, in what roles, at what scope and \
+with what outcomes. Real employers, titles, dates and figures.
+"Why to consider:" 2-3 reasons this person fits THIS seat, each tied to \
+something specific in the record -- experience that transfers, a result that \
+meets the bar, a credential the grid rewarded.
+"Why not to consider:" 2-3 reasons against, held to the same standard -- \
+missing experience, a level or domain mismatch, a gap in the dates, a claim \
+that wants verifying, an unreadable CV. Never leave this part empty.
+"Screen focus:" the one interview probe that would settle the most.
+
+Name real employers and figures from the record throughout. Do not write \
+generic praise and do not repeat the score.
 
 CANDIDATE RECORD
 ----------------
@@ -329,7 +355,7 @@ def evaluate_cv(submission: dict, role: dict, grid: dict) -> dict:
     # entirely by the person being marked; see the note above `_fence`.
     nonce = secrets.token_hex(8)
 
-    raw = _chat(
+    messages = (
         [{"role": "system", "content": GRADER_SYSTEM_PROMPT},
          {"role": "user", "content": CV_EVAL_PROMPT.format(
             unit=grid.get("unit") or role.get("title") or "role",
@@ -348,22 +374,56 @@ def evaluate_cv(submission: dict, role: dict, grid: dict) -> dict:
             criteria_keys=_criteria_keys(grid),
             triage_keys=_triage_keys(grid),
             record=_fence("CANDIDATE RECORD", record, nonce),
-        )}],
-        max_tokens=LLM_MAX_OUTPUT_TOKENS,
-        json_mode=True,
-    )
+        )}])
 
-    verdict = _parse_verdict(
-        raw, grid,
-        # No answer and no artefact list on this seat. The record is passed as
-        # `resume` because that is the argument `_parse_verdict` grounds
-        # background rows against, and every row here is a background row.
-        answer="", artefacts="", resume=record,
-        # Both pinned. See the module docstring for what each one is holding
-        # off: the no-CV floor, and a blend of the resume with itself.
-        has_cv=True, cv_weight=0.0, cv_weight_source="seat",
-        missing=(),
-    )
+    # The same redraw loop `evaluator.evaluate` runs, and for the same reason:
+    # a 200 carrying a well-formed reply that is not a verdict -- no criteria
+    # marked, half the grid missing, an empty brief -- is a property of the
+    # generation and not of the candidate, so the fix is another draw. See the
+    # note at that loop for the measurements behind it.
+    #
+    # It matters more here than there, if anything. This seat has no assessment
+    # to fall back on, so a candidate whose one draw came back unusable has no
+    # score at all from any source.
+    # Counted against LLM_MAX_VERDICT_DRAWS, not LLM_MAX_RETRIES: the latter
+    # is `_chat`'s own budget for transport faults, and a loop nested inside it
+    # that reads the same number multiplies the two. See the note at
+    # `evaluator.evaluate` for the arithmetic.
+    last_parse_failure = None
+    started = time.monotonic()
+    for attempt in range(max(1, LLM_MAX_VERDICT_DRAWS)):
+        if (attempt and LLM_CANDIDATE_BUDGET
+                and time.monotonic() - started > LLM_CANDIDATE_BUDGET):
+            raise EvaluationFailed(
+                f"Spent {time.monotonic() - started:.0f}s on this record "
+                f"without a usable verdict (budget "
+                f"{LLM_CANDIDATE_BUDGET:.0f}s). Last: {last_parse_failure}"
+            ) from last_parse_failure
+        raw = _chat(messages, max_tokens=LLM_MAX_OUTPUT_TOKENS, json_mode=True)
+        try:
+            verdict = _parse_verdict(
+                raw, grid,
+                # No answer and no artefact list on this seat. The record is
+                # passed as `resume` because that is the argument
+                # `_parse_verdict` grounds background rows against, and every
+                # row here is a background row.
+                answer="", artefacts="", resume=record,
+                # Both pinned. See the module docstring for what each one is
+                # holding off: the no-CV floor, and a blend of the resume with
+                # itself.
+                has_cv=True, cv_weight=0.0, cv_weight_source="seat",
+                missing=(),
+            )
+        except EvaluationFailed as exc:
+            last_parse_failure = exc
+            log.warning("Unusable CV verdict, redrawing (draw %d/%d): %s",
+                        attempt + 1, LLM_MAX_VERDICT_DRAWS, exc)
+            continue
+        break
+    else:
+        raise EvaluationFailed(
+            f"Gave up after {LLM_MAX_VERDICT_DRAWS} draw(s). "
+            f"Last: {last_parse_failure}") from last_parse_failure
 
     verdict.update({
         "model": LLM_MODEL,
@@ -395,6 +455,13 @@ def evaluate_cv(submission: dict, role: dict, grid: dict) -> dict:
 
 def evaluate_and_store_cv(submission: dict, role: dict, grid: dict) -> dict:
     """Mark one candidate on their record and store the verdict."""
+    if ((submission.get("resume_link") or "").strip()
+            and not (submission.get("resume_text") or "").strip()):
+        store.block_cv_evaluation(submission["_id"])
+        raise EvaluationFailed(
+            "CV cannot be fetched or read; candidate was not scored. "
+            "Fetch the resume and re-grade after readable text is stored."
+        )
     verdict = evaluate_cv(submission, role, grid)
     store.set_evaluation(submission["_id"], verdict)
     return verdict

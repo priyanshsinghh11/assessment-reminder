@@ -18,6 +18,14 @@
 }
 .view[hidden] { display: none; }
 
+/* Pipeline is the broader workspace, so keep it visually and spatially apart
+   from the manager's four focused candidate views. */
+.role-pipeline-nav {
+  margin-left: auto;
+  padding-left: 24px;
+  border-left: 1px solid var(--line);
+}
+
 /* --- The opened role's header ------------------------------------------
  *
  * Way out, then name, then this role's own numbers. The metrics repeat the
@@ -182,6 +190,24 @@
 @media (max-width: 640px) {
   /* Under a wrapped title rather than squeezed beside it. */
   .hero-cal { align-self: flex-start; }
+}
+
+/* Managers use the role as a focused decision screen. Recruiting-only bulk
+ * operations stay available to admins but do not distract from the four
+ * candidate lists a manager actually works. */
+body.manager-view #rejectedPanel,
+body.manager-view #pipelinePanel .panel-head .controls select,
+body.manager-view #pipelinePanel #pipelineCopyBtn,
+body.manager-view #pipelinePanel #pipelineCsvBtn {
+  display: none;
+}
+
+/* Shortcut views keep only the relevant candidate list. The full workspace
+   remains available from the Pipeline tab. */
+body.manager-view #pipelinePanel.manager-stage-focus > .panel-head,
+body.manager-view #pipelinePanel.manager-stage-focus > #pipelineTabs,
+body.manager-view #pipelinePanel.manager-stage-focus > #pipelineHint {
+  display: none;
 }
 
 /* The funnel reads left to right -- submitted, scored, seen, hired -- so all
@@ -409,18 +435,71 @@
 .score-low    { color: var(--text-faint); }
 .score-none   { color: var(--text-faint); font-size: var(--fs-body-sm); }
 
-/* Briefs run 3-4 sentences; clamp so a row stays one line tall and the full
- * text lives in the drawer. */
+/* Briefs are structured summaries; the table cell holds a compact stack and
+ * the full one lives in the drawer. */
 .brief-cell {
-  max-width: 460px;
+  max-width: 520px;
   color: var(--text-dim);
   font-size: var(--fs-body-sm);
+  line-height: 1.45;
+}
+
+/* The fallback path: a verdict written before the brief became five labelled
+ * parts is still one paragraph, and one paragraph in a table cell still wants
+ * clamping. */
+.brief-plain {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 0;
+}
+
+/* --- The brief, in parts ----------------------------------------------
+ *
+ * Four or five short parts, each a label and a sentence. The label carries
+ * the colour rather than the body, so the for/against pair is findable in
+ * peripheral vision -- which is the whole point of splitting the brief up:
+ * a manager scanning thirty rows is looking for the two lines that say
+ * whether to open this one, not reading a paragraph thirty times. */
+.brief-parts { margin: 0; display: grid; gap: 6px; }
+
+.brief-part { display: grid; grid-template-columns: 132px 1fr; gap: 10px; }
+
+.brief-part dt {
+  font-size: var(--fs-eyebrow);
+  letter-spacing: var(--tr-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+
+.brief-part dd {
+  margin: 0;
+  color: var(--text-dim);
+  line-height: var(--lh-body);
+}
+
+.brief-part.is-good dt { color: var(--accent-bright); }
+.brief-part.is-risk dt { color: #e4708a; }
+
+/* In the table every part gets two lines at most, so a row stays a row even
+ * when the model writes long. The drawer is where the untruncated text is. */
+.brief-parts.is-compact { gap: 3px; }
+.brief-parts.is-compact .brief-part { grid-template-columns: 108px 1fr; gap: 8px; }
+.brief-parts.is-compact dd {
   line-height: 1.45;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+@media (max-width: 900px) {
+  .brief-part { grid-template-columns: 1fr; gap: 1px; }
+  .brief-parts.is-compact .brief-part { grid-template-columns: 1fr; }
 }
 
 .badge-scored     { color: var(--accent-bright); border-color: var(--line-2); }
@@ -948,13 +1027,80 @@
  * squeezing the evidence column to one word per line. */
 .drawer-section:has(.matrix) { overflow-x: auto; }
 
-.drawer-section { margin-top: 22px; }
+.drawer-section {
+  margin-top: 24px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+.drawer-section:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
 .drawer-section h3 {
   font-size: var(--fs-eyebrow);
   text-transform: uppercase;
   letter-spacing: var(--tr-eyebrow);
   color: var(--text-faint);
   margin-bottom: 10px;
+}
+.cv-score-callout {
+  display: inline-block;
+  margin: 6px 0 2px;
+  padding: 8px 10px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+}
+
+.score-disclosure {
+  overflow: hidden;
+}
+.score-disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 2px 0;
+  color: var(--text);
+  font-size: var(--fs-body-sm);
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+.score-disclosure > summary::-webkit-details-marker { display: none; }
+.score-disclosure > summary::after {
+  content: '+';
+  margin-left: auto;
+  color: var(--sky);
+  font-size: 18px;
+  font-weight: 400;
+}
+.score-disclosure[open] > summary::after { content: '−'; }
+.score-disclosure > summary strong {
+  margin-left: auto;
+  color: var(--sky);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body);
+}
+.score-disclosure-body { margin-top: 18px; }
+.subsection-label {
+  margin: 18px 0 8px;
+  color: var(--text-faint);
+  font-size: var(--fs-eyebrow);
+  letter-spacing: var(--tr-eyebrow);
+  text-transform: uppercase;
+}
+.resume-brief-parts { margin-top: 8px; }
+.brief-compact {
+  display: -webkit-box;
+  overflow: hidden;
+  max-width: 300px;
+  max-height: 2.8em;
+  color: var(--text-dim);
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .meta-grid {

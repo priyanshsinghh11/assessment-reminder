@@ -192,19 +192,43 @@ CV_ONLY_REQUIRED_ARTEFACTS = ("resume_link",)
 # local llama.cpp server); nothing below is vendor-specific.
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.groq.com/openai/v1")
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
-LLM_MODEL = os.environ.get("LLM_MODEL", "openai/gpt-oss-120b")
+# The default names a model rather than nothing so a fresh checkout with only
+# LLM_API_KEY set still grades. It moves when a provider retires one:
+# gpt-oss-120b went end-of-life on 2026-09-03 and answers HTTP 410, which reads
+# on the dashboard as a rejected request rather than a dead model.
+#
+# Whatever replaces it has to be measured on a REAL grading call, not a toy
+# JSON probe -- several models pass the probe and then leak reasoning prose
+# ahead of the JSON, and several more grade cleanly and mark every criterion a
+# 5. The bake-off that chose this one is written up in .env next to the value.
+LLM_MODEL = os.environ.get("LLM_MODEL", "nvidia/nemotron-3-ultra-550b-a55b")
 # Reasoning models think before they answer, and those tokens come out of the
 # same output budget as the JSON. Sent only when set, because a model without a
 # reasoning mode rejects the parameter outright -- so this moves with LLM_MODEL
 # in .env rather than carrying a default that only suits one provider.
+#
+# It is also the one setting here that can quietly turn the grader into a
+# rubber stamp. Set too low for the model in use, the marks stop spreading:
+# gpt-oss-20b at low effort gave twelve consecutive 5s and 1s on job 46, which
+# looks like grading and is not. Set too high, the thinking eats the whole of
+# LLM_MAX_OUTPUT_TOKENS and the reply comes back empty. Both failures are in
+# .env next to the value, measured rather than guessed, and both want re-
+# measuring whenever LLM_MODEL changes.
 LLM_REASONING_EFFORT = os.environ.get("LLM_REASONING_EFFORT", "").strip()
-# Output reservation for one grading call. 2,950 covers the JSON schema itself
+# Output reservation for one grading call, covering the reasoning AND the JSON:
+# the two come out of the same budget, which is why this constant and
+# LLM_REASONING_EFFORT have to be set together. 2,950 covers the schema itself
 # (seven criteria carrying a quote, a missing-list and evidence, six triage
-# notes, the GIA read and the brief); gpt-oss-120b spent a further 576 on
-# reasoning at low effort. Raising this buys safety margin and costs queue
-# depth -- Groq counts the reservation, not the usage, against both the minute
-# and the day.
-LLM_MAX_OUTPUT_TOKENS = int(os.environ.get("LLM_MAX_OUTPUT_TOKENS", "3600"))
+# notes, the GIA read and the five-part brief); what varies wildly is what the
+# model spends ahead of it -- 576 tokens for gpt-oss-120b at low effort, and
+# enough for gpt-oss-20b at medium that 3,600 total left no room for the JSON
+# and every attempt returned an empty completion.
+#
+# Raising it buys safety margin and costs queue depth on a provider that meters
+# tokens; on one that meters requests per minute, like NVIDIA, it is free --
+# Groq, by contrast, counted the reservation rather than the usage against both
+# the minute and the day.
+LLM_MAX_OUTPUT_TOKENS = int(os.environ.get("LLM_MAX_OUTPUT_TOKENS", "8000"))
 # Two clocks, because a stalled call and a slow one are different faults.
 #
 # Some providers -- NVIDIA's free build-tier endpoint especially -- accept a
@@ -223,14 +247,41 @@ LLM_MAX_OUTPUT_TOKENS = int(os.environ.get("LLM_MAX_OUTPUT_TOKENS", "3600"))
 # Small test prompts came back in 37-50s, which is why this wants calibrating
 # against a genuine call and not a toy one -- a budget set from the toy figure
 # cuts off every healthy request before it speaks.
-LLM_TTFT_TIMEOUT = float(os.environ.get("LLM_TTFT_TIMEOUT", "180"))
+LLM_TTFT_TIMEOUT = float(os.environ.get("LLM_TTFT_TIMEOUT", "240"))
 # ...and once the tokens are flowing, this caps the whole reply, so a stream
 # that stalls half way through still ends.
-LLM_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", "180"))
+LLM_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", "420"))
 # More attempts, because each one is now cheap. Abandoning a stalled request
 # and sending a fresh one is a new draw against the same queue, and on this
 # endpoint most candidates land on the first or second.
 LLM_MAX_RETRIES = int(os.environ.get("LLM_MAX_RETRIES", "4"))
+# How many times a candidate's verdict may be REDRAWN, which is a different
+# question from how many times one HTTP request may be retried, and the two
+# must not share a number.
+#
+# `_chat` retries transport faults -- a 429, a 500, a stall, an empty
+# completion. `evaluate` sits outside that and redraws when a 200 came back
+# well-formed but unusable (nothing marked, half the grid missing, an empty
+# brief). Both loops originally read LLM_MAX_RETRIES, which multiplied: four
+# redraws each allowed four transport attempts is SIXTEEN calls for one
+# candidate, and at the timeouts below that is over an hour of a worker slot
+# spent on a single person. With only LLM_CONCURRENCY slots, one such
+# candidate removes a quarter of the run's throughput while it grinds.
+#
+# Two is the right figure on the measured failure rate. Roughly one draw in
+# six comes back unusable, so a second draw takes the odds of ending with no
+# verdict from ~17% to ~3%; a third buys half a percent and costs another
+# full generation. The transport retries underneath are the ones worth
+# spending, because those attempts mostly fail fast.
+LLM_MAX_VERDICT_DRAWS = int(os.environ.get("LLM_MAX_VERDICT_DRAWS", "2"))
+# Wall-clock ceiling on one candidate, across every draw and retry.
+#
+# The retry counts above bound the number of calls; this bounds the time,
+# which is what actually matters when a slot is blocked. A redraw is only
+# started if there is plausibly room for it, so a candidate who has already
+# burned the budget on slow-but-successful calls fails now rather than after
+# another full generation. Set to 0 to disable the check.
+LLM_CANDIDATE_BUDGET = float(os.environ.get("LLM_CANDIDATE_BUDGET", "600"))
 # Longest a single retry will wait when the provider says "come back later".
 # Free tiers answer a per-minute overrun with a few seconds and an exhausted
 # daily quota with 40+ minutes; the first is worth sleeping through, the second
@@ -246,7 +297,13 @@ LLM_MAX_BACKOFF = float(os.environ.get("LLM_MAX_BACKOFF", "120"))
 # linear throughput. Past about six the share that never gets scheduled climbs,
 # so this stops where the returns do. Drop it to 1 on a metered per-minute
 # tier, where the constraint is tokens rather than latency.
-LLM_CONCURRENCY = int(os.environ.get("LLM_CONCURRENCY", "4"))
+#
+# Six rather than four: the note above measured no slowdown at four and "the
+# fast ones stayed fast at eight", and this endpoint meters ~40 REQUESTS per
+# minute rather than tokens. At ~135s a call, six in flight is under three
+# requests a minute -- nowhere near that ceiling -- and it is the cheapest
+# throughput available here, because the wait is queue time rather than work.
+LLM_CONCURRENCY = int(os.environ.get("LLM_CONCURRENCY", "6"))
 # Answers run to 129k characters at the extreme. Truncate before sending so a
 # single outlier cannot blow the context window or the bill.
 MAX_ANSWER_CHARS = 60_000

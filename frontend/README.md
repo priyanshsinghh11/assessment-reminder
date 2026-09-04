@@ -13,7 +13,7 @@ frontend/
 Served by `backend/web/`:
 
 ```bash
-python manage.py serve     # http://127.0.0.1:5000
+python server.py     # http://127.0.0.1:5000
 ```
 
 Opening `index.html` directly still works — it falls back to the `MOCK` object

@@ -24,6 +24,12 @@ Workable client, the LLM stack and Flask to answer `python manage.py --help`,
 and one unconfigured credential anywhere in that graph would turn the help text
 into a traceback. Nothing is imported until a command is chosen.
 
+ONE OF THE TWELVE CAME BACK, AND ONLY ONE. server.py is at the root again,
+because `serve` is not like the others: it is typed every day rather than
+occasionally from notes, it is the first thing run in a fresh terminal, and it
+is the only command whose output somebody sits and watches. The other eleven
+stay here. `manage.py serve` still works and runs the same main().
+
 RUNNING A MODULE DIRECTLY STILL WORKS -- `python -m backend.pipeline.grade
 --job 33` is the same main(). This file is the short way to say it, not a
 wrapper around it.
@@ -36,7 +42,7 @@ import sys
 # passing anything in.
 COMMANDS = {
     "serve": ("backend.web.server",
-              "run the dashboard on http://127.0.0.1:5000"),
+              "run the dashboard -- or just `python server.py`"),
     "reminder": ("backend.mail.reminder",
                  "the assessment nudge: scan, cross-reference, send"),
     "ingest": ("backend.pipeline.ingest",

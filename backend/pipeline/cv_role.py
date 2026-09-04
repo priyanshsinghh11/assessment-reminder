@@ -29,7 +29,7 @@ from typing import Optional
 
 from backend.config import CV_ONLY_JOBS, LLM_CONCURRENCY, LLM_MODEL
 from backend.db import store
-from backend.grading import cv_evaluator, evaluator
+from backend.grading import cv_evaluator, evaluator, grader
 from backend.grading import rubric_pack as pack
 from backend.logging_setup import setup_logging
 from backend.scraping import workable_candidates
@@ -94,6 +94,12 @@ def _grade(role: dict, grid: dict, limit: int) -> dict:
     exhausted: Optional[evaluator.QuotaExhausted] = None
 
     def one(sub):
+        # This seat is marked from the resume and nothing else, so an unfetched
+        # link is not a thinner grade here -- it is no grade at all. Pulled at
+        # the last moment rather than assumed, because this pipeline takes
+        # candidates straight from Workable and `--resumes` may never have run
+        # over them.
+        grader.ensure_resume(sub)
         return sub, cv_evaluator.evaluate_and_store_cv(sub, role, grid)
 
     # Keyed by future rather than a plain list, because a failure needs to name

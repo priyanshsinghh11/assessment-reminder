@@ -262,7 +262,7 @@ Useful flags:
 A review-then-send UI over the same pipeline:
 
 ```bash
-python manage.py serve     # http://127.0.0.1:5000
+python server.py     # http://127.0.0.1:5000
 ```
 
 It shows everyone in the current window with their portal status and reminder
@@ -352,7 +352,7 @@ to Interview — the same act, said out loud in both places.
 
 ```bash
 python manage.py users add you@ajaia.ai --admin   # prints a password, once
-python manage.py serve
+python server.py
 ```
 
 Open <http://127.0.0.1:5000>, sign in, and set your own password when it asks.
@@ -459,7 +459,7 @@ A second pipeline, independent of reminders. Reminders chase people who have
 python manage.py ingest                 # portal -> MongoDB (roles, assessments, submissions)
 python manage.py ingest --resumes       # fetch + extract resume text (opt-in; run it BEFORE grading)
 python manage.py grade --job 23 --limit 5   # AI-score five pending candidates for one role
-python manage.py serve                 # dashboard at /evaluations.html
+python server.py                 # dashboard at /evaluations.html
 ```
 
 ### How it works
@@ -1231,8 +1231,8 @@ anything already decided.
 of a password form. So exposure is still a separate process:
 
 ```bash
-python manage.py serve                                       # the dashboard, private
-python manage.py serve --review-only --host 0.0.0.0 --port 5051   # managers, public
+python server.py                                       # the dashboard, private
+python server.py --review-only --host 0.0.0.0 --port 5051   # managers, public
 ```
 
 In `--review-only` mode every path outside `/review/`, `/api/review/` and three
@@ -1571,11 +1571,16 @@ report green. Run it by hand against staging before a release.
 
 ## Project layout
 
-Everything Python lives in `backend/`, grouped by the job it does, and there is
-one command: `python manage.py <command>`.
+Everything Python lives in `backend/`, grouped by the job it does. There is one
+command for the CLIs — `python manage.py <command>` — and one for the server,
+`python server.py`.
 
 ```
 assessment-reminder/
+├── server.py            Start the dashboard. The one launcher kept at this
+│                        level, because it is typed every day and its output
+│                        is a log you watch. Calls the same main() as
+│                        `manage.py serve`.
 ├── manage.py            Every CLI, as subcommands. `python manage.py` lists
 │                        them. Was twelve launcher files at this level, each
 │                        one seventeen lines around a single import.
@@ -1616,7 +1621,7 @@ assessment-reminder/
 │                        views_shortlist.py    the hand-off, and the rejections
 │                        views_review.py       the manager review surface
 │
-├── wsgi.py              What a real server imports. `manage.py serve` is the
+├── wsgi.py              What a real server imports. `server.py` is the
 │                        laptop. Both boot through this module.
 ├── gunicorn.conf.py     Worker config — read the one-worker note before editing
 ├── api/index.py         Vercel's entry point. Three lines; it imports wsgi.

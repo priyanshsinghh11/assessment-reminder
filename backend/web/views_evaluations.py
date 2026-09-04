@@ -276,10 +276,24 @@ def api_role_candidates(job_id: int):
     if error:
         return error
 
-    candidates = _project([_json_safe(c) for c in
-                           store.list_submissions(job_id=job_id, status=status,
-                                                  limit=limit, tier=tier,
-                                                  default_tier=default_tier)])
+    candidates = [_json_safe(c) for c in
+                  store.list_submissions(job_id=job_id, status=status,
+                                         limit=limit, tier=tier,
+                                         default_tier=default_tier)]
+    # Do not let an old evaluation continue to look current when the stored
+    # resume fetch already failed. Grading now blocks these rows; this keeps
+    # previously stored scores honest until the role is reloaded/re-graded.
+    for candidate in candidates:
+        if ((candidate.get("resume_link") or "").strip()
+                and (candidate.get("resume_error") or "").strip()):
+            candidate["cv_fetch_status"] = "cv_cannot_be_fetched"
+            candidate["evaluation"] = None
+            candidate["decision"] = {
+                "status": "pending",
+                "reason": "cv_cannot_be_fetched",
+                "source": "auto",
+            }
+    candidates = _project(candidates)
     tiers, _ = _tier_options(role)
     return jsonify({
         "role": _json_safe(role),
@@ -315,6 +329,15 @@ def api_submission(submission_id: int):
         return error
 
     payload = _project(_json_safe(sub))
+    if ((payload.get("resume_link") or "").strip()
+            and not (payload.get("resume_text") or "").strip()):
+        payload["cv_fetch_status"] = "cv_cannot_be_fetched"
+        payload["evaluation"] = None
+        payload["decision"] = {
+            "status": "pending",
+            "reason": "cv_cannot_be_fetched",
+            "source": "auto",
+        }
     payload["managers"] = store.get_role_managers(sub.get("job_id"))
     return jsonify(payload)
 
