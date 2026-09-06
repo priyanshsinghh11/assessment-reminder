@@ -2052,7 +2052,7 @@ function renderTop() {
           <div class="cand-email">${esc(c.email || '')}</div>
         </td>
         ${scoreCell(verdict, c)}
-        <td><div class="artefacts">${art(c.resume_link, 'CV')}${
+        <td><div class="artefacts">${art(c.resume_open_link || c.resume_link, 'CV')}${
           art(c.assessment_url, 'Answers')}${art(c.video_link, 'Video')}</div></td>
         <td class="nowrap dim">${esc(c.submitted_at || '')}</td>
         <td>${where}</td>
@@ -2459,7 +2459,7 @@ function renderShortlist() {
       ${scores ? `<td class="num"><span class="score-cell ${
         scoreClass(c.score)}">${fmtScore(c.score)}</span></td>` : ''}
       <td class="email-cell">${esc(c.email)}</td>
-      <td class="link-cell">${link(c.resume_link, 'CV')}</td>
+      <td class="link-cell">${link(c.resume_open_link || c.resume_link, 'CV')}</td>
       <td class="link-cell">${link(c.assessment_url, 'Answers')}</td>
       <td class="link-cell">${link(c.video_link, 'Video')}</td>
       <td>${esc(c.submitted_at)}</td>
@@ -3612,7 +3612,7 @@ function renderCandidates() {
           ? briefBlock(ev.brief, { compact: true, fallbackClass: 'brief-plain' })
           : esc(reason)}</div></td>
         <td><span class="artefacts">${
-          artefact(c.video_link, 'VID')}${artefact(c.resume_link, 'CV')}</span></td>
+          artefact(c.video_link, 'VID')}${artefact(c.resume_open_link || c.resume_link, 'CV')}</span></td>
         <td class="nowrap dim">${shortDate(c.submitted_at)}</td>
         <td><span class="badge ${STATUS_CLASS[status] || ''}">${
           esc(STATUS_LABEL[status] || status)}</span></td>
@@ -3630,7 +3630,10 @@ function renderCandidates() {
 }
 
 function updateGradeStatus() {
-  const pending = state.candidates.filter((c) => c.decision?.status === 'pending').length;
+  const pending = state.candidates.filter((c) => c.decision?.status === 'pending'
+    && c.cv_fetch_status !== 'cv_cannot_be_fetched').length;
+  const cvUnavailable = state.candidates.filter((c) =>
+    c.cv_fetch_status === 'cv_cannot_be_fetched').length;
   const scored = state.candidates.filter((c) => c.decision?.status === 'scored').length;
   const btn = $('gradeBtn');
 
@@ -3641,6 +3644,8 @@ function updateGradeStatus() {
     return;
   }
   $('gradeStatus').textContent = `${scored} scored · ${pending} pending evaluation`;
+  $('gradeStatus').textContent = `${scored} scored - ${pending} ready to grade` +
+    (cvUnavailable ? ` - ${cvUnavailable} CV unavailable` : '');
   btn.disabled = pending === 0;
   renderInviteBtn(activeCard());
 }
@@ -4593,7 +4598,7 @@ function drawerContent(c) {
   const cvSection = `
     <div class="drawer-section">
       <h3>CV score and resume</h3>
-      <p>${link(c.resume_link, 'Open resume')}</p>
+      <p>${link(c.resume_open_link || c.resume_link, 'Open resume')}</p>
       <h4 class="subsection-label">Resume brief</h4>
       ${cvUnavailable
         ? '<p class="matrix-note warn">The resume could not be read, so no resume brief or CV score is valid.</p>'
@@ -4657,7 +4662,7 @@ function drawerContent(c) {
         ${portalQueue(c) ? `<dt>Portal queue</dt><dd>${esc(portalQueue(c))}${
           c.screener_rating ? ` — rated ${esc(c.screener_rating)}` : ''}</dd>` : ''}
         <dt>Video</dt><dd>${link(c.video_link, 'Open video')}</dd>
-        <dt>Resume</dt><dd>${link(c.resume_link, 'Open resume')}</dd>
+        <dt>Resume</dt><dd>${link(c.resume_open_link || c.resume_link, 'Open resume')}</dd>
         <dt>Submitted</dt><dd>${esc(c.submitted_at || '—')}</dd>
         <dt>Assignment</dt><dd>${esc(c.assignment_name || '—')}</dd>
         ${ev ? `<dt>Marked against</dt><dd>${

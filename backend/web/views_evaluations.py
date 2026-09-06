@@ -23,6 +23,7 @@ from backend.db import store
 from backend.grading import evaluator, rubric_pack, tier_resolver, grader
 from backend.mail import candidate_mail
 from backend.pipeline import ingest
+from backend.scraping import resume_reader
 
 from backend.web.app import (INTERVIEW_IS_THE_MANAGERS,
                              MANAGER_INVITES_FROM_COMPOSER, _current_user,
@@ -280,6 +281,10 @@ def api_role_candidates(job_id: int):
                   store.list_submissions(job_id=job_id, status=status,
                                          limit=limit, tier=tier,
                                          default_tier=default_tier)]
+    for candidate in candidates:
+        if candidate.get("resume_link"):
+            candidate["resume_open_link"] = resume_reader.direct_url(
+                candidate["resume_link"])
     # Do not let an old evaluation continue to look current when the stored
     # resume fetch already failed. Grading now blocks these rows; this keeps
     # previously stored scores honest until the role is reloaded/re-graded.
@@ -329,6 +334,9 @@ def api_submission(submission_id: int):
         return error
 
     payload = _project(_json_safe(sub))
+    if payload.get("resume_link"):
+        payload["resume_open_link"] = resume_reader.direct_url(
+            payload["resume_link"])
     if ((payload.get("resume_link") or "").strip()
             and not (payload.get("resume_text") or "").strip()):
         payload["cv_fetch_status"] = "cv_cannot_be_fetched"

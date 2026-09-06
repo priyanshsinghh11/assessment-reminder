@@ -228,7 +228,7 @@ LLM_REASONING_EFFORT = os.environ.get("LLM_REASONING_EFFORT", "").strip()
 # tokens; on one that meters requests per minute, like NVIDIA, it is free --
 # Groq, by contrast, counted the reservation rather than the usage against both
 # the minute and the day.
-LLM_MAX_OUTPUT_TOKENS = int(os.environ.get("LLM_MAX_OUTPUT_TOKENS", "8000"))
+LLM_MAX_OUTPUT_TOKENS = int(os.environ.get("LLM_MAX_OUTPUT_TOKENS", "6000"))
 # Two clocks, because a stalled call and a slow one are different faults.
 #
 # Some providers -- NVIDIA's free build-tier endpoint especially -- accept a
@@ -247,14 +247,14 @@ LLM_MAX_OUTPUT_TOKENS = int(os.environ.get("LLM_MAX_OUTPUT_TOKENS", "8000"))
 # Small test prompts came back in 37-50s, which is why this wants calibrating
 # against a genuine call and not a toy one -- a budget set from the toy figure
 # cuts off every healthy request before it speaks.
-LLM_TTFT_TIMEOUT = float(os.environ.get("LLM_TTFT_TIMEOUT", "240"))
+LLM_TTFT_TIMEOUT = float(os.environ.get("LLM_TTFT_TIMEOUT", "180"))
 # ...and once the tokens are flowing, this caps the whole reply, so a stream
 # that stalls half way through still ends.
-LLM_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", "420"))
+LLM_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", "300"))
 # More attempts, because each one is now cheap. Abandoning a stalled request
 # and sending a fresh one is a new draw against the same queue, and on this
 # endpoint most candidates land on the first or second.
-LLM_MAX_RETRIES = int(os.environ.get("LLM_MAX_RETRIES", "4"))
+LLM_MAX_RETRIES = int(os.environ.get("LLM_MAX_RETRIES", "2"))
 # How many times a candidate's verdict may be REDRAWN, which is a different
 # question from how many times one HTTP request may be retried, and the two
 # must not share a number.
@@ -273,7 +273,7 @@ LLM_MAX_RETRIES = int(os.environ.get("LLM_MAX_RETRIES", "4"))
 # verdict from ~17% to ~3%; a third buys half a percent and costs another
 # full generation. The transport retries underneath are the ones worth
 # spending, because those attempts mostly fail fast.
-LLM_MAX_VERDICT_DRAWS = int(os.environ.get("LLM_MAX_VERDICT_DRAWS", "2"))
+LLM_MAX_VERDICT_DRAWS = int(os.environ.get("LLM_MAX_VERDICT_DRAWS", "1"))
 # Wall-clock ceiling on one candidate, across every draw and retry.
 #
 # The retry counts above bound the number of calls; this bounds the time,
@@ -281,7 +281,7 @@ LLM_MAX_VERDICT_DRAWS = int(os.environ.get("LLM_MAX_VERDICT_DRAWS", "2"))
 # started if there is plausibly room for it, so a candidate who has already
 # burned the budget on slow-but-successful calls fails now rather than after
 # another full generation. Set to 0 to disable the check.
-LLM_CANDIDATE_BUDGET = float(os.environ.get("LLM_CANDIDATE_BUDGET", "600"))
+LLM_CANDIDATE_BUDGET = float(os.environ.get("LLM_CANDIDATE_BUDGET", "360"))
 # Longest a single retry will wait when the provider says "come back later".
 # Free tiers answer a per-minute overrun with a few seconds and an exhausted
 # daily quota with 40+ minutes; the first is worth sleeping through, the second

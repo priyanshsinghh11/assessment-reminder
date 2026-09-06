@@ -978,7 +978,8 @@ def set_resume(submission_id: int, text: str, error: str, source_link: str) -> N
 
 
 def needs_resume(retry_errors: bool = False, limit: int = 0,
-                 transient_only: bool = False) -> list[dict]:
+                 transient_only: bool = False,
+                 job_id: Optional[int] = None) -> list[dict]:
     """
     Submitted candidates whose resume has not been read yet.
 
@@ -1002,6 +1003,8 @@ def needs_resume(retry_errors: bool = False, limit: int = 0,
         "submission_status": "submitted",
         "resume_link": {"$nin": [None, ""]},
     }
+    if job_id is not None:
+        query["job_id"] = job_id
     projection = {"resume_link": 1, "resume_source_link": 1,
                   "resume_fetched_at": 1, "resume_error": 1,
                   "candidate_email": 1, "job_id": 1}
@@ -1919,6 +1922,19 @@ def ungraded(job_id: Optional[int] = None, limit: int = 0,
         "submission_status": "submitted",
         "decision.status": "pending",
         "evaluation": {"$exists": False},
+        # A failed resume fetch is a terminal data-quality state for this
+        # queue, not an AI grading attempt. Keeping it here makes the Grade
+        # button repeatedly spend a model call only to return "CV cannot be
+        # fetched". The dashboard still shows these candidates in the
+        # missing-artifact bucket and the drawer explains how to fix them.
+        "$or": [
+            {"resume_link": {"$exists": False}},
+            {"resume_link": None},
+            {"resume_link": ""},
+            {"resume_error": {"$exists": False}},
+            {"resume_error": None},
+            {"resume_error": ""},
+        ],
     }
     if job_id is not None:
         query["job_id"] = job_id

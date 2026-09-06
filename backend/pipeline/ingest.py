@@ -305,7 +305,8 @@ RESUME_LOG_EVERY = 100
 
 def ingest_resumes(retry_errors: bool = False, limit: int = 0,
                    workers: int = RESUME_WORKERS,
-                   transient_only: bool = False) -> dict:
+                   transient_only: bool = False,
+                   job_id: Optional[int] = None) -> dict:
     """
     Fetch each candidate's resume and store the extracted text.
 
@@ -320,7 +321,7 @@ def ingest_resumes(retry_errors: bool = False, limit: int = 0,
     string and the run carries on.
     """
     pending = store.needs_resume(retry_errors=retry_errors, limit=limit,
-                                 transient_only=transient_only)
+                                 transient_only=transient_only, job_id=job_id)
     if not pending:
         log.info("Resumes: nothing to fetch -- every submitted candidate's "
                  "resume_link has already been read.")
@@ -454,6 +455,8 @@ def main() -> int:
                         help="with --resumes, re-attempt only the failures worth "
                              "retrying (rate limits, timeouts, dropped "
                              "connections) -- run this after a long backfill")
+    parser.add_argument("--job", type=int, default=None,
+                        help="with --resumes, limit fetching to one role")
     parser.add_argument("--limit", type=int, default=0, metavar="N",
                         help="with --resumes, stop after N resumes")
     parser.add_argument("--workers", type=int, default=RESUME_WORKERS,
@@ -473,7 +476,7 @@ def main() -> int:
             summary = {"resumes": ingest_resumes(
                 retry_errors=args.retry_errors, limit=args.limit,
                 transient_only=args.retry_transient,
-                workers=max(1, args.workers))}
+                workers=max(1, args.workers), job_id=args.job)}
         except store.MongoUnavailable as exc:
             log.error("%s", exc)
             return 1
