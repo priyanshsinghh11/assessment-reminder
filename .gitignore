@@ -17,3 +17,7 @@ state/
 .DS_Store
 .vscode/
 .idea/
+
+# Generated HR document and QA page renders.
+Candidate_Lifecycle_for_HR.*
+.qa_candidate_lifecycle/
