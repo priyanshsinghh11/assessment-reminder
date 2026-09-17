@@ -6174,8 +6174,9 @@ GRIDS = (
         "unit": "Technical Project Manager",
         "grid_name": "Technical Project Manager",
         "entity": "Ajaia",
-        "slugs": ("technical-project-manager",),
-        "roles": ("Technical Project Manager (E5946F1944)",),
+        "slugs": ("technical-project-manager", "remote-technical-project-manager"),
+        "roles": ("Technical Project Manager (E5946F1944)",
+                  "Remote Technical Project Manager"),
         "assessment": "Ajaia Technical Project Manager Assessment, Core "
                       "Assignment, 120 minutes including the video",
         "location": "Remote",
@@ -6830,8 +6831,9 @@ GRIDS = (
         "unit": "Product Manager",
         "grid_name": "Product Manager",
         "entity": "Ajaia",
-        "slugs": ("product-manager",),
-        "roles": ("Product Manager (782440C1B6)",),
+        "slugs": ("product-manager", "remote-product-manager"),
+        "roles": ("Product Manager (782440C1B6)",
+                  "Remote Product Manager"),
         "assessment": "Ajaia Product Manager Assessment, Core Assignment, 120 "
                       "minutes including the video",
         "location": "Remote",

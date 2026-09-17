@@ -61,6 +61,7 @@ from backend.config import (
 from backend.mail import brevo_client
 from backend.mail.text import esc as _esc, first_name as _first_name
 from backend.db import store
+from backend.utils import aware as _aware
 from backend.grading import rubric_pack
 from backend.grading import tier_resolver
 
@@ -154,38 +155,108 @@ def rows(job_id: int, limit: int = SHORTLIST_SIZE, tier: str = "",
     size = max(1, min(int(limit or SHORTLIST_SIZE), SHORTLIST_MAX))
     default_tier = rubric_pack.default_tier_for_slug(
         (store.get_role(job_id) or {}).get("slug")) if tier else None
-    out = []
-    for i, sub in enumerate(store.top_candidates(job_id, size, tier=tier or None,
-                                                 default_tier=default_tier),
-                            start=1):
-        row = {
-            "rank": i,
-            "submission_id": sub["_id"],
-            "name": sub.get("candidate_name") or "(no name)",
-            "email": sub.get("candidate_email") or "",
-            "resume_link": sub.get("resume_link") or "",
-            "video_link": sub.get("video_link") or "",
-            # The assessment itself, on the portal, where the manager can read
-            # what the candidate actually wrote.
-            "assessment_url": sub.get("admin_url") or "",
-            "submitted_at": _fmt_date(sub.get("submitted_at")),
-            # Whether the AI finished this candidate's rubric. Normally nobody
-            # here is provisional -- `top_candidates` holds them out -- but the
-            # rule is a switch, and with it off a renormalised partial grid
-            # sorts like any other score. The row says so either way so no
-            # surface has to look the fact up for itself.
-            "provisional": bool(
-                (sub.get("evaluation") or {}).get("score_provisional")
-                or (sub.get("evaluation") or {}).get("grid_complete") is False),
-        }
-        # The one field on this row that is a decision rather than a fact
-        # about the candidate. Present only when the send was asked for it, so
-        # every surface downstream can read "is there a score here?" off the
-        # rows themselves instead of re-deriving the policy.
-        if scores_on(include_scores):
-            row["score"] = (sub.get("evaluation") or {}).get("score")
-        out.append(row)
+    return [
+        row(sub, rank=i, include_scores=include_scores)
+        for i, sub in enumerate(
+            store.top_candidates(job_id, size, tier=tier or None,
+                                 default_tier=default_tier),
+            start=1)
+    ]
+
+
+def row(sub: dict, rank: int = 0, include_scores: bool | None = None) -> dict:
+    """
+    One submission document as a flat, sendable row.
+
+    Pulled out of `rows()` so that a list which is NOT a live top-N -- the
+    pipeline board, or a batch of people already invited weeks ago -- lands in
+    the spreadsheet with exactly the columns, the link handling and the
+    provisional flag a shortlist gets. Two builders would have drifted the
+    first time a column was added to one of them, and the manager holding both
+    files is the person who would find out.
+    """
+    out = {
+        "rank": rank,
+        "submission_id": sub["_id"],
+        "name": sub.get("candidate_name") or "(no name)",
+        "email": sub.get("candidate_email") or "",
+        "resume_link": sub.get("resume_link") or "",
+        "video_link": sub.get("video_link") or "",
+        # The assessment itself, on the portal, where the manager can read
+        # what the candidate actually wrote.
+        "assessment_url": sub.get("admin_url") or "",
+        "submitted_at": _fmt_date(sub.get("submitted_at")),
+        # Whether the AI finished this candidate's rubric. Normally nobody
+        # here is provisional -- `top_candidates` holds them out -- but the
+        # rule is a switch, and with it off a renormalised partial grid
+        # sorts like any other score. The row says so either way so no
+        # surface has to look the fact up for itself.
+        "provisional": bool(
+            (sub.get("evaluation") or {}).get("score_provisional")
+            or (sub.get("evaluation") or {}).get("grid_complete") is False),
+    }
+    # The one field on this row that is a decision rather than a fact
+    # about the candidate. Present only when the send was asked for it, so
+    # every surface downstream can read "is there a score here?" off the
+    # rows themselves instead of re-deriving the policy.
+    if scores_on(include_scores):
+        out["score"] = (sub.get("evaluation") or {}).get("score")
     return out
+
+
+def pipeline_rows(submissions: list[dict], include_scores: bool | None = None,
+                  emailed: dict | None = None) -> list[dict]:
+    """
+    Pipeline candidates as shortlist rows -- the same columns, the same links.
+
+    The board and the batch download both come through here, so the sheet a
+    recruiter pulls for "everyone booked on this role" carries the CV, the
+    answers and the video exactly as the manager's attachment does. That was
+    the gap: the board's only export was a CSV of names, emails and dates, and
+    the three columns anybody actually opens were in neither file.
+
+    `emailed` maps submission id -> when this candidate was mailed, and is what
+    turns a list of people into a record of a send.
+    """
+    emailed = emailed or {}
+    out = []
+    for i, sub in enumerate(submissions, start=1):
+        line = row(sub, rank=i, include_scores=include_scores)
+        pipe = sub.get("pipeline") or {}
+        # Left off the row entirely when absent, rather than blanked: the
+        # column only exists if some row filled it in. See build_xlsx.
+        if pipe.get("interview_at"):
+            line["interview_at"] = str(pipe["interview_at"])
+        when = emailed.get(sub["_id"])
+        if when:
+            line["emailed_at"] = _fmt_date(when)
+        out.append(line)
+    return out
+
+
+def batch_emailed(batch: dict) -> dict:
+    """submission id -> the mail timestamp that put it in this batch."""
+    stage, first, last = batch["stage"], batch["at"], batch["last_at"]
+    stamps = {}
+    for sub in batch.get("submissions") or []:
+        for entry in (sub.get("pipeline") or {}).get("emails") or []:
+            if entry.get("stage") != stage or not entry.get("ok"):
+                continue
+            at = _aware(entry.get("at"))
+            if at and first <= at <= last:
+                stamps[sub["_id"]] = at
+    return stamps
+
+
+def batch_filename(role: dict, batch: dict) -> str:
+    """`interview-full-stack-developer-2026-09-07.xlsx`."""
+    day = batch["at"].strftime("%Y-%m-%d")
+    return f"{batch['stage']}-{stage_slug(role)}-{day}.xlsx"
+
+
+def stage_slug(role: dict) -> str:
+    """The filename half that names the role, or `all-roles` for the lot."""
+    return _slug(role.get("slug") or role.get("title") or "all-roles")
 
 
 def held_back(job_id: int, tier: str = "") -> list[dict]:
@@ -294,9 +365,16 @@ LINK_LABEL = {"resume_link": "Open CV", "assessment_url": "View answers",
               "video_link": "Watch"}
 
 
-def build_xlsx(role: dict, shortlist: list[dict]) -> bytes:
+def build_xlsx(role: dict, shortlist: list[dict], heading: str = "",
+               caption: str = "") -> bytes:
     """
     The attached spreadsheet.
+
+    `heading` and `caption` override the two lines above the table for a sheet
+    that is not a live shortlist -- "the nineteen invited on 7 Sep" is not
+    "top 19 candidates", and a file that mislabels itself is worse than no
+    file when it is opened again in three weeks. The table below them is byte
+    for byte the shortlist's, which is the reason to come through here at all.
 
     Links are written as real hyperlinks behind a short label rather than as
     raw URLs: a Google Drive address is 90 characters of noise in a column the
@@ -326,6 +404,13 @@ def build_xlsx(role: dict, shortlist: list[dict]) -> bytes:
     # send would train people to ignore the one send where it is filled in.
     if any(row.get("provisional") for row in shortlist):
         columns.append(("grading", "Grading", 16))
+    # Set by the pipeline sheets and by nothing else, for the same reason the
+    # score column is set by the rows: this function should not have to know
+    # which screen asked it for a file.
+    if any(row.get("interview_at") for row in shortlist):
+        columns.append(("interview_at", "Interview", 18))
+    if any(row.get("emailed_at") for row in shortlist):
+        columns.append(("emailed_at", "Emailed", 13))
 
     book = Workbook()
     sheet = book.active
@@ -333,10 +418,12 @@ def build_xlsx(role: dict, shortlist: list[dict]) -> bytes:
     sheet.title = re.sub(r"[\[\]:*?/\\]", "", str(role.get("title") or "Shortlist"))[:31]
 
     title_font = Font(name="Calibri", size=14, bold=True, color="FF001D6B")
-    sheet["A1"] = f"{role.get('title') or 'Role'} — top {len(shortlist)} candidates"
+    sheet["A1"] = heading or (
+        f"{role.get('title') or 'Role'} — top {len(shortlist)} candidates")
     sheet["A1"].font = title_font
-    caption = ("Ranked by assessment review, strongest first. "
-               "Click a link to open the candidate's CV or their answers.")
+    caption = caption or ("Ranked by assessment review, strongest first. "
+                          "Click a link to open the candidate's CV or their "
+                          "answers.")
     if show_scores:
         # The number needs its sentence in the same file as the number. A
         # column headed "AI score" with nothing beside it gets read as a mark
@@ -347,7 +434,22 @@ def build_xlsx(role: dict, shortlist: list[dict]) -> bytes:
     sheet["A2"] = caption
     sheet["A2"].font = Font(name="Calibri", size=10, italic=True, color="FF5B6270")
 
+    architecture = str(role.get("career_architecture") or "").strip()
+    bands = str(role.get("career_bands") or "").strip()
+    framework = [("Career architecture", architecture),
+                 ("Career bands", bands)]
+    framework = [(label, value) for label, value in framework if value]
     head_row = 4
+    if framework:
+        for label, value in framework:
+            sheet.cell(row=head_row - 1, column=1, value=f"{label}: {value}")
+            sheet.cell(row=head_row - 1, column=1).alignment = Alignment(
+                wrap_text=True, vertical="top")
+            sheet.merge_cells(start_row=head_row - 1, start_column=1,
+                              end_row=head_row - 1, end_column=len(columns))
+            sheet.row_dimensions[head_row - 1].height = 34
+            head_row += 1
+        head_row += 1
     header_fill = PatternFill("solid", fgColor="FF001D6B")
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFFFF")
     for index, (_, label, width) in enumerate(columns, start=1):
@@ -502,6 +604,21 @@ def build_email(role: dict, shortlist: list[dict], to_name: str = "",
                       border-left:3px solid {NAVY};white-space:pre-wrap;">{_esc(note)}</p>"""
                  if note.strip() else "")
 
+    architecture = str(role.get("career_architecture") or "").strip()
+    bands = str(role.get("career_bands") or "").strip()
+    career_html = ""
+    if architecture or bands:
+        sections = ""
+        if architecture:
+            sections += (f'<p style="margin:0 0 10px;white-space:pre-wrap;">'
+                         f'<strong>Career architecture</strong><br>{_esc(architecture)}</p>')
+        if bands:
+            sections += (f'<p style="margin:0;white-space:pre-wrap;">'
+                         f'<strong>Career bands</strong><br>{_esc(bands)}</p>')
+        career_html = (f'<div style="margin:0 0 24px;padding:14px 16px;'
+                       f'background:#f6f7fb;border-left:3px solid {NAVY};">'
+                       f'{sections}</div>')
+
     # The action. A private link, so it says so -- a manager who forwards this
     # to a colleague should know they are handing over the ability to decide,
     # not just to look.
@@ -585,6 +702,7 @@ def build_email(role: dict, shortlist: list[dict], to_name: str = "",
           their assessments.
         </p>
         {note_html}
+        {career_html}
         <p style="margin:0 0 20px;color:{MUTED};font-size:14px;">
           Each row links to the candidate's CV and to the answers they submitted,
           so you can form your own view. The full list is attached as a
@@ -639,6 +757,12 @@ def build_email(role: dict, shortlist: list[dict], to_name: str = "",
     ]
     if note.strip():
         lines += ["", note.strip()]
+    if architecture or bands:
+        lines += [""]
+        if architecture:
+            lines += ["Career architecture:", architecture]
+        if bands:
+            lines += ["", "Career bands:", bands]
     lines += ["", "The full list is attached as a spreadsheet.", ""]
     if review_url or preview:
         lines += ["Your live page for this role -- narrow the list down, tick the",

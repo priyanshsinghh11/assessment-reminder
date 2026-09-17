@@ -284,6 +284,10 @@ def apply_auto_rejections() -> dict:
         "%d still in progress, %d left alone (manual or scored).",
         counts["rejected"], counts["pending"], counts["in_progress"], counts["skipped"],
     )
+    purged = store.purge_auto_rejected()
+    if purged:
+        log.info("Purged %d auto-rejected candidate record(s); retained "
+                 "aggregate role counts only.", purged)
     return counts
 
 

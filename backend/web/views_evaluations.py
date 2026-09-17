@@ -13,7 +13,7 @@ section banners.
 
 
 from datetime import datetime
-from flask import jsonify, request
+from flask import Response, jsonify, request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from backend import auth
@@ -21,7 +21,7 @@ from backend.config import (AUTH_ENABLED, MANAGER_DASHBOARD_SCORES,
                             SHORTLIST_MAX, SHORTLIST_SIZE, LLM_CONCURRENCY)
 from backend.db import store
 from backend.grading import evaluator, rubric_pack, tier_resolver, grader
-from backend.mail import candidate_mail
+from backend.mail import candidate_mail, shortlist
 from backend.pipeline import ingest
 from backend.scraping import resume_reader
 
@@ -348,6 +348,47 @@ def api_submission(submission_id: int):
         }
     payload["managers"] = store.get_role_managers(sub.get("job_id"))
     return jsonify(payload)
+
+
+@app.route("/api/evaluations/submission/<int:submission_id>/resume", methods=["POST"])
+def api_resume_action(submission_id: int):
+    """Retry a linked CV or store a PDF/DOCX uploaded from the dashboard."""
+    error = _mongo_guard()
+    if error:
+        return error
+
+    sub = store.get_submission(submission_id)
+    error = _submission_guard(sub, submission_id)
+    if error:
+        return error
+
+    action = (request.form.get("action") or "upload").strip().lower()
+    if action == "retry":
+        link = (sub.get("resume_link") or "").strip()
+        if not link:
+            return jsonify({"error": "This candidate has no resume link."}), 400
+        text, reason = resume_reader.read_resume(link)
+        store.set_resume(submission_id, text, reason, link)
+        if reason:
+            return jsonify({"error": f"Resume still could not be read: {reason}"}), 422
+        return jsonify({"message": "Resume fetched and read.",
+                        "submission": _json_safe(store.get_submission(submission_id))})
+
+    upload = request.files.get("resume")
+    if upload is None or not upload.filename:
+        return jsonify({"error": "Choose a PDF or DOCX resume to upload."}), 400
+    data = upload.read()
+    if not data:
+        return jsonify({"error": "The uploaded resume is empty."}), 400
+    if len(data) > resume_reader.MAX_BYTES:
+        return jsonify({"error": "The resume is larger than 20 MB."}), 413
+    try:
+        text = resume_reader.extract(data, upload.mimetype or "")
+    except resume_reader.FetchError as exc:
+        return jsonify({"error": f"Could not read that file: {exc}"}), 422
+    store.set_resume(submission_id, text, "", f"dashboard-upload:{upload.filename}")
+    return jsonify({"message": "Resume uploaded and read.",
+                    "submission": _json_safe(store.get_submission(submission_id))})
 
 
 @app.route("/api/evaluations/rubric/<int:job_id>")
@@ -722,6 +763,148 @@ def api_pipeline():
         "counts": counts,
         "stages": list(store.PIPELINE_STAGES),
     })
+
+
+# The board's own words for a stage, for a sheet heading that reads as English.
+STAGE_LABEL = {"interview": "interview", "hired": "hired",
+               "rejected": "rejected after interview"}
+
+
+def _pipeline_scores() -> bool:
+    """
+    Whether a pipeline sheet carries the AI score.
+
+    The recruiting team's number, on the recruiting team's screens -- the same
+    rule `_scores_arg` enforces for the shortlist, arriving through a different
+    door. A hiring-manager account gets the sheet without it rather than an
+    error, because nothing on the board asked for one: they clicked Download,
+    not "Download with scores".
+    """
+    return _is_admin()
+
+
+def _sheet(role: dict, rows: list[dict], heading: str, caption: str,
+           filename: str):
+    """A built spreadsheet as a download, or the reason there isn't one."""
+    if not rows:
+        return jsonify({"error": "There is nothing to put in a sheet yet."}), 409
+    try:
+        blob = shortlist.build_xlsx(role, rows, heading=heading, caption=caption)
+    except shortlist.ShortlistError as exc:
+        return jsonify({"error": str(exc)}), 503
+    return Response(
+        blob,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.route("/api/pipeline/sends")
+def api_pipeline_sends():
+    """
+    The mail-outs a stage has had, so a past one can be downloaded again.
+
+    Reconstructed from the per-candidate mail log rather than from a record
+    kept for the purpose -- see store.stage_send_batches for why that is the
+    only thing that works after the fact.
+    """
+    error = _mongo_guard()
+    if error:
+        return error
+
+    stage = request.args.get("stage") or "interview"
+    if stage not in store.PIPELINE_STAGES:
+        return jsonify({"error": f"Unknown stage: {stage}"}), 400
+    job_id = request.args.get("job_id", type=int)
+    if job_id is not None:
+        error = _role_guard(job_id)
+        if error:
+            return error
+
+    batches = store.stage_send_batches(job_id, stage, job_ids=_scope())
+    return jsonify({
+        "stage": stage,
+        "job_id": job_id,
+        "sends": [{
+            "key": b["key"],
+            "at": b["at"].isoformat(),
+            "last_at": b["last_at"].isoformat(),
+            "count": b["count"],
+            "job_ids": b["job_ids"],
+            # What the row says on the page. Built here so the dropdown, the
+            # sheet's own heading and its filename cannot disagree about which
+            # send is which.
+            "label": (f"{b['at']:%d %b %Y, %H:%M} — {b['count']} "
+                      f"candidate{'s' if b['count'] != 1 else ''}"),
+        } for b in batches],
+    })
+
+
+@app.route("/api/pipeline/xlsx")
+def api_pipeline_xlsx():
+    """
+    The board, or one past mail-out, as a spreadsheet.
+
+    THIS IS THE FILE THE CSV BUTTON NEXT TO IT NEVER WAS. That export carried
+    names, emails and dates; the three columns anybody opens a candidate sheet
+    FOR -- the CV, the answers and the video -- were in neither it nor
+    anywhere else on this page, and the only file that had them was the
+    shortlist attachment, which stops being available the moment the board
+    moves those people into `interview` and the live top-N becomes a different
+    twenty people.
+
+    `send=<key>` recovers one batch as it was mailed. Without it, whoever is
+    at the stage right now.
+    """
+    error = _mongo_guard()
+    if error:
+        return error
+
+    stage = request.args.get("stage") or "interview"
+    if stage not in store.PIPELINE_STAGES:
+        return jsonify({"error": f"Unknown stage: {stage}"}), 400
+    job_id = request.args.get("job_id", type=int)
+    if job_id is not None:
+        error = _role_guard(job_id)
+        if error:
+            return error
+
+    scores = _pipeline_scores()
+    role = store.get_role(job_id) if job_id is not None else {}
+    title = (role or {}).get("title") or "All roles"
+    label = STAGE_LABEL.get(stage, stage)
+    send = request.args.get("send")
+
+    if send:
+        batch = store.stage_send_batch(send, job_id, stage, job_ids=_scope())
+        if not batch:
+            return jsonify({"error": "That send is not on record."}), 404
+        rows = shortlist.pipeline_rows(batch["submissions"], include_scores=scores,
+                                       emailed=shortlist.batch_emailed(batch))
+        return _sheet(
+            role or {"title": title},
+            rows,
+            heading=f"{title} — {len(rows)} mailed at {label}, "
+                    f"{batch['at']:%d %b %Y}",
+            caption="The candidates in this mail-out, strongest first. Click a "
+                    "link to open the candidate's CV, their answers or their "
+                    "video.",
+            filename=shortlist.batch_filename(role or {"title": title}, batch),
+        )
+
+    subs = store.list_pipeline(stage=stage, job_id=job_id, job_ids=_scope())
+    subs.sort(key=lambda s: (-((s.get("evaluation") or {}).get("score") or 0),
+                             s.get("candidate_name") or ""))
+    rows = shortlist.pipeline_rows(subs, include_scores=scores)
+    slug = shortlist.stage_slug(role or {"title": title})
+    return _sheet(
+        role or {"title": title},
+        rows,
+        heading=f"{title} — {len(rows)} at {label}",
+        caption="Everyone at this stage, strongest first. Click a link to open "
+                "the candidate's CV, their answers or their video.",
+        filename=f"{stage}-{slug}.xlsx",
+    )
 
 
 # --------------------------------------------------------------------------

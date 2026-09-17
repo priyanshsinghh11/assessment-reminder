@@ -130,6 +130,32 @@ def api_role_managers(job_id: int):
     })
 
 
+@app.route("/api/roles/<int:job_id>/career-framework", methods=["GET", "POST"])
+def api_role_career_framework(job_id: int):
+    """Read or replace the optional career architecture and bands for a role."""
+    error = _mongo_guard() or _role_guard(job_id)
+    if error:
+        return error
+
+    if request.method == "GET":
+        return jsonify({"job_id": job_id,
+                        **store.get_role_career_framework(job_id)})
+
+    error = _require_admin()
+    if error:
+        return error
+    body = request.get_json(silent=True) or {}
+    architecture = body.get("career_architecture", "")
+    bands = body.get("career_bands", "")
+    if not isinstance(architecture, str) or not isinstance(bands, str):
+        return jsonify({"error": "Career architecture and bands must be text."}), 400
+    if len(architecture) > 20000 or len(bands) > 20000:
+        return jsonify({"error": "Career architecture and bands must be under 20,000 characters."}), 400
+
+    framework = store.set_role_career_framework(job_id, architecture, bands)
+    return jsonify({"message": "Career architecture and bands saved.", **framework})
+
+
 def _scores_arg(value=None):
     """
     Whether this hand-off carries the AI score, and whether the caller may ask.
@@ -214,6 +240,7 @@ def api_shortlist(job_id: int):
         # and then contradicting the file the download hands back.
         "show_scores": scores,
         "last_send": _json_safe(role["shortlist_last"]) if role.get("shortlist_last") else None,
+        **store.get_role_career_framework(job_id),
     }
     if request.args.get("preview"):
         first = managers[0].get("name") if managers else ""

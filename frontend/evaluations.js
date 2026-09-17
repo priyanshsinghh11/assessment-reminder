@@ -86,6 +86,8 @@ const state = {
     stage: 'interview',
     rows: [],
     counts: { interview: 0, hired: 0, rejected: 0 },
+    // Past mail-outs of the open stage, newest first. See loadPipelineSends.
+    sends: [],
   },
   // The hand-off to the hiring manager: who owns the open role, and the top-N
   // that would be mailed to them. Fetched the first time its tab is opened for
@@ -102,6 +104,9 @@ const state = {
     // top_candidates and listed here so nobody is dropped silently.
     heldBack: [],
     lastSend: null,
+    careerArchitecture: '',
+    careerBands: '',
+    careerDirty: false,
     // Whether this hand-off's spreadsheet carries the AI score. The tick is
     // the recruiter's, per send; the server owns the default and answers it in
     // `show_scores`, so the box is not set from a guess made here.
@@ -1647,6 +1652,59 @@ async function loadPipeline() {
     $('pipelineStatus').textContent = 'Could not load the board.';
     toast(err.message, true);
   }
+  // Not awaited with the board: a missing send list is a dropdown with one
+  // option in it, and the rows are what the screen is for.
+  loadPipelineSends();
+}
+
+/* The mail-outs this stage has had, for the download picker.
+ *
+ * WHY THIS LIST EXISTS AT ALL. Someone mails a role's top twenty their
+ * interview invitation, and every one of those twenty is moved into
+ * `interview` by the send -- which takes them out of `top_candidates`, so the
+ * Shortlist tab's download now builds a sheet of the NEXT twenty people. The
+ * list that actually went out is only recoverable from the mail log, and this
+ * is the door to it. */
+async function loadPipelineSends() {
+  const { stage } = state.pipeline;
+  const jobId = $('pipelineRole').value;
+  const select = $('pipelineSend');
+  const keep = select.value;
+  try {
+    const data = await api(`/api/pipeline/sends?stage=${stage}`
+      + (jobId ? `&job_id=${jobId}` : ''));
+    state.pipeline.sends = data.sends;
+    select.innerHTML = '<option value="">Everyone at this stage</option>'
+      + data.sends.map((s) =>
+        `<option value="${esc(s.key)}">${esc(s.label)}</option>`).join('');
+    // The picker only earns its space once there is a send to pick.
+    select.hidden = data.sends.length === 0;
+    if (data.sends.some((s) => s.key === keep)) select.value = keep;
+  } catch {
+    // A board that loaded is still a working board. The picker goes away
+    // rather than sitting there with a stale list of sends on it.
+    state.pipeline.sends = [];
+    select.innerHTML = '<option value="">Everyone at this stage</option>';
+    select.hidden = true;
+  }
+}
+
+/* The board, or one past mail-out, as the same spreadsheet the hiring manager
+ * gets: name, email, score, CV, answers, video. A plain navigation for the
+ * reason downloadShortlistXlsx gives -- the response is already an attachment
+ * with its own filename. */
+function downloadPipelineXlsx() {
+  const { stage, rows, sends } = state.pipeline;
+  const send = $('pipelineSend').value;
+  if (!send && !rows.length) return;
+  const jobId = $('pipelineRole').value;
+  window.location.assign(`/api/pipeline/xlsx?stage=${stage}`
+    + (jobId ? `&job_id=${jobId}` : '')
+    + (send ? `&send=${encodeURIComponent(send)}` : ''));
+  const chosen = sends.find((s) => s.key === send);
+  toast(chosen
+    ? `Downloading the ${chosen.count} mailed on ${chosen.label.split(',')[0]}.`
+    : `Downloading ${rows.length} candidate(s).`);
 }
 
 const PIPELINE_HEAD = {
@@ -1732,6 +1790,9 @@ function renderPipeline() {
   for (const id of ['pipelineCopyBtn', 'pipelineCsvBtn']) {
     $(id).disabled = rows.length === 0;
   }
+  // Stays live on an empty board when a past send is picked: an empty stage
+  // with a mail-out behind it is exactly the case this button is for.
+  $('pipelineXlsxBtn').disabled = rows.length === 0 && !$('pipelineSend').value;
 
   $('pipelineBody').innerHTML = rows.map((c) => {
     const p = c.pipeline || {};
@@ -1836,7 +1897,11 @@ function copyPipelineEmails() {
 function exportPipelineCsv() {
   const { stage, rows } = state.pipeline;
   if (!rows.length) return;
-  const csv = [['Name', 'Email', 'Role', 'Score', 'Stage', 'Interview',
+  // The CV, the answers and the video are here for the same reason they are in
+  // the Excel file: they are what a candidate sheet is opened for, and this
+  // export went out for weeks without them.
+  const csv = [['Name', 'Email', 'Role', 'Score', 'Stage', 'Resume',
+                'Assessment', 'Video', 'Submitted', 'Interview',
                 'Interviewer', 'Decided', 'Note']]
     .concat(rows.map((c) => [
       c.candidate_name || '',
@@ -1844,6 +1909,10 @@ function exportPipelineCsv() {
       c.job_title || '',
       c.evaluation?.score ?? '',
       STAGE_LABEL[stage],
+      c.resume_link || '',
+      c.admin_url || '',
+      c.video_link || '',
+      c.submitted_at || '',
       c.pipeline?.interview_at || '',
       c.pipeline?.interviewer || '',
       c.pipeline?.at || '',
@@ -2110,6 +2179,12 @@ function renderTopBar(rows) {
     : total === 0 ? 'Tick the people you want to meet.'
     : 'Write their invitation and read it before it goes';
 
+  const xlsx = $('topXlsxBtn');
+  xlsx.disabled = top.rows.length === 0;
+  xlsx.title = top.rows.length
+    ? `Download the top ${top.rows.length} candidate${top.rows.length === 1 ? '' : 's'} as an Excel file.`
+    : 'There are no top candidates to download yet.';
+
   // Said before the first click, not after it fails. A manager with no booking
   // link cannot invite anybody, and the fix is the button in this role's own
   // header -- so the sentence names it rather than telling them to email us.
@@ -2127,6 +2202,16 @@ function renderTopBar(rows) {
   } else {
     warn.hidden = true;
   }
+}
+
+/* Download the same top-N list this panel was built from. The endpoint applies
+ * the ranking again on the server, so the file cannot drift from the live
+ * shortlist if a score or stage changed while the page was open. */
+function downloadTopCandidatesXlsx() {
+  if (state.activeRoleId === null || !state.top.rows.length) return;
+  window.location.assign(
+    `/api/shortlist/${state.activeRoleId}/xlsx?limit=${state.top.limit}`
+    + tierParam('&'));
 }
 
 /* --- rubric ------------------------------------------------------------
@@ -2212,6 +2297,9 @@ async function loadShortlist(jobId) {
     state.shortlist.rows = data.candidates || [];
     state.shortlist.heldBack = data.held_back || [];
     state.shortlist.lastSend = data.last_send || null;
+    state.shortlist.careerArchitecture = data.career_architecture || '';
+    state.shortlist.careerBands = data.career_bands || '';
+    state.shortlist.careerDirty = false;
     state.shortlist.showScores = !!data.show_scores;
     // Left alone once a recruiter has touched it, exactly like the size box:
     // switching roles should not silently undo the choice they just made.
@@ -2221,11 +2309,48 @@ async function loadShortlist(jobId) {
     state.shortlist.dirty = false;
     $('shortlistRole').textContent = data.role.title || '';
     renderManagers();
+    renderCareerFramework();
     renderShortlist();
     loadReviewLinks(jobId);
   } catch (err) {
     $('shortlistCount').textContent = 'Could not load the shortlist.';
     toast(err.message, true);
+  }
+}
+
+function renderCareerFramework() {
+  $('careerArchitecture').value = state.shortlist.careerArchitecture;
+  $('careerBands').value = state.shortlist.careerBands;
+  $('careerSaveBtn').hidden = !state.shortlist.careerDirty || !state.isAdmin;
+}
+
+function markCareerFrameworkDirty() {
+  state.shortlist.careerDirty = true;
+  renderCareerFramework();
+}
+
+async function saveCareerFramework() {
+  if (state.activeRoleId === null || !state.isAdmin) return;
+  const btn = $('careerSaveBtn');
+  btn.disabled = true;
+  try {
+    const data = await api(`/api/roles/${state.activeRoleId}/career-framework`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        career_architecture: $('careerArchitecture').value,
+        career_bands: $('careerBands').value,
+      }),
+    });
+    state.shortlist.careerArchitecture = data.career_architecture || '';
+    state.shortlist.careerBands = data.career_bands || '';
+    state.shortlist.careerDirty = false;
+    renderCareerFramework();
+    toast(data.message);
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -3716,6 +3841,14 @@ async function openDrawer(submissionId) {
     if (evaluate) {
       evaluate.addEventListener('click', () => evaluateOne(c.id, evaluate));
     }
+    const retryResume = $('drawerBody').querySelector('[data-resume-retry]');
+    if (retryResume) {
+      retryResume.addEventListener('click', () => retryResumeFetch(c.id, retryResume));
+    }
+    const uploadResume = $('drawerBody').querySelector('[data-resume-upload]');
+    if (uploadResume) {
+      uploadResume.addEventListener('change', () => uploadResumeFile(c.id, uploadResume));
+    }
     const directInvite = $('drawerBody').querySelector('[data-direct-invite]');
     if (directInvite) {
       directInvite.addEventListener('click', () => inviteFromDrawer(c));
@@ -4599,6 +4732,13 @@ function drawerContent(c) {
     <div class="drawer-section">
       <h3>CV score and resume</h3>
       <p>${link(c.resume_open_link || c.resume_link, 'Open resume')}</p>
+      ${cvUnavailable ? `<div class="drawer-actions resume-recovery">
+        <button class="btn" type="button" data-resume-retry>Retry link</button>
+        <label class="btn btn-primary upload-label">Upload PDF/DOCX
+          <input type="file" accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx" data-resume-upload hidden>
+        </label>
+        <p class="matrix-note">If the link opens a viewer such as Canva, download the CV there and upload the PDF/DOCX here.</p>
+      </div>` : ''}
       <h4 class="subsection-label">Resume brief</h4>
       ${cvUnavailable
         ? '<p class="matrix-note warn">The resume could not be read, so no resume brief or CV score is valid.</p>'
@@ -4710,6 +4850,47 @@ async function evaluateOne(submissionId, btn) {
     toast(err.message, true);
     btn.disabled = false;
     btn.textContent = previous;
+  }
+}
+
+async function retryResumeFetch(submissionId, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Retrying…';
+  const form = new FormData();
+  form.set('action', 'retry');
+  try {
+    const result = await api(`/api/evaluations/submission/${submissionId}/resume`, {
+      method: 'POST', body: form,
+    });
+    toast(result.message);
+    await openDrawer(submissionId);
+  } catch (err) {
+    toast(err.message, true);
+    btn.disabled = false;
+    btn.textContent = 'Retry link';
+  }
+}
+
+async function uploadResumeFile(submissionId, input) {
+  const file = input.files?.[0];
+  if (!file) return;
+  const form = new FormData();
+  form.set('resume', file);
+  const label = input.closest('label');
+  const previous = label?.firstChild?.textContent;
+  if (label) label.firstChild.textContent = 'Uploading…';
+  try {
+    const result = await api(`/api/evaluations/submission/${submissionId}/resume`, {
+      method: 'POST', body: form,
+    });
+    toast(result.message);
+    await openDrawer(submissionId);
+    if (state.activeRoleId) await openRole(state.activeRoleId, false);
+    await loadRoles();
+  } catch (err) {
+    toast(err.message, true);
+    if (label) label.firstChild.textContent = previous || 'Upload PDF/DOCX';
+    input.value = '';
   }
 }
 
@@ -4826,11 +5007,19 @@ $('topAll').addEventListener('change', () => {
 });
 $('topInviteBtn').addEventListener('click',
   () => InviteComposer.open([...state.top.picked]));
+$('topXlsxBtn').addEventListener('click', downloadTopCandidatesXlsx);
 
 $('pipelineRole').addEventListener('change', loadPipeline);
 $('pipelineRefresh').addEventListener('click', loadPipeline);
 $('pipelineCopyBtn').addEventListener('click', copyPipelineEmails);
 $('pipelineCsvBtn').addEventListener('click', exportPipelineCsv);
+$('pipelineXlsxBtn').addEventListener('click', downloadPipelineXlsx);
+// Picking a send does not reload the board -- it changes what Download Excel
+// builds, and the rows on screen are still the board's.
+$('pipelineSend').addEventListener('change', () => {
+  $('pipelineXlsxBtn').disabled =
+    state.pipeline.rows.length === 0 && !$('pipelineSend').value;
+});
 
 // --- hiring managers and the hand-off ---
 $('mgrForm').addEventListener('submit', addManager);
@@ -4838,6 +5027,9 @@ $('mgrSave').addEventListener('click', saveManagers);
 $('shortlistXlsxBtn').addEventListener('click', downloadShortlistXlsx);
 $('shortlistPreviewBtn').addEventListener('click', previewShortlistMail);
 $('shortlistSendBtn').addEventListener('click', sendShortlist);
+$('careerArchitecture').addEventListener('input', markCareerFrameworkDirty);
+$('careerBands').addEventListener('input', markCareerFrameworkDirty);
+$('careerSaveBtn').addEventListener('click', saveCareerFramework);
 // Changing the size re-asks the server rather than slicing what is on screen:
 // going from 10 to 20 needs ten rows the client never had.
 $('shortlistLimit').addEventListener('change', () => {

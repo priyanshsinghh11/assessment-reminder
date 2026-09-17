@@ -787,8 +787,10 @@ ROLE_TITLES = {
     "marketing-associate": "Marketing Associate",
     "marketing-head": "Head of Marketing",
     "technical-project-manager": "Technical Project Manager",
+    "remote-technical-project-manager": "Remote Technical Project Manager",
     "design-lead": "Design Lead",
     "product-manager": "Product Manager",
+    "remote-product-manager": "Remote Product Manager",
     "client-delivery-lead": "Client Delivery Lead",
 }
 

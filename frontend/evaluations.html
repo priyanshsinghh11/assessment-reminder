@@ -285,6 +285,28 @@
             <ul class="link-list" id="linkList"></ul>
           </div>
 
+          <div class="mgr-block">
+            <h3 class="sub-head">Career architecture &amp; bands</h3>
+            <p class="hint">
+              Optional role guidance from the manager. It is included in the
+              shortlist email and Excel file so candidates can be reviewed
+              against the role&rsquo;s growth path.
+            </p>
+            <label class="note-field">
+              <span>Career architecture</span>
+              <textarea id="careerArchitecture" rows="4"
+                        placeholder="What this role owns now and how scope grows over time."></textarea>
+            </label>
+            <label class="note-field">
+              <span>Career bands</span>
+              <textarea id="careerBands" rows="4"
+                        placeholder="Band 1 — ...&#10;Band 2 — ...&#10;Band 3 — ..."></textarea>
+            </label>
+            <button class="btn btn-primary" type="button" id="careerSaveBtn" hidden>
+              Save career framework
+            </button>
+          </div>
+
           <!-- What would actually be sent. The same rows, from the same function,
                that build the email and the spreadsheet -- no scores anywhere. -->
           <div class="mgr-block">
@@ -398,6 +420,9 @@
           </label>
           <span class="sendbar-count" id="topCount">Loading&hellip;</span>
           <div class="sendbar-actions">
+            <button class="btn" id="topXlsxBtn" type="button" disabled>
+              Download Excel
+            </button>
             <button class="btn btn-primary" id="topInviteBtn" type="button" disabled>
               Invite to interview
             </button>
@@ -448,8 +473,17 @@
         <div class="sendbar">
           <span class="sendbar-count" id="pipelineStatus">Loading&hellip;</span>
           <div class="sendbar-actions">
+            <!-- Past mail-outs of this stage, newest first, rebuilt from the
+                 per-candidate mail log. "The twenty I invited on Monday" stops
+                 being answerable off the live board the moment those twenty are
+                 moved into a stage, which takes them out of the shortlist and
+                 makes the top-N a different twenty people. -->
+            <select id="pipelineSend" title="Download a past mail-out" hidden>
+              <option value="">Everyone at this stage</option>
+            </select>
             <button class="btn" id="pipelineCopyBtn">Copy addresses</button>
             <button class="btn" id="pipelineCsvBtn">Download CSV</button>
+            <button class="btn" id="pipelineXlsxBtn">Download Excel</button>
           </div>
         </div>
 

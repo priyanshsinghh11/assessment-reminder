@@ -101,6 +101,9 @@ def ensure_indexes() -> None:
     db.rejections.create_index([("rejected_at", DESCENDING)])
     db.rejections.create_index([("job_id", ASCENDING)])
     db.rejections.create_index([("status", ASCENDING)])
+    # Aggregate-only counts for auto-rejected submissions. Candidate records
+    # are purged after screening, but the dashboard still needs the number.
+    db.rejected_counts.create_index([("updated_at", DESCENDING)])
 
 
 def get_app_secret() -> str:
@@ -322,6 +325,29 @@ def set_role_managers(job_id: int, managers: list[dict]) -> list[dict]:
 def get_role_managers(job_id: int) -> list[dict]:
     role = get_db().roles.find_one({"_id": job_id}, {"hiring_managers": 1})
     return (role or {}).get("hiring_managers") or []
+
+
+def get_role_career_framework(job_id: int) -> dict:
+    """Return the optional career architecture and bands for one role."""
+    role = get_db().roles.find_one(
+        {"_id": job_id},
+        {"career_architecture": 1, "career_bands": 1},
+    ) or {}
+    return {
+        "career_architecture": str(role.get("career_architecture") or ""),
+        "career_bands": str(role.get("career_bands") or ""),
+    }
+
+
+def set_role_career_framework(job_id: int, architecture: str,
+                              bands: str) -> dict:
+    """Replace the optional career framework stored on a role."""
+    framework = {
+        "career_architecture": str(architecture or "").strip(),
+        "career_bands": str(bands or "").strip(),
+    }
+    get_db().roles.update_one({"_id": job_id}, {"$set": framework})
+    return framework
 
 
 def set_manager_cal_link(email: str, cal_link: str) -> int:
@@ -566,6 +592,17 @@ def role_tier_counts(job_ids: Optional[set[int]] = None) -> dict[int, dict]:
     for role in counts.values():
         for bucket in role.values():
             bucket["total"] = sum(bucket.values())
+    # Purged auto-rejections cannot be assigned to a posting tier because
+    # their candidate documents no longer exist. Keep their number on the
+    # unresolved/default bucket so a multi-tier role still displays it.
+    query = {}
+    if job_ids is not None:
+        query["_id"] = {"$in": sorted(job_ids)}
+    for row in get_db().rejected_counts.find(query, {"_id": 1, "count": 1}):
+        role = counts.setdefault(row["_id"], {})
+        bucket = role.setdefault("unresolved", {})
+        bucket["rejected"] = bucket.get("rejected", 0) + row.get("count", 0)
+        bucket["total"] = sum(bucket.values())
     return counts
 
 
@@ -1162,9 +1199,41 @@ def role_counts() -> dict[int, dict]:
         status = row["_id"].get("status") or "unknown"
         bucket = counts.setdefault(job_id, {})
         bucket[status] = bucket.get(status, 0) + row["n"]
+    # Auto-rejected candidate documents are intentionally removed after
+    # screening. Re-add only their aggregate count so the dashboard keeps the
+    # number without retaining candidate data.
+    for row in get_db().rejected_counts.find({}, {"_id": 1, "count": 1}):
+        job_id = row["_id"]
+        bucket = counts.setdefault(job_id, {})
+        bucket["rejected"] = bucket.get("rejected", 0) + row.get("count", 0)
     for bucket in counts.values():
         bucket["total"] = sum(bucket.values())
     return counts
+
+
+def purge_auto_rejected() -> int:
+    """Remove auto-rejected candidate documents, retaining role counts only."""
+    db = get_db()
+    grouped = db.submissions.aggregate([
+        {"$match": {"decision.status": "rejected",
+                    "decision.source": "auto"}},
+        {"$group": {"_id": "$job_id", "count": {"$sum": 1}}},
+    ])
+    total = 0
+    stamp = now()
+    for row in grouped:
+        job_id = row["_id"]
+        count = int(row["count"])
+        db.rejected_counts.update_one(
+            {"_id": job_id},
+            {"$inc": {"count": count}, "$set": {"updated_at": stamp}},
+            upsert=True,
+        )
+        total += count
+    if total:
+        db.submissions.delete_many({"decision.status": "rejected",
+                                    "decision.source": "auto"})
+    return total
 
 
 def list_rejected(job_id: Optional[int] = None,
@@ -1856,6 +1925,111 @@ def last_stage_email(submission: dict, stage: str) -> Optional[dict]:
     for entry in reversed((submission.get("pipeline") or {}).get("emails") or []):
         if entry.get("stage") == stage and entry.get("ok"):
             return entry
+    return None
+
+
+# Two successive stage mails in one batch are seconds apart -- the send loop
+# writes one row per candidate. Anything past this gap is somebody sitting back
+# down at the dashboard later, which is a different send and a different sheet.
+STAGE_BATCH_GAP = timedelta(minutes=30)
+
+
+def _stage_email_rows(job_id: Optional[int], stage: str,
+                      job_ids: Optional[set[int]] = None) -> list[tuple]:
+    """Every successful stage mail as (sent_at, submission), oldest first."""
+    query: dict = {"pipeline.emails.stage": stage}
+    if job_id is not None:
+        query["job_id"] = job_id
+    elif job_ids is not None:
+        query["job_id"] = {"$in": sorted(job_ids)}
+
+    out = []
+    cursor = get_db().submissions.find(
+        query, {"submission_markdown": 0, "resume_text": 0})
+    for sub in cursor:
+        for entry in (sub.get("pipeline") or {}).get("emails") or []:
+            if entry.get("stage") != stage or not entry.get("ok"):
+                continue
+            at = entry.get("at")
+            if at:
+                out.append((_aware(at), sub))
+    out.sort(key=lambda pair: pair[0])
+    return out
+
+
+def stage_send_batches(job_id: Optional[int] = None, stage: str = "interview",
+                       job_ids: Optional[set[int]] = None) -> list[dict]:
+    """
+    Past stage mail-outs, grouped back into the sends they were.
+
+    THE RECORD OF WHO WAS MAILED IS ALREADY ON EVERY CANDIDATE -- record_stage_
+    email() has been writing it since the board existed. What was missing was a
+    way to read it back as the thing the recruiter actually did: "the twenty I
+    invited on Monday". A stage mail-out is one click that writes one row per
+    candidate seconds apart, so the batch is recoverable by clustering the
+    timestamps, and nothing new has to be recorded for a send that already
+    happened.
+
+    That last part is the point. This exists because a recruiter sent a
+    shortlist's worth of invitations and then found no way to get the list back
+    -- and by then the board had moved everyone into `interview`, which takes
+    them out of `top_candidates` and makes the live shortlist a DIFFERENT
+    twenty people. Reconstructing from the mail log is the only answer that
+    still works after the fact.
+
+    Newest batch first, which is the order they are asked for in. `key` is the
+    first mail's UTC timestamp as `20260907T142559`, and is what
+    `stage_send_batch()` takes back.
+    """
+    batches: list[dict] = []
+    for at, sub in _stage_email_rows(job_id, stage, job_ids):
+        if batches and at - batches[-1]["last_at"] <= STAGE_BATCH_GAP:
+            current = batches[-1]
+        else:
+            current = {"stage": stage, "at": at, "last_at": at,
+                       # URL-safe on purpose: this key is a query parameter,
+                       # and an ISO timestamp's "+00:00" decodes as a space
+                       # through any encoder that treats + as a literal.
+                       "key": at.strftime("%Y%m%dT%H%M%S"), "job_ids": set(),
+                       "submission_ids": []}
+            batches.append(current)
+        current["last_at"] = at
+        current["job_ids"].add(sub.get("job_id"))
+        current["submission_ids"].append(sub["_id"])
+
+    for batch in batches:
+        batch["count"] = len(batch["submission_ids"])
+        batch["job_ids"] = sorted(j for j in batch["job_ids"] if j is not None)
+    batches.reverse()
+    return batches
+
+
+def stage_send_batch(key: str, job_id: Optional[int] = None,
+                     stage: str = "interview",
+                     job_ids: Optional[set[int]] = None) -> Optional[dict]:
+    """
+    One batch from `stage_send_batches`, with its submissions attached.
+
+    Matched on the batch's own `key` rather than on an index, so a link to a
+    send keeps pointing at that send after a later mail-out has been added in
+    front of it.
+
+    Ordered by score, highest first -- the order the list was chosen in and the
+    order the recruiter remembers it in, not the order the mail loop happened
+    to write the rows.
+    """
+    for batch in stage_send_batches(job_id, stage, job_ids):
+        if batch["key"] != key:
+            continue
+        subs = list(get_db().submissions.find(
+            {"_id": {"$in": batch["submission_ids"]}},
+            {"submission_markdown": 0, "resume_text": 0},
+        ))
+        subs.sort(key=lambda s: (
+            -((s.get("evaluation") or {}).get("score") or 0),
+            s.get("candidate_name") or "",
+        ))
+        return {**batch, "submissions": subs}
     return None
 
 

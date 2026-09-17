@@ -1,0 +1,171 @@
+{
+  "key": "derived_technical_program_manager",
+  "unit": "Collaborative Document Editor",
+  "entity": "Ajaia",
+  "source": "derived",
+  "slugs": [
+    "technical-program-manager"
+  ],
+  "roles": [
+    "Technical Program and Project Manager, AI Delivery"
+  ],
+  "assessment": "Core Assignment",
+  "spike": "Deliberate Scope Cuts",
+  "seat": "Build a lightweight collaborative document editor inspired by Google Docs, demonstrating document creation/editing, file upload, sharing, persistence, and engineering quality within a 4-6 hour timebox, showing product judgment and full-stack execution.",
+  "core_skill": "Turning an open-ended product prompt into a coherent, shippable full-stack slice with deliberate prioritization under time pressure.",
+  "criteria": [
+    {
+      "key": "document_editing",
+      "label": "Document Creation & Editing (Task 1)",
+      "block": "work_product",
+      "weight": 20,
+      "anchors": {
+        "5": "Creates, renames, edits, saves, and reopens documents; supports all five rich-text formats (bold, italic, underline, headings/text size, bulleted/numbered lists); editing flow feels usable and coherent per assessment's 'usable and coherent' bar.",
+        "3": "Implements core CRUD for documents and at least three of five rich-text formats; editing works but has noticeable gaps (e.g., missing list support or heading levels don't persist).",
+        "1": "Only plain-text editing or document CRUD is broken; rich-text formatting largely absent or non-functional."
+      }
+    },
+    {
+      "key": "file_upload",
+      "label": "File Upload & Import (Task 2)",
+      "block": "work_product",
+      "weight": 15,
+      "anchors": {
+        "5": "Uploads at least one file type (.txt, .md, or .docx) and converts it into a new editable document or attaches it to a document; UI clearly states supported types per 'If you limit supported file types, state that clearly in the UI and README'.",
+        "3": "Uploads files but conversion to editable document is partial (e.g., .txt works but .md/.docx not handled) or attachment association is missing; supported types documented.",
+        "1": "File upload missing or non-functional; no supported-type disclosure in UI/README."
+      }
+    },
+    {
+      "key": "sharing_access",
+      "label": "Sharing & Access Control (Task 3)",
+      "block": "work_product",
+      "weight": 15,
+      "anchors": {
+        "5": "Implements document owner, a way to grant another user access, and a visible distinction between owned and shared documents; works with seeded/mocked auth per 'You may simulate users with seeded accounts, mocked auth, or a lightweight login flow'.",
+        "3": "Basic sharing exists (e.g., grant access) but owned vs shared distinction is missing or sharing logic has gaps (e.g., no owner concept, or shared users cannot open).",
+        "1": "Sharing not implemented or purely stubbed; no multi-user demonstration possible."
+      }
+    },
+    {
+      "key": "persistence",
+      "label": "Persistence & Data Integrity (Task 4)",
+      "block": "work_product",
+      "weight": 10,
+      "anchors": {
+        "5": "Documents survive refresh, formatting/structure preserved (rich-text round-trips), and shared access behavior demonstrable end-to-end; uses practical storage (SQLite, Postgres, Supabase, or documented file-based store).",
+        "3": "Documents persist but formatting loss on reload (e.g., HTML/JSON not fully round-tripped) or shared access not fully verifiable after refresh.",
+        "1": "No persistence or data lost on refresh; storage approach undocumented."
+      }
+    },
+    {
+      "key": "engineering_quality",
+      "label": "Engineering Quality & Deployment (Task 5)",
+      "block": "work_product",
+      "weight": 10,
+      "anchors": {
+        "5": "Includes all five minimums: clear setup/run instructions, working deployment reviewers can access, basic validation/error handling, at least one meaningful automated test, and a short architecture note explaining prioritization and why.",
+        "3": "Missing one or two of the five minimums (e.g., no automated test or architecture note incomplete); deployment works but setup instructions unclear.",
+        "1": "Missing three or more minimums; no deployment link or project cannot be run locally."
+      }
+    },
+    {
+      "key": "ai_forwardness",
+      "label": "AI-Native Workflow Note",
+      "block": "ai_forwardness",
+      "weight": 10,
+      "anchors": {
+        "5": "AI workflow note identifies specific tools, where AI materially sped up work, what AI-generated output was changed/rejected, and how correctness/UX/reliability were verified; demonstrates judgment not volume.",
+        "3": "Note covers tools and speedups but lacks concrete examples of changed/rejected output or verification steps; reads like a log not a judgment.",
+        "1": "No AI workflow note, or generic boilerplate without specifics to this project."
+      }
+    },
+    {
+      "key": "communication",
+      "label": "Deliverables & Walkthrough Video",
+      "block": "communication",
+      "weight": 10,
+      "anchors": {
+        "5": "All deliverables present (README.md, architecture note, AI note, SUBMISSION.md, live URL, video URL, screenshots/GIF) per 'Submit one Google Drive folder containing:'; video 3-5 min covers main flow, working end-to-end, deprioritized items, key decisions, AI support; SUBMISSION.md lists exactly what's included; any partial features clearly state what works, what's incomplete, next steps.",
+        "3": "Most deliverables present but one missing (e.g., no video or SUBMISSION.md incomplete); video exceeds 5 min or omits required sections; partial features not clearly documented.",
+        "1": "Multiple missing deliverables; no video; SUBMISSION.md absent; incomplete features undocumented."
+      }
+    },
+    {
+      "key": "spike",
+      "label": "Deliberate Scope Cuts",
+      "block": "spike",
+      "weight": 10,
+      "anchors": {
+        "5": "Architecture note and video explicitly map each scope cut to a timebox tradeoff, explain why the remaining slice is coherent, and show the cut was intentional not accidental; deprioritized items listed with 'what you would build next with another 2-4 hours'.",
+        "3": "Some scope cuts explained but rationale is thin or post-hoc; deprioritized list exists but doesn't connect to the 4-6 hour constraint.",
+        "1": "No scope cuts acknowledged, or cuts appear accidental (broken features passed as complete); no 'what you would build next' section."
+      }
+    }
+  ],
+  "auto_fails": [
+    "No live deployment URL provided (reviewers cannot test the product)",
+    "No Google Drive folder with source code (cannot review implementation)",
+    "Sharing flow completely absent (core requirement Task 3)",
+    "Document editing is plain-text only with no rich-text formatting (fails Task 1 core)",
+    "No persistence - documents lost on refresh (fails Task 4)",
+    "AI workflow note missing entirely (explicit requirement)"
+  ],
+  "red_flags": [
+    "Deployment requires paid service or reviewer payment (violates 'Do not require reviewers to pay for a dependency or service')",
+    "Video exceeds 5 minutes significantly",
+    "Supported file types not disclosed in UI/README when limited",
+    "No seeded users/credentials provided for sharing demo",
+    "Architecture note missing or generic boilerplate",
+    "Automated test is trivial (e.g., only tests true === true)"
+  ],
+  "tells": {
+    "strong": "Architecture note explicitly maps each scope cut to a timebox tradeoff and explains why the remaining slice is coherent",
+    "weak": "README lists features not actually implemented in the live deployment"
+  },
+  "gia": {
+    "primary": [
+      "Reasoning",
+      "Perceptual Speed"
+    ],
+    "secondary": [
+      "Word Meaning"
+    ],
+    "why": "The assessment demands rapid synthesis of ambiguous product requirements into a coherent technical plan and clear written artifacts under time pressure.",
+    "proxies": [
+      "Architecture note's prioritization rationale",
+      "SUBMISSION.md's completeness vs. actual delivery",
+      "Video's articulation of deprioritized work",
+      "AI workflow note's verification specifics"
+    ]
+  },
+  "triage": [
+    {
+      "key": "has_live_deployment",
+      "label": "Live deployment URL is accessible and loads without authentication errors"
+    },
+    {
+      "key": "has_drive_folder",
+      "label": "Google Drive folder link provided and contains source code directory"
+    },
+    {
+      "key": "has_readme_with_setup",
+      "label": "README.md includes local setup and run instructions that work"
+    },
+    {
+      "key": "has_sharing_demo",
+      "label": "Seeded users or test credentials provided to demonstrate owned vs shared document distinction"
+    },
+    {
+      "key": "has_rich_text_editing",
+      "label": "Editor supports at least bold, italic, and one of (heading/list/underline) per Task 1"
+    },
+    {
+      "key": "has_ai_workflow_note",
+      "label": "AI workflow note (Markdown/PDF) exists and names specific tools used"
+    }
+  ],
+  "repairs": [],
+  "derived_by": "nvidia/nemotron-3-ultra-550b-a55b",
+  "pack_version": "2026-08-12"
+}
