@@ -4762,6 +4762,13 @@ function drawerContent(c) {
     ${resumeScreeningTable(ev)}
     ${cvTable(ev)}`;
 
+  const assessmentScore = ev
+    ? `${fmtScore(ev.rubric_score ?? ev.score)} / 100`
+    : 'Not scored';
+  const assessmentDetails = ev
+    ? gridTable(ev)
+    : '<p class="matrix-note">This candidate has not been evaluated yet.</p>';
+
   const submissionSection = `
     <div class="drawer-section">
       <h3>Submission</h3>
@@ -4786,7 +4793,7 @@ function drawerContent(c) {
       ${briefSection}
       ${scoreDisclosure('CV score', cvSummary, cvSection)}
       ${cvUnavailable ? '' : scoreDisclosure('Assessment score',
-        `${fmtScore(ev.rubric_score ?? ev.score)} / 100`, gridTable(ev))}
+        assessmentScore, assessmentDetails)}
       ${!cvUnavailable && evaluateButton(c) ? `<div class="drawer-section drawer-actions">
         ${evaluateButton(c)}
       </div>` : cvUnavailable ? `<div class="drawer-section drawer-actions">
