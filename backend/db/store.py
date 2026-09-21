@@ -872,14 +872,14 @@ def upsert_submissions(records: list[dict]) -> dict:
     }
 
 
-def set_decision(submission_id: int, status: str, reason: str, source: str) -> None:
+def set_decision(submission_id: int, status: str, reason: str, source: str) -> bool:
     """
     Record an accept/reject/pending decision.
 
     `source` is "auto" for the missing-artefact rule or "manual" for a human
     override; apply_auto_rejections() refuses to overwrite a manual one.
     """
-    get_db().submissions.update_one(
+    result = get_db().submissions.update_one(
         {"_id": submission_id},
         {"$set": {"decision": {
             "status": status,
@@ -902,6 +902,7 @@ def set_evaluation(submission_id: int, evaluation: dict) -> None:
             "decision.at": now(),
         }},
     )
+    return bool(result.matched_count)
 
 
 def block_cv_evaluation(submission_id: int, reason: str = "cv_cannot_be_fetched") -> None:

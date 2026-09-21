@@ -3832,11 +3832,20 @@ async function openDrawer(submissionId) {
     $('drawerBody').innerHTML = drawerContent(c);
 
     const reconsider = $('drawerBody').querySelector('[data-reconsider]');
+    const drawerSubmissionId = Number(c.id ?? c.submission_id);
     if (reconsider) {
-      reconsider.addEventListener('click', () => setDecision(c.id, 'pending'));
+      reconsider.addEventListener('click', (event) => {
+        event.preventDefault();
+        setDecision(drawerSubmissionId, 'pending');
+      });
     }
     const reject = $('drawerBody').querySelector('[data-reject]');
-    if (reject) reject.addEventListener('click', () => setDecision(c.id, 'rejected'));
+    if (reject) {
+      reject.addEventListener('click', (event) => {
+        event.preventDefault();
+        setDecision(drawerSubmissionId, 'rejected');
+      });
+    }
     const evaluate = $('drawerBody').querySelector('[data-evaluate]');
     if (evaluate) {
       evaluate.addEventListener('click', () => evaluateOne(c.id, evaluate));
@@ -4822,8 +4831,8 @@ function drawerContent(c) {
       <div class="drawer-actions">
         ${evaluateButton(c)}
         ${status === 'rejected'
-          ? '<button class="btn" data-reconsider>Move to pending</button>'
-          : '<button class="btn" data-reject>Move to rejected</button>'}
+          ? '<button type="button" class="btn" data-reconsider>Move to pending</button>'
+          : '<button type="button" class="btn" data-reject>Move to rejected</button>'}
       </div>
     </div>
     ${submissionSection}`;
@@ -4895,11 +4904,16 @@ async function uploadResumeFile(submissionId, input) {
 }
 
 async function setDecision(submissionId, status) {
+  const id = Number(submissionId);
+  if (!Number.isInteger(id) || id <= 0) {
+    toast('This candidate has no valid submission ID.', true);
+    return;
+  }
   try {
     const result = await api('/api/evaluations/decision', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ submission_id: submissionId, status }),
+      body: JSON.stringify({ submission_id: id, status }),
     });
     toast(result.message);
     closeDrawer();

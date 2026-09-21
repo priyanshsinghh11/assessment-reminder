@@ -595,8 +595,10 @@ def api_decision():
     if error:
         return error
 
-    store.set_decision(submission_id, status,
-                       body.get("reason") or "manual_override", "manual")
+    changed = store.set_decision(
+        submission_id, status, body.get("reason") or "manual_override", "manual")
+    if not changed:
+        return jsonify({"error": f"Submission {submission_id} was not updated."}), 409
     return jsonify({"message": f"Moved {submission_id} to {status}.",
                     "submission": _json_safe(store.get_submission(submission_id))})
 
