@@ -1015,6 +1015,21 @@ def set_resume(submission_id: int, text: str, error: str, source_link: str) -> N
     )
 
 
+def set_linked_submission(submission_id: int, text: str, sources: list[str],
+                          errors: list[str], links: list[str]) -> None:
+    """Store bounded text crawled from candidate-submitted document links."""
+    get_db().submissions.update_one(
+        {"_id": submission_id},
+        {"$set": {
+            "linked_submission_text": text,
+            "linked_submission_sources": sources,
+            "linked_submission_errors": errors,
+            "linked_submission_links": links,
+            "linked_submission_fetched_at": now(),
+        }},
+    )
+
+
 def needs_resume(retry_errors: bool = False, limit: int = 0,
                  transient_only: bool = False,
                  job_id: Optional[int] = None) -> list[dict]:

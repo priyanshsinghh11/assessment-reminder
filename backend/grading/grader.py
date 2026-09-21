@@ -39,7 +39,7 @@ import logging
 from backend.db import store
 from backend.grading import cv_evaluator, evaluator
 from backend.grading import rubric_pack as pack
-from backend.scraping import resume_reader
+from backend.scraping import resume_reader, submission_reader
 
 log = logging.getLogger(__name__)
 
@@ -108,6 +108,40 @@ def ensure_resume(submission: dict, persist: bool = True) -> dict:
     return submission
 
 
+def ensure_linked_submission(submission: dict, persist: bool = True) -> dict:
+    """Fetch public Drive/Docs work linked from the candidate's answer once."""
+    markdown = submission.get("submission_markdown") or ""
+    links = submission_reader.extract_links(markdown)
+    if not links:
+        return submission
+
+    attempted = submission.get("linked_submission_fetched_at") is not None
+    stored_links = set(submission.get("linked_submission_links") or ())
+    if attempted and set(links).issubset(stored_links):
+        return submission
+
+    result = submission_reader.read_submission(markdown)
+    submission["linked_submission_text"] = result["text"]
+    submission["linked_submission_sources"] = result["sources"]
+    submission["linked_submission_errors"] = result["errors"]
+    submission["linked_submission_links"] = result["links"]
+    submission["linked_submission_fetched_at"] = store.now()
+    if result["errors"]:
+        log.info("linked submission fetch notes for %s: %s",
+                 submission.get("_id"), "; ".join(result["errors"]))
+    if not persist:
+        return submission
+    try:
+        store.set_linked_submission(
+            submission["_id"], result["text"], result["sources"],
+            result["errors"], result["links"],
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Could not store linked submission for %s: %s",
+                    submission.get("_id"), exc)
+    return submission
+
+
 def is_cv_only(grid: dict) -> bool:
     """
     Whether this grid is marked from the record alone.
@@ -130,6 +164,7 @@ def is_cv_only(grid: dict) -> bool:
 def grade_and_store(submission: dict, role: dict, grid: dict) -> dict:
     """Mark one candidate with whichever grader their role uses, and store it."""
     ensure_resume(submission)
+    ensure_linked_submission(submission)
     if is_cv_only(grid):
         return cv_evaluator.evaluate_and_store_cv(submission, role, grid)
     return evaluator.evaluate_and_store(submission, role, grid)
@@ -138,6 +173,7 @@ def grade_and_store(submission: dict, role: dict, grid: dict) -> dict:
 def grade(submission: dict, role: dict, grid: dict) -> dict:
     """The same choice, without writing to Mongo."""
     ensure_resume(submission, persist=False)
+    ensure_linked_submission(submission, persist=False)
     if is_cv_only(grid):
         return cv_evaluator.evaluate_cv(submission, role, grid)
     return evaluator.evaluate(submission, role, grid)
