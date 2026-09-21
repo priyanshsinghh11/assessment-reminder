@@ -283,8 +283,11 @@ def api_role_candidates(job_id: int):
                                          default_tier=default_tier)]
     for candidate in candidates:
         if candidate.get("resume_link"):
-            candidate["resume_open_link"] = resume_reader.direct_url(
-                candidate["resume_link"])
+            # Keep the candidate's original share/view URL for recruiter
+            # clicks. `resume_reader.direct_url()` is intentionally a file
+            # download URL for text extraction, but exposing it here makes a
+            # browser download the CV instead of opening its viewer.
+            candidate["resume_open_link"] = candidate["resume_link"]
     # Do not let an old evaluation continue to look current when the stored
     # resume fetch already failed. Grading now blocks these rows; this keeps
     # previously stored scores honest until the role is reloaded/re-graded.
@@ -335,8 +338,9 @@ def api_submission(submission_id: int):
 
     payload = _project(_json_safe(sub))
     if payload.get("resume_link"):
-        payload["resume_open_link"] = resume_reader.direct_url(
-            payload["resume_link"])
+        # The UI link must open the share/view page. Direct download URLs are
+        # for the server-side resume reader only.
+        payload["resume_open_link"] = payload["resume_link"]
     if ((payload.get("resume_link") or "").strip()
             and not (payload.get("resume_text") or "").strip()):
         payload["cv_fetch_status"] = "cv_cannot_be_fetched"

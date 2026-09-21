@@ -374,9 +374,10 @@ class _Retry(RuntimeError):
     """This attempt is spent; the next one may work. Carries the reason."""
 
 
-def _complete(resp, messages: list[dict], max_tokens: int, attempt: int) -> str:
+def _complete(resp, messages: list[dict], max_tokens: int, attempt: int,
+              total_timeout: Optional[float] = None) -> str:
     """Drain a 200 into the reply text, and pay the throttle on the way out."""
-    content = _read_stream(resp)
+    content = _read_stream(resp, total_timeout=total_timeout)
     if not content.strip():
         # Answered, but said nothing -- seen when a reasoning model spends the
         # whole output budget thinking. Retriable, and not worth a pause.
@@ -445,7 +446,7 @@ def _handle_error_status(resp, attempt: int) -> None:
     )
 
 
-def _read_stream(resp) -> str:
+def _read_stream(resp, total_timeout: Optional[float] = None) -> str:
     """
     Reassemble a streamed chat completion.
 
@@ -465,8 +466,9 @@ def _read_stream(resp) -> str:
             break
         # requests' read timeout resets on every chunk, so a stream that
         # trickles forever would never trip it. This is the backstop.
-        if time.monotonic() - started > LLM_TIMEOUT:
-            raise requests.Timeout(f"reply ran past {LLM_TIMEOUT:.0f}s")
+        timeout = total_timeout or LLM_TIMEOUT
+        if time.monotonic() - started > timeout:
+            raise requests.Timeout(f"reply ran past {timeout:.0f}s")
         try:
             delta = json.loads(body)["choices"][0].get("delta") or {}
         except (ValueError, KeyError, IndexError):
@@ -477,7 +479,7 @@ def _read_stream(resp) -> str:
 
 
 def _chat(messages: list[dict], max_tokens: int = 1500,
-          json_mode: bool = False) -> str:
+          json_mode: bool = False, deadline: Optional[float] = None) -> str:
     """
     One chat-completions call, retrying on rate limits and transient errors.
 
@@ -520,6 +522,14 @@ def _chat(messages: list[dict], max_tokens: int = 1500,
     last_error = None
     for attempt in range(LLM_MAX_RETRIES):
         try:
+            remaining = (deadline - time.monotonic()) if deadline else None
+            if remaining is not None and remaining <= 0:
+                raise EvaluationFailed(
+                    "Per-candidate evaluation budget expired before retry.")
+            read_timeout = min(LLM_TTFT_TIMEOUT, remaining) \
+                if remaining is not None else LLM_TTFT_TIMEOUT
+            total_timeout = min(LLM_TIMEOUT, remaining) \
+                if remaining is not None else LLM_TIMEOUT
             # (connect, read). The read half is the silence budget: it is the
             # gap requests will tolerate before the next chunk, so it bounds
             # the wait for the first token without bounding the reply.
@@ -529,10 +539,11 @@ def _chat(messages: list[dict], max_tokens: int = 1500,
             # land and the wait for the first token moves into _read_stream,
             # so a timeout raised there is the ordinary case, not the odd one.
             with requests.post(url, headers=headers, json=payload,
-                               timeout=(10, LLM_TTFT_TIMEOUT),
-                               stream=True) as resp:
+                timeout=(10, read_timeout),
+                stream=True) as resp:
                 if resp.status_code == 200:
-                    return _complete(resp, messages, max_tokens, attempt)
+                    return _complete(resp, messages, max_tokens, attempt,
+                                     total_timeout=total_timeout)
                 _handle_error_status(resp, attempt)     # raises, or falls
                 last_error = f"HTTP {resp.status_code}"  # through to retry
                 continue
@@ -2952,6 +2963,8 @@ def evaluate(submission: dict, role: dict, grid: dict) -> dict:
             # model.
             max_tokens=LLM_MAX_OUTPUT_TOKENS,
             json_mode=True,
+            deadline=(started + LLM_CANDIDATE_BUDGET
+                      if LLM_CANDIDATE_BUDGET else None),
         )
         try:
             verdict = _parse_verdict(raw, grid, answer, artefacts, has_cv,
