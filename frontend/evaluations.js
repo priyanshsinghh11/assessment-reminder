@@ -4790,6 +4790,7 @@ function drawerContent(c) {
         <p class="matrix-note">Open the original application and submitted materials in Workable.</p>
         <p>${link(c.admin_url, 'Open candidate in portal')}</p>
       </div>
+      ${pipelineSection(c)}
       ${briefSection}
       ${scoreDisclosure('CV score', cvSummary, cvSection)}
       ${cvUnavailable ? '' : scoreDisclosure('Assessment score',
