@@ -745,6 +745,53 @@ def _who() -> str:
     return ((_current_user() or {}).get("email") or "").strip().lower()
 
 
+def _own_rejections_guard(emails) -> object:
+    """
+    Error tuple unless every address belongs to a candidate this account may
+    already see rejected, else None. An admin passes straight through.
+
+    WHAT THIS IS PROTECTING. The rejection endpoints take addresses, not
+    submission ids -- the list is de-duplicated by address, because somebody
+    who sat two assessments is one person owed one email. That is right for
+    the list and wide open as a permission: `_role_guard` on the `job_id`
+    beside them checks a number nothing here is keyed by, so without this a
+    hiring manager could paste any address in the company and mail it.
+
+    So the question asked is not "is this address rejected" but "is this
+    address rejected ON A ROLE YOU OWN", answered from the same
+    store.list_rejected() the panel itself is drawn from. Anything else is
+    refused by name rather than silently dropped: a send that quietly mails
+    nine of ten is worse than one that refuses and says which.
+    """
+    # Asked of the seat first and the scope second. They agree in production --
+    # visible_job_ids() answers None for an admin -- but only the first is true
+    # when AUTH_ENABLED is off, where visible_job_ids() is never consulted and
+    # an anonymous caller scopes to the empty set. Reading the scope alone
+    # there would refuse every address on an installation with no auth at all.
+    if _is_admin():
+        return None
+    scope = _scope()
+    if scope is None:                       # recruiting team: the whole company
+        return None
+
+    wanted = {store.clean_email(e) for e in emails}
+    wanted.discard("")
+    if not wanted:
+        return None
+
+    mine = {store.clean_email(row.get("candidate_email"))
+            for row in store.list_rejected(job_ids=scope)}
+    stray = sorted(wanted - mine)
+    if not stray:
+        return None
+    return jsonify({
+        "error": (f"{len(stray)} of those are not rejected candidates on a "
+                  f"role you own: {', '.join(stray[:5])}"
+                  + (" and others." if len(stray) > 5 else ".")),
+        "auth": "forbidden",
+    }), 403
+
+
 def _recipients(body: dict) -> tuple[list, list, object]:
     """
     (entries, unreadable, error) from a request body.
@@ -904,15 +951,19 @@ def api_import_rejections():
     row -- "rejected at CV screen, Aug round" is the sort of thing that answers
     a question six months later that nothing else here can.
     """
-    error = _require_admin()
-    if error:
-        return error
     error = _mongo_guard()
     if error:
         return error
 
     body = request.get_json(silent=True) or {}
     entries, unreadable, failure = _recipients(body)
+    if failure:
+        return failure
+
+    # A manager may record their own candidates and nobody else's. Marking
+    # somebody "already told" is not a harmless note: it takes them out of the
+    # next send, so a stray address here is a candidate who never hears at all.
+    failure = _own_rejections_guard(e["email"] for e in entries)
     if failure:
         return failure
 
@@ -947,9 +998,6 @@ def api_remove_rejections():
     in as many words in the response, because "removed" could be read as the
     opposite.
     """
-    error = _require_admin()
-    if error:
-        return error
     error = _mongo_guard()
     if error:
         return error
@@ -958,6 +1006,12 @@ def api_remove_rejections():
     emails = body.get("emails")
     if not isinstance(emails, list) or not emails:
         return jsonify({"error": "emails must be a non-empty list."}), 400
+
+    # Undoing somebody else's "already told" puts a candidate back in front of
+    # a send that is not this account's to make.
+    failure = _own_rejections_guard(emails)
+    if failure:
+        return failure
 
     removed = store.delete_rejections(emails)
     log.info("%s removed %d row(s) from the rejection ledger",
@@ -980,12 +1034,15 @@ def api_preview_rejection():
     back to a sample name, which renders the same message with no link under it
     -- honest, for a mail that is not going anywhere.
     """
-    error = _require_admin()
-    if error:
-        return error
-
     body = request.get_json(silent=True) or {}
     job_id, job_title, failure = _role_title(body.get("job_id"))
+    if failure:
+        return failure
+
+    # Rendered against a real recipient, so the footer carries that person's
+    # real unsubscribe link -- which is a signed credential for their address.
+    # A manager gets one only for a candidate already on their own list.
+    failure = _own_rejections_guard([body.get("email")])
     if failure:
         return failure
 
@@ -1039,9 +1096,6 @@ def api_send_rejections():
     ledger, the per-send cap -- is in rejections.send_bulk() rather than here,
     so the CLI or a future scheduled run cannot get a different answer.
     """
-    error = _require_admin()
-    if error:
-        return error
     error = _mongo_guard()
     if error:
         return error
@@ -1051,6 +1105,13 @@ def api_send_rejections():
 
     body = request.get_json(silent=True) or {}
     entries, unreadable, failure = _recipients(body)
+    if failure:
+        return failure
+
+    # THE LINE THAT KEEPS A MANAGER TO THEIR OWN CANDIDATES. Checked on the
+    # addresses themselves rather than on `job_id`, because the addresses are
+    # what gets mailed -- see _own_rejections_guard.
+    failure = _own_rejections_guard(e["email"] for e in entries)
     if failure:
         return failure
 
@@ -1096,6 +1157,7 @@ def api_send_rejections():
                 "totals": None,
                 "started_at": datetime.now(timezone.utc),
                 "finished_at": None,
+                "by": _who(),
             }
         worker = threading.Thread(
             target=_run_reject_job,
@@ -1129,12 +1191,18 @@ def api_send_rejections():
 
 @app.route("/api/rejections/send/<job_id>")
 def api_rejection_status(job_id: str):
-    """How a rejection batch is going. Polled by the page that started it."""
-    error = _require_admin()
+    """
+    How a rejection batch is going. Polled by the page that started it.
+
+    A manager watches their own batch and nobody else's, and the refusal is
+    the same 404 a swept job gets: which sends other people are running is not
+    something to leak through a guessing game on the id.
+    """
+    error = _mongo_guard()
     if error:
         return error
     with _reject_jobs_lock:
         job = _reject_jobs.get(job_id)
-        if job is None:
+        if job is None or (not _is_admin() and job.get("by") != _who()):
             return jsonify({"error": "No such send. It may have been swept."}), 404
         return jsonify(_reject_snapshot(job))

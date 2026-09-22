@@ -1319,15 +1319,21 @@ function refreshRejectCounts() {
 
   for (const id of ['copyEmailsBtn', 'copyBccBtn', 'exportCsvBtn', 'markMailedBtn',
                     'sendRejectBtn']) {
-    $(id).disabled = chosen.length === 0;
+    const btn = $(id);
+    if (btn) btn.disabled = chosen.length === 0;
   }
-  // Hidden rather than disabled for a hiring manager: /api/rejections/send is
-  // admin-only, so for them this is not a button that needs a tick, it is a
-  // button that is not theirs. Same rule the invite button follows -- what is
-  // DRAWN, never what is allowed; the server refuses either way.
-  $('sendRejectBtn').hidden = !state.isAdmin;
-  $('sendRejectBtn').textContent = chosen.length > 1
-    ? `Send ${chosen.length} rejection emails` : 'Send rejection email';
+  // Drawn for a manager as well as an admin. The send is theirs to make for
+  // their own candidates -- the server scopes it to the roles they own rather
+  // than to the seat they sit in, so there is nothing here to hide. setHidden
+  // rather than a bare .hidden: this is the newest element on the page and so
+  // the one a browser on cached HTML is likeliest to be missing, and a throw
+  // here would take the whole rejection panel down with it.
+  setHidden('sendRejectBtn', false);
+  const sendBtn = $('sendRejectBtn');
+  if (sendBtn) {
+    sendBtn.textContent = chosen.length > 1
+      ? `Send ${chosen.length} rejection emails` : 'Send rejection email';
+  }
   $('unmarkBtn').disabled = picked.length === 0;
   $('mailedCsvBtn').disabled = mailed.length === 0;
 

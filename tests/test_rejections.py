@@ -19,6 +19,8 @@ reach outside -- the opt-out list and the ledger -- are the seams every test
 here patches, which is the same seam the real code reads them through.
 """
 
+from datetime import datetime, timezone
+
 import pytest
 
 from backend.mail import rejections
@@ -490,6 +492,113 @@ class TestTheRoutes:
         body = dashboard.post("/api/rejections/preview",
                               json={"email": "asha@x.com"}).get_json()
         assert body["placeholders"] == list(rejections.PLACEHOLDERS)
+
+
+# ---------------------------------------------------------------------------
+# A hiring manager may reject their own candidates -- and only their own
+# ---------------------------------------------------------------------------
+#
+# The rejection endpoints were admin-only, and on an installation with no admin
+# seat that made the one surface that sends a rejection reachable by nobody.
+# They are scoped now rather than gated, and the scope is the thing to test:
+# these routes are keyed by EMAIL ADDRESS, not by submission id, so the
+# `job_id` beside them guards a number nothing is looked up by. Without
+# _own_rejections_guard a manager on one role could paste any address in the
+# company into a send.
+
+@pytest.fixture
+def manager(monkeypatch):
+    """The app as a hiring manager who owns role 38 and nothing else."""
+    from backend.web import app as web_app, server, views_shortlist
+
+    monkeypatch.setattr(web_app, "AUTH_ENABLED", False)
+    monkeypatch.setattr(views_shortlist, "AUTH_ENABLED", False, raising=False)
+    monkeypatch.setattr(views_shortlist, "_mongo_guard", lambda: None)
+    monkeypatch.setattr(views_shortlist, "_is_admin", lambda: False)
+    monkeypatch.setattr(views_shortlist, "_scope", lambda: {38})
+    monkeypatch.setattr(views_shortlist, "_who", lambda: "mgr@ajaia.ai")
+    # Their own list: who is rejected on role 38. Anything not in here is
+    # somebody else's candidate.
+    monkeypatch.setattr(views_shortlist.store, "list_rejected",
+                        lambda **kw: [{"candidate_email": "mine@x.com",
+                                       "candidate_name": "Mine"}])
+    monkeypatch.setattr(views_shortlist.store, "clean_email",
+                        lambda v: str(v or "").strip().lower())
+    server.app.config["TESTING"] = True
+    server.app.config["REVIEW_ONLY"] = False
+    return server.app.test_client()
+
+
+class TestAManagerIsHeldToTheirOwnCandidates:
+    def test_they_can_send_to_a_candidate_on_their_role(self, manager, seams):
+        response = manager.post("/api/rejections/send",
+                                json={"text": "mine@x.com"})
+        assert response.status_code == 202
+
+    def test_an_address_from_another_role_is_refused(self, manager, seams):
+        # THE BUG THIS PREVENTS: a manager on one role mailing the whole
+        # company. 403 before the lock, before the thread, before Brevo.
+        response = manager.post("/api/rejections/send",
+                                json={"text": "someone.elses@x.com"})
+        assert response.status_code == 403
+        assert seams["sent"] == []
+
+    def test_one_stray_address_refuses_the_whole_batch(self, manager, seams):
+        # Not "mail the nine that were fine". A send that quietly drops one of
+        # ten is a candidate nobody ever finds out was missed.
+        response = manager.post(
+            "/api/rejections/send",
+            json={"recipients": [{"email": "mine@x.com", "name": "Mine"},
+                                 {"email": "someone.elses@x.com", "name": "X"}]})
+        assert response.status_code == 403
+        assert "someone.elses@x.com" in response.get_json()["error"]
+        assert seams["sent"] == []
+
+    def test_marking_somebody_elses_candidate_as_told_is_refused(
+            self, manager, seams):
+        # Recording a rejection is not a harmless note -- it takes that person
+        # out of the next send, so a stray address is somebody who never hears.
+        response = manager.post("/api/rejections/import",
+                                json={"text": "someone.elses@x.com"})
+        assert response.status_code == 403
+        assert seams["recorded"] == []
+
+    def test_undoing_somebody_elses_record_is_refused(self, manager):
+        response = manager.post("/api/rejections/remove",
+                                json={"emails": ["someone.elses@x.com"]})
+        assert response.status_code == 403
+
+    def test_previewing_against_a_stranger_is_refused(self, manager):
+        # The preview renders that recipient's real unsubscribe link, which is
+        # a signed credential for their address.
+        assert manager.post("/api/rejections/preview",
+                            json={"email": "someone.elses@x.com"}
+                            ).status_code == 403
+
+    def test_they_cannot_watch_somebody_elses_batch(self, manager, seams,
+                                                    monkeypatch):
+        from backend.web import views_shortlist
+        # 404, not 403: which sends other people are running is not something
+        # to leak through a guessing game on the id.
+        with views_shortlist._reject_jobs_lock:
+            views_shortlist._reject_jobs["someone-elses"] = {
+                "id": "someone-elses", "state": "running", "done": 0,
+                "total": 1, "message": "", "error": None, "totals": None,
+                "started_at": datetime(2026, 9, 22, tzinfo=timezone.utc),
+                "finished_at": None, "by": "another@ajaia.ai",
+            }
+        try:
+            assert manager.get("/api/rejections/send/someone-elses"
+                               ).status_code == 404
+        finally:
+            with views_shortlist._reject_jobs_lock:
+                views_shortlist._reject_jobs.pop("someone-elses", None)
+
+    def test_an_admin_is_not_scoped(self, dashboard, seams):
+        # _scope() is None for the recruiting team, and the guard returns
+        # before it reads any list at all.
+        assert dashboard.post("/api/rejections/send",
+                              json={"text": "anybody@x.com"}).status_code == 202
 
 
 class TestReviewOnlyMode:

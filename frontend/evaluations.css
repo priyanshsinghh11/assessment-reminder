@@ -194,8 +194,14 @@
 
 /* Managers use the role as a focused decision screen. Recruiting-only bulk
  * operations stay available to admins but do not distract from the four
- * candidate lists a manager actually works. */
-body.manager-view #rejectedPanel,
+ * candidate lists a manager actually works.
+ *
+ * #rejectedPanel IS NO LONGER ONE OF THEM. Telling a candidate no is part of
+ * working the four lists, not a recruiting-only bulk operation, and hiding it
+ * here left the only surface that sends a rejection reachable by nobody on an
+ * installation with no admin seat. It is scoped instead of hidden: the panel
+ * draws this manager's roles, and every endpoint behind it refuses an address
+ * that is not rejected on one of them -- see _own_rejections_guard. */
 body.manager-view #pipelinePanel .panel-head .controls select,
 body.manager-view #pipelinePanel #pipelineCopyBtn,
 body.manager-view #pipelinePanel #pipelineCsvBtn {
