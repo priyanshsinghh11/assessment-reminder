@@ -380,3 +380,223 @@ def test_media_note_still_explains_a_genuinely_empty_field():
     block = evaluator._artefact_block(submission, VIDEO_GRID)
 
     assert "video field is empty" in block
+
+
+# ---------------------------------------------------------------------------
+# Submission 9692's folder, exactly as Drive serves it
+#
+# Two .mp4 files of 12.1 MB and 13.8 MB, a Google Doc and a .pptx. Everything
+# below is a bug that folder exposed.
+# ---------------------------------------------------------------------------
+
+VIDEO_A = "1xJQmeFZ_380sagKXPb4DPh1Ea9OgVdJP"
+VIDEO_B = "1bgl5MgclIrkmHtWqxTJwfahL6A4zYV0m"
+DOC = "1Ro7NNGMXwfNAcc-H8rOuzICo0JQ8ucBm3BEmQHEAE0k"
+DECK = "1RMBx6dTXo8Io17i10hEdszsKeEAjbrLv"
+
+REAL_FOLDER_HTML = (
+    "<html><body>"
+    + _row(VIDEO_A, "ajaia.ai Candidate responses.mp4")
+    + _row(VIDEO_B, "ajaia.ai Strategy Presentation.mp4")
+    + _row(DOC, "Markdown Google Docs")
+    + _row(DECK, "Westbrook_90_Day_AI_Strategy.pptx")
+    # Drive's script blobs repeat every id as a bare download URL, with no
+    # filename attached -- this is the path that re-queued the videos.
+    + "<script>"
+    + " ".join(f"https://drive.google.com/uc?export=download&id={i}"
+               for i in (VIDEO_A, VIDEO_B, DOC, DECK))
+    + ' https://drive.google.com/?tab=oo'
+    + "</script></body></html>"
+).encode()
+
+
+def test_videos_are_not_queued_even_though_drive_repeats_their_ids():
+    """
+    The 12 MB and 13.8 MB downloads that produced two fetch_timeouts.
+
+    Skipping them in the item-row loop was never enough: the regex sweep read
+    the same ids back out of Drive's script blobs, where no filename is
+    attached to tell a deck from a recording.
+    """
+    links = list(submission_reader._html_links(REAL_FOLDER_HTML, FOLDER))
+    ids = {submission_reader.file_id_of(u) for u in links}
+
+    assert VIDEO_A not in ids
+    assert VIDEO_B not in ids
+    assert DECK in ids and DOC in ids
+
+
+def test_drive_navigation_is_not_queued():
+    links = list(submission_reader._html_links(REAL_FOLDER_HTML, FOLDER))
+    assert not any("tab=oo" in u for u in links)
+
+
+def test_one_document_reached_by_two_urls_is_fetched_once():
+    """
+    The doc arrived as /edit and as uc?export=download.
+
+    The second attempt returned HTTP 500 and was recorded as a failure to read
+    a document already sitting in `parts` -- which then counted toward the
+    "some of their links could not be read" note the grader is shown.
+    """
+    edit = f"https://docs.google.com/document/d/{DOC}/edit"
+    download = f"https://drive.google.com/uc?export=download&id={DOC}"
+    calls = []
+
+    def fake_fetch(url):
+        calls.append(url)
+        if "uc?export=download" in url:
+            return b"", "", "http_500"
+        return b"%PDF-doc", "application/pdf", ""
+
+    with patch.object(submission_reader, "_fetch", side_effect=fake_fetch), \
+            patch("backend.scraping.submission_reader.resume_reader.extract",
+                  return_value="The current-state map " * 50):
+        result = submission_reader.read_submission(f"{edit} and {download}")
+
+    assert len(calls) == 1, f"fetched the same document twice: {calls}"
+    assert result["errors"] == []
+    assert "current-state map" in result["text"]
+
+
+def test_an_avatar_png_is_never_stored_as_the_candidates_writing():
+    """440 characters beginning \x89PNG sat in 9692's submission text."""
+    png = (b"\x89PNG\r\n\x1a\n" + bytes(range(256)) * 4)
+    avatar = "https://lh3.googleusercontent.com/ogw/default-user=s83"
+
+    with patch.object(submission_reader, "_fetch",
+                      return_value=(png, "image/png", "")):
+        result = submission_reader.read_submission(avatar)
+
+    assert result["text"] == ""
+    assert result["sources"] == []
+    assert any("not_a_document" in e for e in result["errors"])
+
+
+def test_the_whole_folder_reads_as_deck_plus_document_and_two_videos():
+    """End to end on 9692's real folder shape."""
+    def fake_fetch(url):
+        if "/folders/" in url:
+            return REAL_FOLDER_HTML, "text/html", ""
+        if DECK in url:
+            return b"%PDF-deck", "application/pdf", ""
+        if DOC in url:
+            return b"%PDF-doc", "application/pdf", ""
+        raise AssertionError(f"should not have fetched {url}")
+
+    with patch.object(submission_reader, "_fetch", side_effect=fake_fetch), \
+            patch("backend.scraping.submission_reader.resume_reader.extract",
+                  return_value="Authorization-ready intake " * 50):
+        result = submission_reader.read_submission(FOLDER)
+
+    assert result["media"] == ["ajaia.ai Candidate responses.mp4",
+                               "ajaia.ai Strategy Presentation.mp4"]
+    assert result["errors"] == []
+    assert len(result["sources"]) == 2      # the doc and the deck, not the folder
+    assert "Authorization-ready intake" in result["text"]
+    assert "Skip to main content" not in result["text"]
+
+
+# ---------------------------------------------------------------------------
+# Recognising a recording from the response, not from Drive's HTML
+#
+# A signed-out folder does not serve the data-id/aria-label rows
+# `_folder_entries` reads; the ids come out of script blobs with no filename.
+# On the live folder that left the filename check finding nothing and both
+# videos queued anyway.
+# ---------------------------------------------------------------------------
+
+class FakeResponse:
+    def __init__(self, headers):
+        self.headers = headers
+
+
+def test_media_is_named_from_content_disposition():
+    response = FakeResponse({
+        "Content-Type": "video/mp4",
+        "Content-Disposition":
+            'attachment; filename="ajaia.ai Strategy Presentation.mp4"'})
+    assert (submission_reader._media_name(response)
+            == "ajaia.ai Strategy Presentation.mp4")
+
+
+def test_media_falls_back_to_the_content_type():
+    response = FakeResponse({"Content-Type": "video/mp4"})
+    assert submission_reader._media_name(response) == "video/mp4"
+
+
+def test_a_document_is_not_mistaken_for_media():
+    response = FakeResponse({
+        "Content-Type": "application/pdf",
+        "Content-Disposition": 'attachment; filename="deck.pdf"'})
+    assert submission_reader._media_name(response) == ""
+
+
+def test_a_recording_is_recorded_not_downloaded_or_reported_as_an_error():
+    """The two fetch_timeouts that cost 24 seconds of a grading call."""
+    def fake_fetch(url):
+        return b"", "video/mp4", submission_reader.MEDIA_MARKER + "demo.mp4"
+
+    with patch.object(submission_reader, "_fetch", side_effect=fake_fetch):
+        result = submission_reader.read_submission(
+            f"https://drive.google.com/uc?export=download&id={VIDEO_A}")
+
+    assert result["media"] == ["demo.mp4"]
+    assert result["errors"] == []
+    assert result["text"] == ""
+
+
+# ---------------------------------------------------------------------------
+# Furniture: an allowlist, because the denylist kept being wrong
+# ---------------------------------------------------------------------------
+
+def test_drive_urls_with_no_file_behind_them_are_never_fetched():
+    """Each of these cost a fetch whose failure reached the grader."""
+    for url in ("https://drive.google.com/?tab=oo",
+                "https://drive.google.com/viewer/main",
+                "https://drive.google.com/video/captions/edit",
+                "https://drive.google.com/drive?authuser",
+                "https://drive.google.com/picker",
+                "https://lh3.googleusercontent.com",
+                "https://lh3.googleusercontent.com/ogw/default-user=s83",
+                "https://drive.usercontent.google.com"):
+        assert submission_reader._is_drive_furniture(url), url
+
+
+def test_real_documents_and_folders_are_not_furniture():
+    for url in (f"https://docs.google.com/document/d/{DOC}/edit",
+                f"https://drive.google.com/uc?export=download&id={DECK}",
+                FOLDER):
+        assert not submission_reader._is_drive_furniture(url), url
+
+
+def test_a_file_read_under_one_url_is_not_reported_failed_under_another():
+    """
+    9692's doc was fetched as a download (HTTP 500) and as /edit (fine).
+
+    The 500 was reported, so the grader was told some of the candidate's links
+    could not be read about a document it had in full.
+    """
+    download = f"https://drive.google.com/uc?export=download&id={DOC}"
+    edit = f"https://docs.google.com/document/d/{DOC}/edit"
+
+    def fake_fetch(url):
+        if "uc?export=download" in url:
+            return b"", "", "http_500"
+        return b"%PDF-doc", "application/pdf", ""
+
+    with patch.object(submission_reader, "_fetch", side_effect=fake_fetch), \
+            patch("backend.scraping.submission_reader.resume_reader.extract",
+                  return_value="Ranking basis " * 50):
+        result = submission_reader.read_submission(f"{download} then {edit}")
+
+    assert result["errors"] == []
+    assert "Ranking basis" in result["text"]
+
+
+def test_a_file_that_never_succeeded_is_still_reported():
+    doc = f"https://docs.google.com/document/d/{DOC}/edit"
+    with patch.object(submission_reader, "_fetch",
+                      return_value=(b"", "", "http_403")):
+        result = submission_reader.read_submission(doc)
+    assert len(result["errors"]) == 1 and "http_403" in result["errors"][0]

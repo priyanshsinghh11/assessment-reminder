@@ -43,6 +43,11 @@ _ALLOWED_HOSTS = {
 }
 _MEDIA_SUFFIXES = (".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm", ".mp3", ".wav")
 
+# `_fetch` reports a recording through the error channel rather than returning
+# its bytes, and this prefix is how `read_submission` tells that apart from a
+# real failure. It is a marker, never shown to anyone.
+MEDIA_MARKER = "__media__:"
+
 
 def _host(url: str) -> str:
     return (urlparse(url).netloc or "").lower().split(":", 1)[0]
@@ -188,20 +193,46 @@ def _html_links(data: bytes, base_url: str) -> Iterable[str]:
         yield urlparse(url)._replace(fragment="").geturl()
 
 
-_FURNITURE = re.compile(
-    r"^/(?:$|\?|drive/(?:my-drive|shared-with-me|recent|starred|trash|"
-    r"priority|computers|search)|signin|accounts|settings|u/\d+/?$)",
-    re.IGNORECASE)
-
-
 def _is_drive_furniture(url: str) -> bool:
-    """Whether this is Drive's own navigation rather than a candidate file."""
+    """Whether this URL names no file, and so cannot be candidate work.
+
+    An allowlist, after a denylist failed. Naming the paths to avoid meant
+    naming them all, and one real folder produced `/viewer/main`,
+    `/video/captions/edit`, `/drive?authuser`, `/picker`, a bare
+    `lh3.googleusercontent.com` and a bare `drive.usercontent.google.com` --
+    six more entries for a list that was already wrong, each one a fetch whose
+    failure went into the error list the grader reads as "this candidate's
+    work could not be read".
+
+    Every actual document carries a file id, and a folder carries `/folders/`.
+    Nothing else on these hosts is a candidate artefact, so the question is
+    asked that way round instead.
+    """
     parsed = urlparse(url)
-    if _host(parsed.geturl()) not in ("drive.google.com", "docs.google.com"):
-        return False
     if file_id_of(url):
         return False
-    return bool(_FURNITURE.match(parsed.path or "/")) or not parsed.path.strip("/")
+    if "/folders/" in parsed.path:
+        return False
+    return True
+
+
+def _looks_like_text(data: bytes, content_type: str) -> bool:
+    """Whether these bytes are HTML or plain text rather than a binary file.
+
+    Decided from the bytes as well as the header because Drive's content types
+    are not reliable on share URLs. A NUL in the first few kilobytes is the
+    usual giveaway; so is a decode that produces mostly replacement
+    characters.
+    """
+    kind = (content_type or "").split(";", 1)[0].strip().lower()
+    if kind and not (kind.startswith("text/")
+                     or kind in ("application/xhtml+xml", "application/json")):
+        return False
+    head = data[:4096]
+    if b"\x00" in head:
+        return False
+    decoded = head.decode("utf-8", "replace")
+    return decoded.count("\ufffd") <= max(2, len(decoded) // 100)
 
 
 def _visible_html(data: bytes) -> str:
@@ -210,6 +241,28 @@ def _visible_html(data: bytes) -> str:
         node.decompose()
     return "\n".join(line.strip() for line in soup.get_text("\n").splitlines()
                          if line.strip())
+
+
+_DISPOSITION_NAME = re.compile(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)"?',
+                               re.IGNORECASE)
+
+
+def _media_name(response) -> str:
+    """This response's recording filename, or "" if it is not a recording.
+
+    Prefers the name Drive puts in Content-Disposition, because "ajaia.ai
+    Strategy Presentation.mp4" tells a reviewer which artefact is on file and
+    "video/mp4" does not.
+    """
+    content_type = (response.headers.get("Content-Type") or "").lower()
+    disposition = response.headers.get("Content-Disposition") or ""
+    match = _DISPOSITION_NAME.search(disposition)
+    name = unescape(match.group(1).strip()) if match else ""
+    if content_type.startswith(("video/", "audio/")):
+        return name or content_type
+    if name.lower().endswith(_MEDIA_SUFFIXES):
+        return name
+    return ""
 
 
 def _fetch(url: str) -> tuple[bytes, str, str]:
@@ -228,6 +281,25 @@ def _fetch(url: str) -> tuple[bytes, str, str]:
                 return b"", "", f"http_{response.status_code}"
             if not _allowed(response.url):
                 return b"", "", "redirected_to_disallowed_host"
+            # STOP AT THE HEADERS WHEN THIS IS A RECORDING.
+            #
+            # The headers arrive before the body, so a video costs one round
+            # trip to identify and nothing to skip. Reading it instead is what
+            # produced submission 9692's two `fetch_timeout`s: 12.1 MB and
+            # 13.8 MB of .mp4 pulled through a 12-second clock, 24 seconds of
+            # a grading call spent on bytes that were going to be discarded,
+            # and an error list that made a candidate whose deck and document
+            # had both been read look unreachable.
+            #
+            # This is also the only media check that works. The filename-based
+            # one reads Drive's rendered folder HTML, and a signed-out folder
+            # does not serve the `data-id`/`aria-label` rows it expects -- the
+            # ids come back out of script blobs with no filename attached. A
+            # response saying `video/mp4` is unambiguous.
+            media = _media_name(response)
+            if media:
+                return b"", response.headers.get("Content-Type", ""), \
+                    MEDIA_MARKER + media
             chunks: list[bytes] = []
             size = 0
             for chunk in response.iter_content(chunk_size=1 << 16):
@@ -248,8 +320,14 @@ def read_submission(markdown: str) -> dict:
     queue = [(url, 0) for url in roots]
     queued = set(roots)
     visited: set[str] = set()
+    # Fetched documents, by file id rather than by URL. See `file_id_of`: the
+    # same Google Doc reached the queue twice on submission 9692, once as
+    # /edit and once as a uc?export=download, and the second attempt's HTTP
+    # 500 was recorded as a failure to read a document already sitting in
+    # `parts`.
+    fetched_ids: set[str] = set()
     sources: list[str] = []
-    errors: list[str] = []
+    failures: list[tuple] = []
     parts: list[str] = []
     media: list[str] = []
     total = 0
@@ -258,10 +336,23 @@ def read_submission(markdown: str) -> dict:
         url, depth = queue.pop(0)
         if url in visited or not _allowed(url):
             continue
+        identity = file_id_of(url)
+        if identity and identity in fetched_ids:
+            continue
         visited.add(url)
         data, content_type, error = _fetch(url)
+        if error.startswith(MEDIA_MARKER):
+            name = error[len(MEDIA_MARKER):]
+            if name not in media:
+                media.append(name)
+            continue
         if error:
-            errors.append(f"{url}: {error}")
+            # Kept against the file rather than the URL so a document read
+            # successfully under one of its URLs is not also reported as a
+            # failure under another -- see `file_id_of`. 9692's Google Doc
+            # was fetched as /edit and as a download, and the download's HTTP
+            # 500 was counted against a document already in `parts`.
+            failures.append((identity, f"{url}: {error}"))
             continue
 
         kind = resume_reader._type_from_content_type(content_type)  # noqa: SLF001
@@ -269,7 +360,8 @@ def read_submission(markdown: str) -> dict:
             try:
                 text = resume_reader.extract(data, content_type)
             except Exception as exc:  # noqa: BLE001
-                errors.append(f"{url}: document_unreadable:{type(exc).__name__}")
+                failures.append(
+                    (identity, f"{url}: document_unreadable:{type(exc).__name__}"))
                 continue
         elif data.startswith(b"PK\x03\x04") and b"ppt/" in data[:200_000]:
             # Keep the submission reader dependency-light: PPTX is just a zip
@@ -294,8 +386,20 @@ def read_submission(markdown: str) -> dict:
                         )
                     text = "\n".join(runs)
             except Exception as exc:  # noqa: BLE001
-                errors.append(f"{url}: presentation_unreadable:{type(exc).__name__}")
+                failures.append(
+                    (identity, f"{url}: presentation_unreadable:{type(exc).__name__}"))
                 continue
+        elif not _looks_like_text(data, content_type):
+            # A file we cannot read is not evidence, and its bytes are not
+            # prose. `_visible_html` will happily run over a PNG and return
+            # the mojibake its decoder produces -- which is how 440 characters
+            # beginning "\x89PNG" came to sit in a candidate's submission
+            # under a SOURCE header, next to their strategy deck, as though
+            # they had written it. Drive serves the signed-out page's avatar
+            # from an allowed host, so nothing upstream of here stopped it.
+            failures.append(
+                (identity, f"{url}: not_a_document:{content_type or 'unknown'}"))
+            continue
         else:
             text = _visible_html(data)
             for name in media_names(data):
@@ -324,11 +428,19 @@ def read_submission(markdown: str) -> dict:
 
         if not text:
             continue
+        if identity:
+            fetched_ids.add(identity)
         remaining = MAX_TOTAL_CHARS - total
         text = text[:min(MAX_DOCUMENT_CHARS, remaining)]
         parts.append(f"SOURCE: {url}\n{text}")
         sources.append(url)
         total += len(text)
+
+    # A failure on a file we went on to read from another URL is not a
+    # failure. Reporting it would put "some of their links could not be read"
+    # in front of the grader about work it has in full.
+    errors = [message for identity, message in failures
+              if not (identity and identity in fetched_ids)]
 
     return {
         "text": "\n\n--- LINKED DOCUMENT ---\n\n".join(parts),
