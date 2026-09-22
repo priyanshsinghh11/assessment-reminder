@@ -470,6 +470,23 @@
           </button>
         </div>
 
+        <!-- The rejected stage's own bar: tick people on the board, write the
+             message once, send it to all of them. Drawn only for that stage,
+             because it is the only one you send from here -- the interview
+             invitation is the hiring manager's, from their review link. -->
+        <div class="sendbar board-send" id="boardSendWrap" hidden>
+          <label class="toggle">
+            <input type="checkbox" id="boardPickAll">
+            Select everyone still to tell
+          </label>
+          <div class="sendbar-actions">
+            <span class="dim small" id="boardSendNote"></span>
+            <button class="btn btn-primary" id="boardSendBtn" type="button" disabled>
+              Send rejection email
+            </button>
+          </div>
+        </div>
+
         <div class="sendbar">
           <span class="sendbar-count" id="pipelineStatus">Loading&hellip;</span>
           <div class="sendbar-actions">

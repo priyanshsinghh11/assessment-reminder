@@ -616,6 +616,68 @@ class TestReviewOnlyMode:
 
 
 # ---------------------------------------------------------------------------
+# The board knows who has already heard, because the send starts from there
+# ---------------------------------------------------------------------------
+#
+# Same failure as the queue below, reached through the other door. The board is
+# where a rejection is sent from now, so a tick-all there that cannot see the
+# ledger is the two-hundred-second-rejections bug with a different button on
+# it. The rows carry the answer; the page leaves the told ones unticked.
+
+class TestTheBoardIsAnnotated:
+    @pytest.fixture
+    def board(self, monkeypatch):
+        from backend.web import app as web_app, server, views_evaluations
+
+        monkeypatch.setattr(web_app, "AUTH_ENABLED", False)
+        monkeypatch.setattr(views_evaluations, "_mongo_guard", lambda: None)
+        monkeypatch.setattr(views_evaluations, "_scope", lambda: None)
+        monkeypatch.setattr(views_evaluations, "_project", lambda rows: rows)
+        monkeypatch.setattr(views_evaluations.store, "clean_email",
+                            lambda v: str(v or "").strip().lower())
+        monkeypatch.setattr(views_evaluations.store, "pipeline_counts",
+                            lambda: {"stages": {}, "by_role": {}})
+        monkeypatch.setattr(views_evaluations.store, "list_pipeline", lambda **kw: [
+            {"_id": 1, "candidate_name": "A", "candidate_email": "a@x.com",
+             "job_id": 7, "pipeline": {"stage": "rejected"}},
+            {"_id": 2, "candidate_name": "B", "candidate_email": "b@x.com",
+             "job_id": 7, "pipeline": {"stage": "rejected"}},
+        ])
+        server.app.config["TESTING"] = True
+        server.app.config["REVIEW_ONLY"] = False
+        return server.app.test_client()
+
+    def _ledger(self, monkeypatch, mapping):
+        from backend.web import views_evaluations
+        monkeypatch.setattr(views_evaluations.store, "rejections_for",
+                            lambda emails: mapping)
+
+    def test_a_rejected_row_says_whether_they_were_told(self, board, monkeypatch):
+        self._ledger(monkeypatch, {"b@x.com": {"status": "sent",
+                                               "rejected_at": datetime(
+                                                   2026, 9, 22,
+                                                   tzinfo=timezone.utc)}})
+        rows = {c["candidate_email"]: c for c in
+                board.get("/api/pipeline?stage=rejected").get_json()["candidates"]}
+
+        assert rows["b@x.com"]["already_told"] is True
+        assert rows["b@x.com"]["told_at"].startswith("2026-09-22")
+        assert rows["a@x.com"]["already_told"] is False
+
+    def test_a_bounced_send_leaves_them_owed(self, board, monkeypatch):
+        # We tried and it failed, so that candidate has heard nothing. Marking
+        # them told is how somebody is silently dropped for ever.
+        self._ledger(monkeypatch, {"a@x.com": {"status": "failed",
+                                               "rejected_at": None,
+                                               "error": "bounced"}})
+        rows = {c["candidate_email"]: c for c in
+                board.get("/api/pipeline?stage=rejected").get_json()["candidates"]}
+
+        assert rows["a@x.com"]["already_told"] is False
+        assert rows["a@x.com"]["told_how"] == "failed"
+
+
+# ---------------------------------------------------------------------------
 # The rejected queue knows who has already heard
 # ---------------------------------------------------------------------------
 #

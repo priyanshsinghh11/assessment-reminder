@@ -1681,6 +1681,7 @@ async function loadPipeline() {
   try {
     const data = await api(`/api/pipeline?stage=${stage}` + (jobId ? `&job_id=${jobId}` : ''));
     state.pipeline.rows = data.candidates;
+    boardPicked.clear();
     renderPipelineCounts(data.counts.stages);
     renderPipeline();
   } catch (err) {
@@ -1745,8 +1746,22 @@ function downloadPipelineXlsx() {
 const PIPELINE_HEAD = {
   interview: ['Candidate', 'Role', 'Score', 'Interview', 'Interviewer', 'Note', ''],
   hired: ['Candidate', 'Role', 'Score', 'Hired', 'Interviewed', 'Note', ''],
-  rejected: ['Candidate', 'Role', 'Score', 'Rejected', 'Interviewed', 'Reason', ''],
+  // The tick column and "Emailed" are the rejected stage's alone: it is the
+  // only one you send from, and a checkbox on a list nothing acts on is a
+  // control that does nothing. "Interviewed" gives way to "Emailed" here
+  // because on this list the question is always the second one -- whether
+  // they have been told -- and the interview date is still on their card.
+  rejected: ['', 'Candidate', 'Role', 'Score', 'Rejected', 'Emailed', 'Reason', ''],
 };
+
+/* Who is ticked on the board, by submission id. Cleared whenever the board is
+ * re-read: a tick on somebody who is no longer on the list is a tick nobody
+ * meant, and this list changes under you every time a row is removed. */
+const boardPicked = new Set();
+
+const boardRejectRows = () => (state.pipeline.stage === 'rejected'
+  ? state.pipeline.rows : []);
+const boardChosen = () => boardRejectRows().filter((c) => boardPicked.has(c.id));
 
 const PIPELINE_HINT = {
   interview: 'Everyone a hiring manager has invited, soonest first. A row with '
@@ -1754,9 +1769,10 @@ const PIPELINE_HINT = {
     + 'who is here — mark the outcome from this row or from their card.',
   hired: 'Offers accepted. The score and the grid that produced it stay on the '
     + 'record, so a hire can be read back against what the assessment predicted.',
-  rejected: 'Turned down after being seen — kept apart from the '
-    + 'missing-artefact list below, which is a different email to a different '
-    + 'candidate.',
+  rejected: 'Turned down after being seen. Tick the ones to tell and press '
+    + 'Send rejection email — the message is written once and goes to all of '
+    + 'them, and the Emailed column fills in as it lands. Anyone already '
+    + 'emailed is left unticked by "select all", so nobody is told twice.',
 };
 
 const PIPELINE_EMPTY = {
@@ -1842,7 +1858,21 @@ function renderPipeline() {
       : `${esc(shortDate(p.at))} <span class="dim">${esc(whenRelative(p.at))}</span>`;
     const second = stage === 'interview'
       ? esc(p.interviewer || '—')
-      : (p.interview_at ? esc(fmtWhen(p.interview_at)) : '<span class="dim">not interviewed</span>');
+      : stage === 'rejected'
+        ? (c.already_told
+          ? `<span class="told">${esc(shortDate(c.told_at))}</span>`
+          : (c.told_how === 'failed'
+            ? '<span class="warn">bounced — still owed</span>'
+            : '<span class="dim">not yet</span>'))
+        : (p.interview_at ? esc(fmtWhen(p.interview_at)) : '<span class="dim">not interviewed</span>');
+    // Ticking is not opening: the row itself opens the card, so the box stops
+    // the click before it gets there. Someone already told cannot be ticked --
+    // the resend is a deliberate act, made from their card.
+    const tick = stage === 'rejected'
+      ? `<td class="shrink"><input type="checkbox" data-pick="${c.id}"
+            ${boardPicked.has(c.id) ? 'checked' : ''}
+            ${c.already_told ? 'disabled title="Already emailed"' : ''}></td>`
+      : '';
     const words = stage === 'rejected' ? (p.reason || p.note) : p.note;
     // Who decided. A hiring manager acting on their own review link is a
     // different fact from a recruiter moving someone on this page, and the
@@ -1852,7 +1882,9 @@ function renderPipeline() {
       ? `<span class="by-chip" title="${esc(p.by || '')}">via manager</span>` : '';
 
     return `
-      <tr class="row-click" data-id="${c.id}">
+      <tr class="row-click${boardPicked.has(c.id) ? ' is-picked' : ''}"
+          data-id="${c.id}">
+        ${tick}
         <td>
           <div class="cand-name">${esc(c.candidate_name || '—')}</div>
           <div class="cand-email">${esc(c.candidate_email || '')}</div>
@@ -1869,6 +1901,19 @@ function renderPipeline() {
   for (const tr of $('pipelineBody').querySelectorAll('tr')) {
     tr.addEventListener('click', () => openDrawer(Number(tr.dataset.id)));
   }
+  for (const box of $('pipelineBody').querySelectorAll('[data-pick]')) {
+    box.addEventListener('click', (e) => e.stopPropagation());  // not an open
+    box.addEventListener('change', () => {
+      const id = Number(box.dataset.pick);
+      if (box.checked) boardPicked.add(id);
+      else boardPicked.delete(id);
+      // The row it is in, not a redraw of the table it is in -- a redraw
+      // replaces the checkbox mid-click and swallows the next one.
+      box.closest('tr')?.classList.toggle('is-picked', box.checked);
+      refreshBoardSendBar();
+    });
+  }
+  refreshBoardSendBar();
   for (const btn of $('pipelineBody').querySelectorAll('[data-move]')) {
     btn.addEventListener('click', (e) => {
       // The row opens the drawer; a button on it must not do both.
@@ -1880,6 +1925,72 @@ function renderPipeline() {
       moveStage(id, stage, detail);
     });
   }
+}
+
+/* The board's own send bar: the count, the button and the tick-all.
+ *
+ * Separated from renderPipeline() because a tick must not redraw the table --
+ * with five hundred rows that is a visible stall on every click, and it
+ * replaces the very checkbox being clicked, so a run of quick ticks lands on
+ * elements that have already been thrown away. Same reason
+ * refreshRejectCounts() is split out of renderRejected(). */
+function refreshBoardSendBar() {
+  const rejected = state.pipeline.stage === 'rejected';
+  setHidden('boardSendWrap', !rejected);
+  if (!rejected) return;
+
+  const rows = boardRejectRows();
+  const sendable = rows.filter((c) => !c.already_told);
+  const chosen = boardChosen();
+  const waiting = sendable.length;
+
+  const btn = $('boardSendBtn');
+  if (btn) {
+    btn.disabled = chosen.length === 0;
+    btn.textContent = chosen.length > 1
+      ? `Send ${chosen.length} rejection emails` : 'Send rejection email';
+  }
+  const all = $('boardPickAll');
+  if (all) {
+    all.checked = waiting > 0 && chosen.length === waiting;
+    all.disabled = waiting === 0;
+  }
+  const note = $('boardSendNote');
+  if (note) {
+    const told = rows.length - waiting;
+    note.textContent = chosen.length
+      ? `${chosen.length} of ${waiting} still to tell selected`
+      : (waiting
+        ? `${waiting} still to tell${told ? `, ${told} already emailed` : ''}`
+        : (rows.length ? 'Everyone here has been emailed.' : ''));
+  }
+}
+
+/* "Select all" means everyone still owed an email, never everyone on screen.
+ * The people already told are the whole reason this list is dangerous. */
+function boardPickAll(on) {
+  for (const c of boardRejectRows()) {
+    if (c.already_told) continue;
+    if (on) boardPicked.add(c.id);
+    else boardPicked.delete(c.id);
+  }
+  renderPipeline();
+}
+
+/* The send, from the board the rejections are on.
+ *
+ * Handed to the same composer the rejection panel uses, so there is one
+ * rejection email in this system and one place its wording is written. The
+ * addresses come off the ticked rows; the server scopes them to this
+ * account's roles and checks the ledger again before anything goes out. */
+function openBoardRejectionComposer() {
+  const chosen = boardChosen();
+  if (!chosen.length) return;
+  RejectionComposer.open({
+    recipients: chosen.map((c) => ({ email: c.candidate_email,
+                                     name: c.candidate_name || '' })),
+    jobId: Number($('pipelineRole').value) || state.activeRoleId || null,
+  });
 }
 
 /* Move one candidate. Everything that could be showing them -- the board, the
@@ -5033,7 +5144,9 @@ $('waitingAll').addEventListener('change', (e) => tickAll(
 $('mailedAll').addEventListener('change', (e) => tickAll(
   'mailedBody', mailedPicked, mailedRows(), e.target.checked));
 $('rejectedRefresh').addEventListener('click', loadRejected);
-$('sendRejectBtn').addEventListener('click', openRejectionComposer);
+$('boardSendBtn')?.addEventListener('click', openBoardRejectionComposer);
+$('boardPickAll')?.addEventListener('change', (e) => boardPickAll(e.target.checked));
+$('sendRejectBtn')?.addEventListener('click', openRejectionComposer);
 $('markMailedBtn').addEventListener('click', markAsEmailed);
 $('unmarkBtn').addEventListener('click', moveBackToWaiting);
 $('mailedCsvBtn').addEventListener('click', exportMailedCsv);
@@ -5248,8 +5361,13 @@ RejectionComposer.init({
    * Anyone the batch left out -- opted out, or told already -- comes back
    * unticked on the left, which is where a second look belongs. */
   onSent: async () => {
+    // Both surfaces, not the one that opened it. A send started from the
+    // board writes the same ledger the panel reads, and a panel left holding
+    // the pre-send answer is how somebody gets told twice.
     waitingPicked.clear();
+    boardPicked.clear();
     await loadRejected();
+    if (state.tab === 'pipeline') await loadPipeline();
   },
 });
 

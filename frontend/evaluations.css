@@ -192,16 +192,23 @@
   .hero-cal { align-self: flex-start; }
 }
 
-/* Managers use the role as a focused decision screen. Recruiting-only bulk
- * operations stay available to admins but do not distract from the four
- * candidate lists a manager actually works.
+/* THE TWO-COLUMN REJECTION PANEL IS RETIRED. It asked the reader to hold two
+ * lists in their head -- who was rejected, and who had heard -- on a screen
+ * away from the board those people are actually on, and to end every send by
+ * moving rows across by hand. The board answers both questions in one place
+ * now: tick, send, and the Emailed column fills itself from the same ledger
+ * the panel was keeping by hand. See the rejected stage in renderPipeline().
  *
- * #rejectedPanel IS NO LONGER ONE OF THEM. Telling a candidate no is part of
- * working the four lists, not a recruiting-only bulk operation, and hiding it
- * here left the only surface that sends a rejection reachable by nobody on an
- * installation with no admin seat. It is scoped instead of hidden: the panel
- * draws this manager's roles, and every endpoint behind it refuses an address
- * that is not rejected on one of them -- see _own_rejections_guard. */
+ * Hidden rather than deleted, for one release. Its markup and its handlers
+ * are still in evaluations.html and evaluations.js, and the ledger endpoints
+ * behind it are unchanged, so anything the board turns out not to cover is
+ * one line away from being visible again. Delete both once it has not been
+ * missed.
+ *
+ * Managers use the role as a focused decision screen, so recruiting-only bulk
+ * operations stay available to admins without distracting from the four
+ * candidate lists a manager actually works. */
+#rejectedPanel,
 body.manager-view #pipelinePanel .panel-head .controls select,
 body.manager-view #pipelinePanel #pipelineCopyBtn,
 body.manager-view #pipelinePanel #pipelineCsvBtn {
@@ -1556,6 +1563,21 @@ button.mgr-chip-cal {
 .reject-col .hint { margin: 0 0 12px; }
 
 tr.is-picked > td { background: var(--surface-hover); }
+
+/* --- sending rejections from the board --------------------------------- */
+
+/* Its own bar above the board's, so the thing that mails people is not a
+ * fourth button in a row of downloads. */
+.board-send {
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line-2);
+}
+.board-send .toggle { text-transform: none; letter-spacing: 0; font-size: 13px; }
+
+/* A date here means that person has been told, which is the one fact on this
+ * row that cannot be undone. Quiet, not loud -- it is reassurance, not an
+ * alert. */
+.told { color: var(--text); }
 
 /* The move itself, directly under the list it acts on. */
 .reject-move {

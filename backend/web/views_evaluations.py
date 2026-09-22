@@ -759,6 +759,32 @@ def api_pipeline():
     rows = _project([_json_safe(r) for r in
                      store.list_pipeline(stage=stage, job_id=job_id,
                                          job_ids=scope)])
+
+    # EVERY REJECTED ROW SAYS WHETHER THAT PERSON HAS BEEN TOLD, for the reason
+    # api_rejected spells out: the board answers "who did we turn down", and it
+    # is read as though it answered "who is still owed an email". Those are the
+    # same list exactly once. The board is where the send is started from now,
+    # so it is the board that has to carry the answer -- a tick-all on a list
+    # that cannot see the ledger is how two hundred people get a second
+    # rejection.
+    if stage in (None, "rejected"):
+        told = store.rejections_for(
+            r.get("candidate_email") for r in rows
+            if (r.get("pipeline") or {}).get("stage") == "rejected")
+        for row in rows:
+            if (row.get("pipeline") or {}).get("stage") != "rejected":
+                continue
+            entry = told.get(store.clean_email(row.get("candidate_email")))
+            # A `failed` row is NOT already told -- we tried and it bounced, so
+            # that candidate is still waiting to hear.
+            row["already_told"] = bool(
+                entry and entry.get("status") in store.REJECTION_DELIVERED)
+            if entry:
+                at = entry.get("rejected_at")
+                row["told_at"] = (at.isoformat() if isinstance(at, datetime)
+                                  else at)
+                row["told_how"] = entry.get("status")
+
     counts = store.pipeline_counts()
     if scope is not None:
         counts = _scoped_stage_counts(counts, scope)
