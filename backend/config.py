@@ -308,6 +308,23 @@ LLM_CONCURRENCY = int(os.environ.get("LLM_CONCURRENCY", "6"))
 # single outlier cannot blow the context window or the bill.
 MAX_ANSWER_CHARS = 60_000
 
+# The same cap for the documents the candidate linked instead of typing.
+#
+# It needs its own number because it is not the same artefact as the answer
+# box and is not bounded by it: a candidate who writes "the work is in the
+# folder" has a 40-character answer and may have twenty files behind it. For
+# them this IS the submission, so it gets more room than the box does.
+#
+# It is also the crawler's total budget -- `submission_reader.MAX_TOTAL_CHARS`
+# reads this -- and that is deliberate. Fetching more than the grader can be
+# shown costs a Drive request and a Mongo write to produce text nothing will
+# ever mark, and the two limits drifting apart is how a reviewer ends up
+# reading evidence the model was never given. One number, both places.
+#
+# 150k is roughly 37k tokens, which sits inside a 128k-context model alongside
+# a 60k answer, a 4k CV and the grid. Lower it for a smaller context window.
+MAX_LINKED_CHARS = int(os.environ.get("MAX_LINKED_CHARS", "150000"))
+
 # How much of a candidate's CV goes into the grading prompt.
 #
 # Lower than the 8,000 characters resume_reader stores, deliberately. The CV is

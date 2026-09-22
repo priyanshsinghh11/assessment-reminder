@@ -509,9 +509,11 @@
            two hundred and twenty, and two hundred people get a second
            rejection out of a list that looked correct.
 
-           Moving somebody across is the whole interaction. It sends nothing
-           and it un-sends nothing -- it records what you did in your own mail
-           client, so this page stops offering them. -->
+           There are two ways across. "Send rejection email" writes the
+           message and sends it, and the server moves them itself; "Mark as
+           emailed" records a send you made in your own mail client, and moves
+           them without sending anything. Both end with the same people on the
+           right, which is the only thing the left column reads. -->
       <section class="panel" id="rejectedPanel">
         <div class="panel-head">
           <h2>Rejection emails</h2>
@@ -545,6 +547,12 @@
             <div class="sendbar">
               <span class="sendbar-count" id="rejectedCount">Loading&hellip;</span>
               <div class="sendbar-actions">
+                <!-- Drawn only for a recruiting admin; the send endpoint is
+                     admin-only and a button that always 403s is worse than no
+                     button. See refreshRejectCounts(). -->
+                <button class="btn btn-primary" id="sendRejectBtn" hidden>
+                  Send rejection email
+                </button>
                 <button class="btn" id="copyEmailsBtn">Copy addresses</button>
                 <button class="btn" id="copyBccBtn"
                         title="Semicolon-separated, for the BCC field">Copy for BCC</button>
@@ -574,8 +582,9 @@
                 Mark as emailed &rarr;
               </button>
               <span class="hint">
-                Records that you have already written to the ticked candidates.
-                Nothing is sent from here.
+                Records that you have already written to the ticked candidates
+                yourself. This button sends nothing &mdash; use
+                &ldquo;Send rejection email&rdquo; above for that.
               </span>
             </div>
           </div>
@@ -781,6 +790,7 @@
      markup, so this page carries none of it. Loaded first, because
      evaluations.js hands it its configuration on the way past. -->
 <script src="invite.js"></script>
+<script src="rejections.js"></script>
 <!-- The dashboard itself: one classic script, one scope. It was briefly
      twelve numbered files loaded in order, which is a build step written
      in filenames and twelve requests to draw one page; they are

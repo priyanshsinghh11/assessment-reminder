@@ -18,12 +18,23 @@ from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
+from backend.config import MAX_LINKED_CHARS
 from backend.scraping import resume_reader
 
-MAX_LINKS = 8
-MAX_DOCUMENT_CHARS = 50_000
-MAX_TOTAL_CHARS = 120_000
-MAX_CRAWL_DEPTH = 1
+MAX_LINKS = 20
+# Lower than it was, because MAX_LINKS is higher than it was. At 50k a single
+# verbose document could take a third of the budget and leave the rest of the
+# folder unread, which is the opposite of what raising the file count was for.
+# 30k is about 5,000 words -- longer than any artefact these assessments ask
+# for.
+MAX_DOCUMENT_CHARS = 30_000
+# The grader's budget, not the crawler's own: see config.MAX_LINKED_CHARS for
+# why fetching more than the prompt can carry is waste rather than headroom.
+MAX_TOTAL_CHARS = MAX_LINKED_CHARS
+# Two, because a candidate who uploads "everything" rarely uploads it flat: the
+# share link points at a folder holding /docs, /code and /video, and at depth 1
+# the grader sees the folder listing and none of the work inside it.
+MAX_CRAWL_DEPTH = 2
 FETCH_TIMEOUT = 12
 
 _URL_RE = re.compile(r"https?://[^\s<>\]\)\"']+", re.IGNORECASE)
@@ -60,21 +71,91 @@ def extract_links(markdown: str) -> list[str]:
     return found[:MAX_LINKS]
 
 
+def _folder_entries(data: bytes):
+    """Yield ``(file_id, label, filename)`` for each item row in folder HTML.
+
+    Drive's folder page renders files as rows carrying a ``data-id`` rather
+    than as anchors, and the aria label is what tells us the filename and
+    whether the item is a native Google Doc or an uploaded file (pptx, mp4).
+    Shared by link discovery, media detection and the resume lookup so the
+    three cannot drift apart about what a folder contains.
+    """
+    soup = BeautifulSoup(data, "html.parser")
+    for node in soup.select("[data-id]"):
+        file_id = node.get("data-id", "")
+        if not re.fullmatch(r"[A-Za-z0-9_-]{20,}", file_id):
+            continue
+        owner = node.find_parent(attrs={"aria-label": True})
+        label = node.get("aria-label", "") or (owner or {}).get("aria-label", "")
+        yield file_id, label, label.split(" Google ", 1)[0].strip()
+
+
+def _media_entries(data: bytes) -> dict:
+    """``{file_id: filename}`` for the recordings this folder lists."""
+    return {file_id: filename
+            for file_id, _, filename in _folder_entries(data)
+            if filename.lower().endswith(_MEDIA_SUFFIXES)}
+
+
+def media_names(data: bytes) -> list[str]:
+    """Filenames of recordings sitting in this folder, de-duplicated.
+
+    These are NOT fetched -- a screen recording is tens of megabytes, there is
+    no transcript to mark, and downloading one spends the whole fetch budget
+    to learn nothing. They are reported instead, because "the candidate
+    uploaded a walkthrough into the folder" and "the candidate never recorded
+    one" are opposite facts, and the grader was reading the first as the
+    second.
+    """
+    return list(dict.fromkeys(_media_entries(data).values()))
+
+
+def file_id_of(url: str) -> str:
+    """The Drive/Docs file id in a URL, or "" -- the identity of a document.
+
+    One file has several URLs. The same Google Doc is
+    ``/document/d/<id>/edit``, ``/document/d/<id>/export?format=pdf`` and
+    ``uc?export=download&id=<id>``, and on submission 9692 the crawler queued
+    two of those forms for one document: it fetched the doc, then fetched it
+    again as a download, got an HTTP 500, and recorded a failure against a
+    file it had already read successfully. That error then counted toward the
+    "some of their links could not be read" note the grader is shown.
+
+    De-duplicating on the URL string cannot see that. De-duplicating on the id
+    can.
+    """
+    match = re.search(r"/d/([A-Za-z0-9_-]{20,})", url)
+    if match:
+        return match.group(1)
+    match = re.search(r"[?&]id=([A-Za-z0-9_-]{20,})", url)
+    return match.group(1) if match else ""
+
+
 def _html_links(data: bytes, base_url: str) -> Iterable[str]:
     """Find Drive/Docs links in both anchors and serialized folder HTML."""
     soup = BeautifulSoup(data, "html.parser")
     candidates = [a.get("href", "") for a in soup.find_all("a")]
-    # Drive's folder page renders files as rows with a data-id, not anchors.
-    # The aria label also tells us whether the item is a native Google Doc or
-    # an uploaded file (pptx, mp4, etc.).
-    for node in soup.select("[data-id]"):
-        file_id = node.get("data-id", "")
-        owner = node.find_parent(attrs={"aria-label": True})
-        label = node.get("aria-label", "") or (owner or {}).get("aria-label", "")
-        filename = label.split(" Google ", 1)[0].lower()
-        if filename.endswith(_MEDIA_SUFFIXES):
-            continue
-        if not re.fullmatch(r"[A-Za-z0-9_-]{20,}", file_id):
+    # THE VIDEOS MUST NOT BE QUEUED, AND SKIPPING THEM IN THE LOOP BELOW IS
+    # NOT ENOUGH TO STOP IT.
+    #
+    # The loop reads the folder's item rows and passes over anything whose
+    # filename ends in a media suffix. The regex sweep further down then reads
+    # the SAME page as raw text and picks the very same file ids back up out
+    # of Drive's script blobs, with no filename attached and so no way to tell
+    # a deck from a screen recording.
+    #
+    # On submission 9692 that queued two .mp4 files of 12.1 MB and 13.8 MB.
+    # Both ran the 12-second fetch clock out and were recorded as
+    # `fetch_timeout`, which cost 24 seconds of the grading call, consumed two
+    # slots of the link budget, and left the candidate's error list looking
+    # like their work was unreachable when the deck and the document had
+    # actually been read.
+    #
+    # So the exclusion is by file id, applied to every candidate whatever path
+    # produced it.
+    skip_ids = set(_media_entries(data))
+    for file_id, label, filename in _folder_entries(data):
+        if file_id in skip_ids:
             continue
         if "Google Docs" in label:
             candidates.append(
@@ -94,8 +175,33 @@ def _html_links(data: bytes, base_url: str) -> Iterable[str]:
         if not candidate:
             continue
         url = urljoin(base_url, unescape(candidate)).rstrip(".,;:!?\"'")
-        if _allowed(url) and "{" not in url and "}" not in url:
-            yield urlparse(url)._replace(fragment="").geturl()
+        if not _allowed(url) or "{" in url or "}" in url:
+            continue
+        if file_id_of(url) in skip_ids:
+            continue
+        # Drive's own furniture: the sidebar's "my drive" and "shared with me"
+        # tabs, the sign-in link, the upgrade banner. They are on an allowed
+        # host and so pass every check above, and each one costs a fetch that
+        # ends in a redirect off-host -- `?tab=oo` did exactly that here.
+        if _is_drive_furniture(url):
+            continue
+        yield urlparse(url)._replace(fragment="").geturl()
+
+
+_FURNITURE = re.compile(
+    r"^/(?:$|\?|drive/(?:my-drive|shared-with-me|recent|starred|trash|"
+    r"priority|computers|search)|signin|accounts|settings|u/\d+/?$)",
+    re.IGNORECASE)
+
+
+def _is_drive_furniture(url: str) -> bool:
+    """Whether this is Drive's own navigation rather than a candidate file."""
+    parsed = urlparse(url)
+    if _host(parsed.geturl()) not in ("drive.google.com", "docs.google.com"):
+        return False
+    if file_id_of(url):
+        return False
+    return bool(_FURNITURE.match(parsed.path or "/")) or not parsed.path.strip("/")
 
 
 def _visible_html(data: bytes) -> str:
@@ -145,6 +251,7 @@ def read_submission(markdown: str) -> dict:
     sources: list[str] = []
     errors: list[str] = []
     parts: list[str] = []
+    media: list[str] = []
     total = 0
 
     while queue and len(visited) < MAX_LINKS and total < MAX_TOTAL_CHARS:
@@ -191,15 +298,28 @@ def read_submission(markdown: str) -> dict:
                 continue
         else:
             text = _visible_html(data)
+            for name in media_names(data):
+                if name not in media:
+                    media.append(name)
             if depth < MAX_CRAWL_DEPTH:
                 for child in _html_links(data, url):
                     if child not in queued and len(queued) < MAX_LINKS:
                         queued.add(child)
                         queue.append((child, depth + 1))
-            # Folder/share pages are navigational wrappers.  Keep useful
-            # visible text only when it is substantial; otherwise the linked
-            # files below are the evidence and the wrapper is noise.
-            if len(text) < 200:
+            # Folder/share pages are navigational wrappers: the files
+            # queued above are the evidence and the page itself is chrome.
+            #
+            # The 200-character floor alone did not catch them. A signed-out
+            # Drive folder renders its sign-in banner, keyboard-shortcut help,
+            # sort controls and column headers as visible text, which on a
+            # real submission came to 13,000 characters -- sixty times the
+            # floor -- and went into the prompt under a SOURCE header as
+            # though the candidate had written it. The grader read it, found
+            # no assessment in it, and marked every work-product row 1.
+            #
+            # So a folder URL is dropped on what it IS rather than on how much
+            # text it produced.
+            if "/folders/" in urlparse(url).path or len(text) < 200:
                 text = ""
 
         if not text:
@@ -215,6 +335,7 @@ def read_submission(markdown: str) -> dict:
         "sources": sources,
         "errors": errors,
         "links": roots,
+        "media": media,
     }
 
 
@@ -225,16 +346,11 @@ def read_folder_resume(folder_url: str) -> tuple[str, str]:
     data, content_type, error = _fetch(folder_url)
     if error:
         return "", error
-    soup = BeautifulSoup(data, "html.parser")
     candidates = []
-    for node in soup.select("[data-id]"):
-        file_id = node.get("data-id", "")
-        owner = node.find_parent(attrs={"aria-label": True})
-        label = node.get("aria-label", "") or (owner or {}).get("aria-label", "")
+    for file_id, label, filename in _folder_entries(data):
         lower = label.lower()
-        if (re.fullmatch(r"[A-Za-z0-9_-]{20,}", file_id)
-                and ("resume" in lower or "cv" in lower)
-                and not lower.endswith(_MEDIA_SUFFIXES)):
+        if (("resume" in lower or "cv" in lower)
+                and not filename.lower().endswith(_MEDIA_SUFFIXES)):
             candidates.append(file_id)
     for file_id in dict.fromkeys(candidates):
         child = f"https://drive.google.com/uc?export=download&id={file_id}"

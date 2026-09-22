@@ -736,6 +736,11 @@ PORTAL_FIELDS = (
     "candidate_email", "resume_link", "video_link", "submission_status",
     "review_status", "screener_rating", "started_at", "submitted_at",
     "reviewed_at", "auto_submitted", "admin_url", "submission_markdown",
+    # Derived from `submission_markdown` at parse time rather than sent by the
+    # portal, but portal-owned all the same: it is a pure function of a column
+    # the export does send, so a re-ingest recomputing it is correct and is
+    # what backfills every row written before this field existed.
+    "submission_links",
 )
 
 # Extracted resume text is ours, not the portal's, so it must never appear in
@@ -1017,8 +1022,14 @@ def set_resume(submission_id: int, text: str, error: str, source_link: str) -> N
 
 
 def set_linked_submission(submission_id: int, text: str, sources: list[str],
-                          errors: list[str], links: list[str]) -> None:
-    """Store bounded text crawled from candidate-submitted document links."""
+                          errors: list[str], links: list[str],
+                          media: Optional[list[str]] = None) -> None:
+    """Store bounded text crawled from candidate-submitted document links.
+
+    `media` is the recordings seen in those folders but never fetched. It is
+    stored because an absent `video_link` and a video sitting in the linked
+    folder are different facts, and only the first one is the candidate's.
+    """
     get_db().submissions.update_one(
         {"_id": submission_id},
         {"$set": {
@@ -1026,6 +1037,7 @@ def set_linked_submission(submission_id: int, text: str, sources: list[str],
             "linked_submission_sources": sources,
             "linked_submission_errors": errors,
             "linked_submission_links": links,
+            "linked_submission_media": media or [],
             "linked_submission_fetched_at": now(),
         }},
     )

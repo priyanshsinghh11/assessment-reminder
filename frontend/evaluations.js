@@ -1317,9 +1317,17 @@ function refreshRejectCounts() {
       : `${mailed.length.toLocaleString()} moved across`)
     : '—';
 
-  for (const id of ['copyEmailsBtn', 'copyBccBtn', 'exportCsvBtn', 'markMailedBtn']) {
+  for (const id of ['copyEmailsBtn', 'copyBccBtn', 'exportCsvBtn', 'markMailedBtn',
+                    'sendRejectBtn']) {
     $(id).disabled = chosen.length === 0;
   }
+  // Hidden rather than disabled for a hiring manager: /api/rejections/send is
+  // admin-only, so for them this is not a button that needs a tick, it is a
+  // button that is not theirs. Same rule the invite button follows -- what is
+  // DRAWN, never what is allowed; the server refuses either way.
+  $('sendRejectBtn').hidden = !state.isAdmin;
+  $('sendRejectBtn').textContent = chosen.length > 1
+    ? `Send ${chosen.length} rejection emails` : 'Send rejection email';
   $('unmarkBtn').disabled = picked.length === 0;
   $('mailedCsvBtn').disabled = mailed.length === 0;
 
@@ -1445,6 +1453,27 @@ async function markAsEmailed() {
     toast(err.message, true);
     btn.disabled = false;
   }
+}
+
+/* The send, from this page rather than from a mail client.
+ *
+ * It hands over the ticked rows and the role filter's own job_id -- which is
+ * what puts the role title in {role} and on every ledger row the batch writes.
+ * "All roles" passes none, and the wording falls back to "the role", because a
+ * batch spanning three roles has no one title to claim.
+ *
+ * Nothing is sent from here directly. The composer previews, asks, sends and
+ * then calls back into loadRejected(), which re-reads the ledger the server
+ * just wrote: everyone actually mailed has moved to the right-hand column by
+ * the time the dialog closes. */
+function openRejectionComposer() {
+  const chosen = selectedRejected();
+  if (!chosen.length) return;
+  RejectionComposer.open({
+    recipients: chosen.map((c) => ({ email: c.candidate_email,
+                                     name: c.candidate_name || '' })),
+    jobId: Number($('rejectedRole').value) || null,
+  });
 }
 
 /* Leftwards: the undo. It un-sends nothing -- it makes this system stop
@@ -4998,6 +5027,7 @@ $('waitingAll').addEventListener('change', (e) => tickAll(
 $('mailedAll').addEventListener('change', (e) => tickAll(
   'mailedBody', mailedPicked, mailedRows(), e.target.checked));
 $('rejectedRefresh').addEventListener('click', loadRejected);
+$('sendRejectBtn').addEventListener('click', openRejectionComposer);
 $('markMailedBtn').addEventListener('click', markAsEmailed);
 $('unmarkBtn').addEventListener('click', moveBackToWaiting);
 $('mailedCsvBtn').addEventListener('click', exportMailedCsv);
@@ -5117,7 +5147,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (!$('mailPreview').hidden || !$('drawer').hidden
       || $('accountsDrawer')?.hidden === false
-      || InviteComposer.isOpen()) return;
+      || InviteComposer.isOpen() || RejectionComposer.isOpen()) return;
   if (state.activeRoleId !== null) backToRoles();
 });
 
@@ -5131,6 +5161,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (!$('mailPreview').hidden) closeMailPreview();
   else if (InviteComposer.isOpen()) InviteComposer.close();
+  else if (RejectionComposer.isOpen()) RejectionComposer.close();
   else if (!$('drawer').hidden) closeDrawer();
   // Last: it is the only one of the four that can have another open over it,
   // and an open role picker has already swallowed the key. See rolePickerKey().
@@ -5192,6 +5223,27 @@ InviteComposer.init({
     await loadPipeline();
     if (state.activeRoleId !== null) await openRole(state.activeRoleId, false);
     await loadRoles();
+  },
+});
+
+/* The rejection composer. Its endpoints are the recruiter's own rather than a
+ * token'd workspace: this list is the whole company's rejections and only an
+ * admin can see it, so there is no manager link to renew and nothing to scope
+ * it to. */
+RejectionComposer.init({
+  post: (path, payload) => postJson(path, payload),
+  get: (path) => api(path),
+  previewPath: () => '/api/rejections/preview',
+  sendPath: () => '/api/rejections/send',
+  statusPath: (job) => `/api/rejections/send/${encodeURIComponent(job)}`,
+  toast,
+  /* Re-read rather than patched, and the ticks are dropped: the server has
+   * written the ledger, so loadRejected() is what decides who has been told.
+   * Anyone the batch left out -- opted out, or told already -- comes back
+   * unticked on the left, which is where a second look belongs. */
+  onSent: async () => {
+    waitingPicked.clear();
+    await loadRejected();
   },
 });
 

@@ -118,7 +118,21 @@ def ensure_resume(submission: dict, persist: bool = True) -> dict:
 
 
 def ensure_linked_submission(submission: dict, persist: bool = True) -> dict:
-    """Fetch public Drive/Docs work linked from the candidate's answer once."""
+    """
+    Fetch public Drive/Docs work linked from the candidate's answer once.
+
+    This is the whole submission for a candidate who wrote two lines in the
+    portal and put the work in a folder, which is how most of the strong ones
+    hand in. Without it `evaluate` marks the two lines: the answer is a link,
+    the rubric rows have nothing to quote, and a candidate who did everything
+    asked scores like one who did nothing. The crawl is bounded and restricted
+    to known document hosts -- see `submission_reader` for why following
+    arbitrary candidate URLs is not an option.
+
+    Re-fetched when the candidate has since added a link the stored set does
+    not cover, or when the last attempt recorded errors: a folder that was
+    private at ingest is often shared by the time somebody grades it.
+    """
     markdown = submission.get("submission_markdown") or ""
     links = submission_reader.extract_links(markdown)
     if not links:
@@ -126,7 +140,16 @@ def ensure_linked_submission(submission: dict, persist: bool = True) -> dict:
 
     attempted = submission.get("linked_submission_fetched_at") is not None
     stored_links = set(submission.get("linked_submission_links") or ())
-    if (attempted and set(links).issubset(stored_links)
+    # The key's ABSENCE, not its emptiness. A row crawled before the crawler
+    # reported recordings has no `linked_submission_media` at all, and an
+    # empty list is the opposite claim -- "we looked in the folder and there
+    # was no video" -- which `artefacts_in_linked_folder` would then act on.
+    # Left alone, every candidate already crawled keeps the missing-video
+    # penalty the media check exists to lift, and nothing would re-fetch them
+    # because by every other test here they are done. So a row that predates
+    # the field is re-crawled once.
+    crawled_for_media = "linked_submission_media" in submission
+    if (attempted and crawled_for_media and set(links).issubset(stored_links)
             and not submission.get("linked_submission_errors")):
         return submission
 
@@ -135,6 +158,7 @@ def ensure_linked_submission(submission: dict, persist: bool = True) -> dict:
     submission["linked_submission_sources"] = result["sources"]
     submission["linked_submission_errors"] = result["errors"]
     submission["linked_submission_links"] = result["links"]
+    submission["linked_submission_media"] = result["media"]
     submission["linked_submission_fetched_at"] = store.now()
     if result["errors"]:
         log.info("linked submission fetch notes for %s: %s",
@@ -144,7 +168,7 @@ def ensure_linked_submission(submission: dict, persist: bool = True) -> dict:
     try:
         store.set_linked_submission(
             submission["_id"], result["text"], result["sources"],
-            result["errors"], result["links"],
+            result["errors"], result["links"], result["media"],
         )
     except Exception as exc:  # noqa: BLE001
         log.warning("Could not store linked submission for %s: %s",

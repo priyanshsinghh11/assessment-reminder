@@ -48,6 +48,7 @@ from backend.config import (
 from backend.db import store
 from backend.scraping import portal_crawler
 from backend.scraping import resume_reader
+from backend.scraping import submission_reader
 from backend.scraping.portal_scraper import REVIEW_BUCKETS, _download, _login
 from backend.logging_setup import setup_logging
 
@@ -114,6 +115,13 @@ def _parse_row(row: dict) -> Optional[dict]:
     rec["candidate_email"] = rec.get("candidate_email", "").lower()
     # Keep the answer text verbatim -- _clean would strip leading markdown.
     rec["submission_markdown"] = row.get("submission_markdown") or ""
+    # Recorded here because this is the only place the answer text is in hand
+    # cheaply. `apply_auto_rejections` runs over every submission with the
+    # markdown projected out -- it is most of a 40 MB export -- so it cannot
+    # look for links itself, and it is the stage that most needs to know they
+    # exist.
+    rec["submission_links"] = submission_reader.extract_links(
+        rec["submission_markdown"])
     return rec
 
 
@@ -269,6 +277,32 @@ def apply_auto_rejections() -> dict:
         # whole pool for not submitting something nobody requested.
         required = required_artefacts_for(sub.get("job_id"))
         missing = [f for f in required if not _clean(sub.get(f))]
+        # An auto-reject here is not a flag on a record -- purge_auto_rejected()
+        # deletes the document a few lines below, keeping only a per-role
+        # count. So this rule cannot be allowed to fire on a guess.
+        #
+        # An empty `video_link` was being read as "no video". For the candidate
+        # who uploads everything to one Drive folder and pastes the folder
+        # link -- which is how a good share of the strong ones hand in -- it
+        # means "the video is in the folder", and the record was deleted before
+        # any grader opened it. The artefact fields are only one of the two
+        # places a candidate can put an artefact, and this stage can see the
+        # other one, so it defers: a submission with document links goes to the
+        # grader, which crawls the folder and decides from what is actually
+        # there.
+        #
+        # The cost of deferring is one evaluation spent on a candidate who
+        # turns out to be missing the artefact after all; `_artefact_block`
+        # still prices that absence by the grid's own anchor. The cost of not
+        # deferring is a deleted record, and those are not comparable.
+        if missing and (sub.get("submission_links") or []):
+            log.info(
+                "Submission %s is missing %s but links %d document(s); "
+                "deferring to the grader rather than auto-rejecting.",
+                sub.get("_id"), " and ".join(missing),
+                len(sub.get("submission_links") or []),
+            )
+            missing = []
         if missing:
             reason = "missing_" + "_and_".join(f.replace("_link", "") for f in missing)
             if decision.get("status") != "rejected" or decision.get("reason") != reason:

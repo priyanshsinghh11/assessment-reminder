@@ -1009,6 +1009,16 @@ def api_preview_rejection():
         "to": to or "",
         "to_name": name or "Sample Candidate",
         "message": email["message"],
+        # THE UNFILLED WORDING, beside the filled render above it.
+        #
+        # `message` is one candidate's copy with {first_name} already resolved.
+        # A composer that prefilled its box from that would put the first
+        # recipient's name into the template every other recipient is sent, so
+        # the box is filled from here and the preview from there. Same split
+        # the invitation composer makes, and for the same reason.
+        "defaults": {"subject": rejections.DEFAULT_SUBJECT,
+                     "message": rejections.DEFAULT_MESSAGE},
+        "placeholders": list(rejections.PLACEHOLDERS),
     })
 
 

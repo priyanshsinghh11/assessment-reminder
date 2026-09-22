@@ -456,6 +456,41 @@ class TestTheRoutes:
         assert body["email"]["subject"] == "Hi Asha"
         assert seams["sent"] == []
 
+    def test_the_default_wording_comes_back_unfilled(self, dashboard, seams):
+        """
+        THE BUG THIS PREVENTS: everybody in the batch called Asha.
+
+        The composer prefills its Subject and Message boxes from this response
+        and then posts those boxes back as the wording for the whole batch. The
+        preview beside them is one candidate's copy, with {first_name} already
+        resolved -- prefilling from that would bake the first recipient's name
+        into the template the other four hundred are sent, and it would look
+        perfectly right on screen, because the screen is showing that one
+        candidate.
+
+        So `defaults` is the wording with its placeholders still in it, and
+        `email`/`message` beside it is the render. Both, every time.
+        """
+        body = dashboard.post("/api/rejections/preview", json={
+            "name": "Asha", "email": "asha@x.com"}).get_json()
+
+        assert "{first_name}" in body["defaults"]["message"], (
+            "the composer prefills from this -- a filled template is one "
+            "candidate's name sent to everybody")
+        assert body["defaults"]["subject"] == rejections.DEFAULT_SUBJECT
+        # The render beside it is the opposite: this one IS filled in.
+        assert "Asha" in body["message"] and "{first_name}" not in body["message"]
+        assert seams["sent"] == []
+
+    def test_the_preview_offers_the_placeholders_it_will_fill(self, dashboard):
+        # The chips under the message box are built from this. A hardcoded list
+        # in the browser is one that goes stale the day a token is added, and a
+        # chip for a token nobody fills in writes "{role}" into a candidate's
+        # rejection.
+        body = dashboard.post("/api/rejections/preview",
+                              json={"email": "asha@x.com"}).get_json()
+        assert body["placeholders"] == list(rejections.PLACEHOLDERS)
+
 
 class TestReviewOnlyMode:
     @pytest.mark.parametrize("path", ["/api/rejections",
