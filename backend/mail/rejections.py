@@ -38,7 +38,6 @@ import re
 import time
 
 from backend.config import (
-    BREVO_SENDER_NAME,
     CANDIDATE_REPLY_TO,
     PIPELINE_EMAILS_ENABLED,
     REJECTION_ABORT_AFTER,
@@ -221,7 +220,7 @@ def build_email(name: str, subject: str = "", message: str = "",
             + _footer_html(to_email))
 
     lines = body_text.split("\n")
-    lines += ["", "Best,", BREVO_SENDER_NAME, "Ajaia Hiring Team"]
+    lines += ["", "Best regards from Ajaia Hiring Team"]
     if to_email:
         lines += ["", "If you would rather not hear from us again: "
                   + unsubscribe.unsubscribe_url(to_email)]
@@ -242,15 +241,22 @@ def _signature_html() -> str:
 
     A rejection is the company's decision rather than one person's, and a
     candidate who wants to argue it should be writing to the team that made it
-    -- not to whichever recruiter happened to click Send. Same reasoning as the
-    board's rejection in candidate_mail, and deliberately the same sign-off, so
-    the two never read as coming from different companies.
+    -- not to whichever recruiter happened to click Send.
+
+    The recruiter's own name used to sit above this line, which undercut that:
+    it put one person's name on a decision they may not have made and gave a
+    candidate somebody to reply to about it. One line now, and the same line in
+    the plain-text part, so a client that renders either reads the same.
+
+    This is deliberately NOT the sign-off used in candidate_mail and
+    shortlist. Those are still "Best, / <recruiter> / Ajaia Hiring Team",
+    because a note asking somebody to finish an assessment reads better from a
+    person -- see the note above `candidate_mail.signature_lines`.
     """
     return f"""
         <p style="margin:0;">
-          Best,<br>
-          {candidate_mail.esc_html(BREVO_SENDER_NAME)}<br>
-          <span style="color:{MUTED};font-size:13px;">Ajaia Hiring Team</span>
+          <span style="color:{MUTED};font-size:13px;">Best regards from \
+Ajaia Hiring Team</span>
         </p>"""
 
 
