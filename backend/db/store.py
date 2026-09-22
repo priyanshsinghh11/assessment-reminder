@@ -888,11 +888,12 @@ def set_decision(submission_id: int, status: str, reason: str, source: str) -> b
             "at": now(),
         }}},
     )
+    return bool(result.matched_count)
 
 
 def set_evaluation(submission_id: int, evaluation: dict) -> None:
     """Store an AI evaluation and move the candidate out of the pending pile."""
-    get_db().submissions.update_one(
+    result = get_db().submissions.update_one(
         {"_id": submission_id},
         {"$set": {
             "evaluation": {**evaluation, "graded_at": now()},

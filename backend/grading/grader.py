@@ -74,10 +74,19 @@ def ensure_resume(submission: dict, persist: bool = True) -> dict:
     # `resume_link` may be a portal/profile URL while the actual fetched file
     # is recorded in `resume_source_link`. Comparing those URLs makes every
     # Re-evaluate download the same CV again, which can take minutes.
-    if attempted:
+    if attempted and not (
+            "/folders/" in link
+            and submission.get("resume_error") == "not_a_document:text/html"):
         return submission
 
     text, error = resume_reader.read_resume(link)
+    if (error == "not_a_document:text/html"
+            and "/folders/" in link):
+        folder_text, folder_error = submission_reader.read_folder_resume(link)
+        if folder_text:
+            text, error = folder_text, ""
+        else:
+            error = folder_error or error
     if error:
         log.info("  resume not readable for submission %s [%s]",
                  submission.get("_id"), error)
@@ -117,7 +126,8 @@ def ensure_linked_submission(submission: dict, persist: bool = True) -> dict:
 
     attempted = submission.get("linked_submission_fetched_at") is not None
     stored_links = set(submission.get("linked_submission_links") or ())
-    if attempted and set(links).issubset(stored_links):
+    if (attempted and set(links).issubset(stored_links)
+            and not submission.get("linked_submission_errors")):
         return submission
 
     result = submission_reader.read_submission(markdown)
