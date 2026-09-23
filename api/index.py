@@ -45,7 +45,10 @@ being able to find later:
   * The batch jobs in the "does NOT" list above are reachable and will fail.
     Sync portal and grading time out; the reminder run is the dangerous one --
     it returns 202 and then dies frozen, having already mailed some candidates.
-    Run those from a machine with a real process, not from here.
+    Run those from a machine with a real process, not from here. Portal
+    ingest and grading already have one: .github/workflows/batch.yml runs
+    both on a GitHub runner every three hours, which is why nothing schedules
+    them against this deployment.
 
   * Every candidate's name, address, CV and score is now behind nothing but the
     login form, on the open internet. AUTH_ENABLED must stay on, and the admin

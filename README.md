@@ -1484,6 +1484,110 @@ behaviour for any container: platforms collect stdout, not files inside an
 image. `tests/test_guards.py` pins it, because a laptop always has a writable
 `logs/` and will never reproduce it.
 
+### Automated on GitHub Actions — the batch half
+
+Portal sync and grading run on a schedule in `.github/workflows/batch.yml`, on
+a GitHub-hosted runner, and Vercel serves the dashboard and review surface as
+before. The split follows the workload: the web half is request-shaped Mongo
+work that a serverless function does well, and the batch half is neither.
+
+**Why not Vercel cron.** Three limits, none of them about how this code is
+written:
+
+| | Vercel Hobby | A runner |
+|---|---|---|
+| Function wall clock | 300s — the default *and* the maximum; only Pro raises it | 6 hours |
+| Cron frequency | once per day, ±59 minutes | every 5 minutes |
+| Filesystem | read-only | writable |
+
+`LLM_CANDIDATE_BUDGET` is 360 seconds for a *single* candidate, against a
+measured 146s to first token plus 24s to write the verdict. One candidate does
+not fit inside 300s, so grading on Hobby would lose people mid-call after the
+model had been billed. The roles crawl writes `assessments/<slug>.md`, which a
+read-only filesystem refuses outright. And Vercel's Hobby plan is
+[non-commercial use only](https://vercel.com/docs/limits/fair-use-guidelines#commercial-usage),
+which this is not.
+
+**What runs when.**
+
+| Workflow | Schedule | Command |
+|---|---|---|
+| `batch.yml` | every 3 hours | `ingest --skip-roles`, then `grade --all --limit 2` |
+| `roles-crawl.yml` | Mondays 04:00 UTC | `ingest --roles-only`, then commits the assessment diff |
+
+Both share one `concurrency` group, because ingest's stage 3 moves submissions
+between buckets while grading walks the pending queue. That guard does not
+reach across machines: `manage.py grade` on a laptop while a run is in flight
+is the one overlap nothing detects.
+
+Neither workflow sends mail. `AUTOMATION_ENABLED` is deliberately not set in
+either — it gates the reminder send, not ingest and not grading, and while it
+is off reminders go out from the dashboard after a human has looked at who is
+eligible. See [Automation is paused](#automation-is-paused).
+
+**Setting it up.** Settings → Secrets and variables → Actions.
+
+| Secret | Why |
+|---|---|
+| `MONGO_URI` | **Required.** A missing one does not fail loudly — `config.py` defaults it to `127.0.0.1:27017`, which on a runner is nothing, and the run would report a clean sync of zero records. `batch.yml` refuses to start without it for that reason. |
+| `PORTAL_EMAIL`, `PORTAL_PASSWORD` | The portal crawl and the submissions CSV. |
+| `LLM_API_KEY` | Grading. |
+| `WORKABLE_API_TOKEN` | Optional. Decides which of a family's grids a candidate is marked against; unset, everyone falls back to the senior grid rather than being skipped. |
+
+| Variable | Why |
+|---|---|
+| `MONGO_DB`, `LLM_BASE_URL`, `LLM_MODEL`, `LLM_CONCURRENCY` | Each falls back to the `config.py` default when unset, so an empty list still runs. |
+| `COMMIT_ASSESSMENTS` | Set to `1` to let the weekly crawl push changed assessment text. Unset, the diff is uploaded as an artifact instead and nothing is written to the branch. |
+
+**Two things to check before the first run.**
+
+*Atlas has to accept the runner.* GitHub's runners have dynamic egress IPs, so
+the cluster needs `0.0.0.0/0` in its network access list — which it almost
+certainly already has, because Vercel Hobby's egress is dynamic too and the
+deployment there reaches the same cluster. Verify rather than assume: the
+symptom is a connection timeout, not an auth error.
+
+*Workflow logs are candidate data, and this repository is public.* A grading
+run prints, per candidate, their name, score, hire recommendation, the model's
+brief about them, any auto-fail evidence and any `FRAUD LOG` entry with the
+quote behind it. An Actions run page on a public repo is world-readable,
+indexed and permanent — that is an accusation against a named private
+individual on a page they will never see.
+
+`batch.yml` therefore sets `LOG_CANDIDATE_DETAIL=0`. The run still reports
+roles, counts, how many marks were unevidenced and how many tells fired; it
+just never says who, and never quotes the work. The flag defaults **on**, so a
+laptop, the dashboard and the container are unchanged — run `manage.py grade`
+locally and you get the full per-candidate lines as before. `grader.py` honours
+it too, because the fetch notes carry candidate Drive share URLs and a share
+URL is a capability, not just an identifier. `tests/test_guards.py` pins the
+default, the override, that the workflow sets it, and that both guards are
+still in the code.
+
+Ingest needs no such switch: it logs counts, queue names and submission IDs
+only.
+
+**`--limit` is per role, not per run.** With 33 roles carrying pending work, a
+limit of 2 is ~66 candidates — around half an hour at `LLM_CONCURRENCY=6`. A
+limit of 25 would be 614 candidates and would outlive GitHub's own 6-hour job
+ceiling, so raise it only after measuring. A `timeout` wraps the step at 75
+minutes regardless; grading writes each verdict as it completes, so a stop
+loses only the few in flight and the next run picks up the rest.
+
+**The runner has no `.env`.** It is gitignored and never checked out, so
+repository secrets and variables are the entire configuration. `LLM_BASE_URL`
+and `LLM_MODEL` are therefore *required* variables rather than optional ones:
+their defaults in `config.py` are Groq's endpoint paired with an NVIDIA model
+name, so leaving them unset would POST your `LLM_API_KEY` to a provider you did
+not choose, for a model it does not serve. The workflow refuses to start
+without them.
+
+**Exit codes are already cron-shaped**, which is why the workflow reads them
+rather than parsing the log: `0` clean, `2` individual candidates failed and
+stay pending, `3` come back later — a review queue that would not download, or
+the provider's daily token budget. Only `1` and anything unrecognised fail the
+run.
+
 ### With Docker
 
 ```bash

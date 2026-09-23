@@ -281,3 +281,57 @@ class TestTheServerlessEntryPoint:
         ignored = (ROOT / ".vercelignore").read_text(encoding="utf-8")
         for path in ("venv/", "logs/", "state/", ".env", "*.csv"):
             assert path in ignored, f"{path} would be uploaded"
+
+
+class TestCandidateLogRedaction:
+    """
+    What a grading run is allowed to print when the log is going somewhere
+    public.
+
+    LOG_FILE_MODE already stops the log file being world-readable on the box
+    it is written on. This is the same concern one layer out: a CI runner
+    streams stdout to a run page, and on a public repository that page IS the
+    open internet. A grading run prints, per candidate, their name, score,
+    hire recommendation, the model's brief, any auto-fail evidence and any
+    FRAUD LOG quote -- an accusation against a named private individual, on a
+    page they will never see.
+
+    The flag defaults ON so nothing about a laptop or the container changes.
+    These pin that the default is on, that it can be turned off, that the
+    scheduled workflow does turn it off, and that the two guards are still
+    in the code -- the last one because deleting an `if` is a silent way to
+    undo all of this.
+    """
+
+    def _config(self, monkeypatch, value):
+        import importlib
+        if value is None:
+            monkeypatch.delenv("LOG_CANDIDATE_DETAIL", raising=False)
+        else:
+            monkeypatch.setenv("LOG_CANDIDATE_DETAIL", value)
+        import backend.config
+        return importlib.reload(backend.config)
+
+    def test_detail_is_on_by_default(self, monkeypatch):
+        assert self._config(monkeypatch, None).LOG_CANDIDATE_DETAIL is True
+
+    @pytest.mark.parametrize("value", ["0", "false", "no", "off", "OFF"])
+    def test_it_can_be_turned_off(self, monkeypatch, value):
+        assert self._config(monkeypatch, value).LOG_CANDIDATE_DETAIL is False
+
+    def test_the_scheduled_run_turns_it_off(self):
+        """
+        The workflow is the only place this is set to 0, and it is the whole
+        reason the flag exists. A batch.yml that stops setting it starts
+        publishing candidate names on the next scheduled run, and nothing on
+        the run page would say so.
+        """
+        workflow = (ROOT / ".github/workflows/batch.yml").read_text(encoding="utf-8")
+        assert "LOG_CANDIDATE_DETAIL" in workflow,             "batch.yml no longer sets LOG_CANDIDATE_DETAIL -- a scheduled "             "run would print candidate names to a public log"
+        assert '"0"' in workflow.split("LOG_CANDIDATE_DETAIL", 1)[1][:40]
+
+    def test_both_guards_are_still_in_place(self):
+        """The flag does nothing if nobody reads it."""
+        for module in ("backend/pipeline/grade.py", "backend/grading/grader.py"):
+            source = (ROOT / module).read_text(encoding="utf-8")
+            assert "LOG_CANDIDATE_DETAIL" in source,                 f"{module} no longer checks LOG_CANDIDATE_DETAIL"

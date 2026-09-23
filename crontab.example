@@ -1,3 +1,9 @@
+# THIS FILE IS ONLY ABOUT THE REMINDER SEND. Portal sync and grading are no
+# longer anybody's cron job: they run on a schedule in
+# .github/workflows/batch.yml, on a GitHub runner, and have done since the
+# batch half moved off Vercel. Nothing below needs to be enabled for those.
+# See "Automated on GitHub Actions" in the README.
+#
 # PAUSED -- the automated run is switched off for now.
 #
 # The schedule below is left here commented out so it can be turned back on

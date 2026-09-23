@@ -1698,3 +1698,30 @@ LOG_BACKUP_COUNT = int(os.environ.get("LOG_BACKUP_COUNT", 5))
 # have POSIX modes; the container runs Linux as uid 10001 and this is what
 # stops a log full of candidate addresses being world-readable inside it.
 LOG_FILE_MODE = 0o600
+
+# THE SAME CONCERN AS LOG_FILE_MODE, ONE LAYER FURTHER OUT.
+#
+# LOG_FILE_MODE stops the log being world-readable on the box it is written
+# on. This stops the interesting lines being WRITTEN AT ALL when the log
+# itself is going somewhere public -- which, for a CI runner, it is: GitHub
+# Actions streams a job's stdout to the run page, and on a public repository
+# that page is the open internet, indexed and kept.
+#
+# What a grading run prints per candidate is not incidental. It is their name,
+# their score, the hire recommendation, the first line of the model's brief
+# about them, any auto-fail with the evidence that tripped it, and any FRAUD
+# LOG entry with the quote behind it. Published together, that is an
+# accusation against a named private individual on a page they will never see
+# and cannot answer. The Drive links in `grader`'s fetch notes are worse in a
+# quieter way: a share URL is a capability, so printing one hands the folder
+# to whoever reads the log.
+#
+# Off, the same run still reports what it did -- roles, counts, how many marks
+# were unevidenced, how many fraud tells fired -- because the aggregate is
+# what a scheduled run is watched for. Only the per-candidate detail goes.
+#
+# Default ON, so a laptop, the dashboard and the container all behave exactly
+# as before; .github/workflows/batch.yml sets it to 0. tests/test_guards.py
+# pins both halves.
+LOG_CANDIDATE_DETAIL = os.environ.get(
+    "LOG_CANDIDATE_DETAIL", "1").strip().lower() not in ("0", "false", "no", "off")

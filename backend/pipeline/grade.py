@@ -27,7 +27,8 @@ import sys
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from typing import Optional
 
-from backend.config import LLM_CONCURRENCY, LLM_MODEL
+from backend.config import (LLM_CONCURRENCY, LLM_MODEL,
+                            LOG_CANDIDATE_DETAIL)
 from backend.grading import evaluator, grader
 from backend.db import store
 from backend.grading import tier_resolver
@@ -77,6 +78,7 @@ def _grade_role(role: dict, limit: int, force_rubric: bool,
              title, len(pending), grid.get("unit"), LLM_MODEL)
 
     graded = failed = ungrounded = 0
+    auto_fails = fraud_tells = 0
     marks: list[int] = []
     exhausted: Optional[evaluator.QuotaExhausted] = None
 
@@ -108,6 +110,18 @@ def _grade_role(role: dict, limit: int, force_rubric: bool,
             ungrounded += grounding.get("ungrounded", 0)
             marks += [r["score"] for r in verdict.get("grid") or []
                       if r.get("score") is not None]
+            auto_fails += len(verdict.get("auto_fails") or [])
+            fraud_tells += len(verdict.get("fraud_tells") or [])
+
+            # Everything below names the candidate or quotes their work, so
+            # none of it is written when the log is going somewhere public.
+            # The counts it would have produced are kept above and reported in
+            # aggregate at the end of the role -- a scheduled run still says a
+            # fraud tell fired, it just does not say who or quote what. See
+            # LOG_CANDIDATE_DETAIL in backend/config.py.
+            if not LOG_CANDIDATE_DETAIL:
+                continue
+
             log.info("  %-32s %5.1f  %-10s  triage %s/%s  quotes %s/%s  %s",
                      (sub.get("candidate_name") or sub.get("candidate_email") or "?")[:32],
                      verdict["score"], verdict["recommendation"],
@@ -143,6 +157,14 @@ def _grade_role(role: dict, limit: int, force_rubric: bool,
     if ungrounded:
         log.warning("[%s] %d criterion mark(s) quoted text that is not in the "
                     "submission. Those marks are unevidenced.", title, ungrounded)
+    # Only worth saying when the per-candidate lines were suppressed; with
+    # detail on, every one of these was already printed beside the name it
+    # belongs to, and repeating the tally reads like a second set of findings.
+    if not LOG_CANDIDATE_DETAIL and (auto_fails or fraud_tells):
+        log.warning("[%s] %d auto-fail(s) and %d fraud tell(s) fired. Names "
+                    "and evidence are suppressed here -- open the role in the "
+                    "dashboard, or re-run locally, to see which candidates.",
+                    title, auto_fails, fraud_tells)
 
     if exhausted:
         left = len(pending) - graded - failed

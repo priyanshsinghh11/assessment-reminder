@@ -39,6 +39,7 @@ import logging
 from backend.db import store
 from backend.grading import cv_evaluator, evaluator
 from backend.grading import rubric_pack as pack
+from backend.config import LOG_CANDIDATE_DETAIL
 from backend.scraping import resume_reader, submission_reader
 
 log = logging.getLogger(__name__)
@@ -161,8 +162,17 @@ def ensure_linked_submission(submission: dict, persist: bool = True) -> dict:
     submission["linked_submission_media"] = result["media"]
     submission["linked_submission_fetched_at"] = store.now()
     if result["errors"]:
-        log.info("linked submission fetch notes for %s: %s",
-                 submission.get("_id"), "; ".join(result["errors"]))
+        # The errors carry the candidate's own share URLs, and a Drive share
+        # URL is a capability, not a name -- printing one where the log is
+        # public hands the folder to whoever reads it. The count still tells a
+        # scheduled run that the fetch is degrading. See LOG_CANDIDATE_DETAIL.
+        if LOG_CANDIDATE_DETAIL:
+            log.info("linked submission fetch notes for %s: %s",
+                     submission.get("_id"), "; ".join(result["errors"]))
+        else:
+            log.info("linked submission: %d of %d link(s) could not be read "
+                     "for submission %s.", len(result["errors"]),
+                     len(result["links"]), submission.get("_id"))
     if not persist:
         return submission
     try:

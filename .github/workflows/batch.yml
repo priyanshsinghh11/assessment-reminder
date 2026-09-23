@@ -1,0 +1,219 @@
+# Portal sync and AI grading, on a schedule, on a real machine.
+#
+# WHY THIS IS NOT ON VERCEL. api/index.py has the long version. The short one:
+# a Hobby function is capped at 300 seconds -- that is the default AND the
+# maximum, Hobby cannot raise it -- and backend/config.py budgets 360 seconds
+# for a SINGLE candidate (LLM_CANDIDATE_BUDGET), against a measured 146s to
+# first token plus 24s to write the verdict. One candidate does not fit, never
+# mind a role. Hobby cron is also once per day, +/-59 minutes. A runner has six
+# hours, a writable disk and a real process, so `manage.py ingest` and
+# `manage.py grade` run here exactly as they run on a laptop, unmodified.
+#
+# Vercel still serves the dashboard and the review surface. That half is
+# request-shaped Mongo work and already works there. This is the other half.
+#
+# THE TWO STEPS ARE SEQUENTIAL ON PURPOSE. Ingest's stage 3 moves submissions
+# between the `rejected` and `pending` buckets while grading walks the pending
+# queue. Running them concurrently races over the same documents, which is what
+# _run_lock prevents inside the web app and what `concurrency` below prevents
+# here. Neither reaches across machines: a laptop running `manage.py grade`
+# while this fires is the one overlap nothing in this file can detect.
+
+name: Batch
+
+on:
+  # PAUSED -- the schedule is off until somebody turns it on deliberately.
+  #
+  # Uncomment the two lines below to start it. Until then this workflow runs
+  # only from the Actions tab, via workflow_dispatch, which is the safe way to
+  # watch the first few runs: each one syncs the portal and spends LLM budget
+  # against the live database, and a cron that starts the moment it merges
+  # gives nobody a chance to read the first log before the second run begins.
+  #
+  # schedule:
+  #   # Every three hours, UTC. GitHub's scheduler is best-effort and is
+  #   # delayed under load, sometimes by tens of minutes -- treat this as "a
+  #   # few times a day", not as a clock. Nothing downstream depends on the
+  #   # exact minute: ingest is idempotent and grade skips anyone scored.
+  #   - cron: "0 */3 * * *"
+  workflow_dispatch:
+    inputs:
+      grade_limit:
+        description: "Max submissions to grade PER ROLE (0 = no cap)"
+        required: false
+        default: "2"
+      skip_grading:
+        description: "Sync the portal and stop"
+        type: boolean
+        required: false
+        default: false
+
+# One batch at a time. `cancel-in-progress: false` because cancelling mid-grade
+# abandons candidates the LLM has already been billed for; a queued run picks
+# up the same backlog later and skips whoever got scored in the meantime.
+concurrency:
+  group: batch
+  cancel-in-progress: false
+
+jobs:
+  batch:
+    runs-on: ubuntu-latest
+    # Install + sync + a bounded grading pass, with room to spare. The grading
+    # step has its own tighter `timeout` below; this is the outer backstop, and
+    # it is well under GitHub's own 6h ceiling so a hung job dies on our terms.
+    timeout-minutes: 100
+
+    env:
+      # --- Required. The guard step below fails the run if one is missing. ---
+      MONGO_URI: ${{ secrets.MONGO_URI }}
+      PORTAL_EMAIL: ${{ secrets.PORTAL_EMAIL }}
+      PORTAL_PASSWORD: ${{ secrets.PORTAL_PASSWORD }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      # Best effort, so it is not in the guard: this decides which of a
+      # family's grids a candidate is marked against. Unset, every candidate
+      # falls back to the default (the senior) grid rather than being skipped
+      # -- see _resolve_tiers in backend/pipeline/grade.py.
+      WORKABLE_API_TOKEN: ${{ secrets.WORKABLE_API_TOKEN }}
+
+      # --- The privacy switch, and it is not optional here. ---
+      # This repository is public, so this job's stdout is a world-readable,
+      # indexed, permanent page. A grading run prints each candidate's name,
+      # score, hire recommendation, the model's brief about them, and any
+      # FRAUD LOG entry with the quote behind it. Off, the run still reports
+      # roles, counts and how many tells fired -- it just never says who.
+      # Removing this line publishes candidate names on the next scheduled run
+      # and nothing on the run page would say so. tests/test_guards.py pins it.
+      LOG_CANDIDATE_DETAIL: "0"
+
+      # --- Configuration, not secrets. Set these as repository VARIABLES. ---
+      # Each falls back to the default in backend/config.py when unset, so an
+      # empty vars list still produces a working run. NOTE the runner has no
+      # .env -- it is gitignored and never checked out -- so these are the
+      # only configuration the run sees. LLM_CONCURRENCY in particular falls
+      # back to 6 here, not to whatever a laptop's .env says.
+      MONGO_DB: ${{ vars.MONGO_DB }}
+      LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+      LLM_MODEL: ${{ vars.LLM_MODEL }}
+      LLM_CONCURRENCY: ${{ vars.LLM_CONCURRENCY }}
+
+      # AUTOMATION_ENABLED IS DELIBERATELY ABSENT. It gates the reminder SEND
+      # (backend/mail/reminder.py), not ingest and not grading, and it is off
+      # by design -- while it is off, reminders go out from the dashboard after
+      # a human has looked at who is eligible. Nothing in this file mails a
+      # candidate, and setting it here would not change that. Read
+      # crontab.example before turning reminders back on anywhere.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Refuse to run without credentials
+        # Checked here rather than left to the commands, because none of these
+        # fail loudly on their own.
+        #
+        # MONGO_URI defaults to 127.0.0.1:27017, which on a runner is nothing
+        # at all -- the run would report a clean sync of zero records against a
+        # database that was never there.
+        #
+        # LLM_BASE_URL and LLM_MODEL are worse, and they are the reason this
+        # step checks VARIABLES and not just secrets. Their defaults in
+        # backend/config.py are Groq's endpoint and an NVIDIA model name -- a
+        # combination that belongs to no single provider and is left over from
+        # a migration. Unset here, the run would POST LLM_API_KEY to
+        # api.groq.com: a key sent to a vendor nobody chose, to ask for a model
+        # that vendor does not serve. A failed request that leaks a credential
+        # is not an acceptable default, so both must be stated explicitly.
+        run: |
+          missing=""
+          for name in MONGO_URI PORTAL_EMAIL PORTAL_PASSWORD LLM_API_KEY; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing"
+            echo "Settings -> Secrets and variables -> Actions -> New repository secret"
+            exit 1
+          fi
+
+          unstated=""
+          for name in LLM_BASE_URL LLM_MODEL; do
+            if [ -z "${!name}" ]; then unstated="$unstated $name"; fi
+          done
+          if [ -n "$unstated" ]; then
+            echo "::error::Missing repository variable(s):$unstated"
+            echo "These have no safe default -- config.py falls back to Groq's"
+            echo "endpoint with an NVIDIA model name, which would send your"
+            echo "LLM_API_KEY to a provider you did not choose."
+            echo "Settings -> Secrets and variables -> Actions -> Variables"
+            exit 1
+          fi
+
+          # Named so a run page shows which provider was actually called.
+          # Neither value is a secret; the key they authenticate with is.
+          echo "credentials present"
+          echo "provider: $LLM_BASE_URL"
+          echo "model:    $LLM_MODEL"
+
+      - name: Sync the portal
+        # --skip-roles: submissions only. The roles crawl is ~52 admin page
+        # fetches for assessments that rarely change, and it WRITES
+        # assessments/<slug>.md, which is git-tracked -- doing it on every run
+        # would leave the checkout dirty for no reason. roles-crawl.yml does
+        # that weekly and commits the result.
+        #
+        # Exit 3 is not a failure: a review queue would not download, so the
+        # rest of the sync stands but the grading queue below is short. Said
+        # out loud and carried on -- the next run re-fetches it.
+        run: |
+          set +e
+          python manage.py ingest --skip-roles
+          code=$?
+          set -e
+          case $code in
+            0) echo "sync ok" ;;
+            3) echo "::warning::A review queue would not download. Those candidates are missing from this sync and the grading queue is short. The next scheduled run re-fetches them." ;;
+            *) echo "::error::Sync failed (exit $code)."; exit $code ;;
+          esac
+
+      - name: Grade what is pending
+        if: ${{ github.event.inputs.skip_grading != 'true' }}
+        # --all walks every published role, and --limit caps EACH ONE -- it is
+        # per role, not per run. With 33 roles carrying pending work, a limit
+        # of 2 is ~66 candidates, which at LLM_CONCURRENCY=6 and ~170s a
+        # candidate is around half an hour. A limit of 25 would be 614
+        # candidates and would outlive GitHub's own 6h job ceiling, so this
+        # number is not a throttle to relax casually -- measure first.
+        #
+        # `timeout` is the backstop under that arithmetic: whatever the count
+        # works out to, the step stops after 75 minutes. Grading writes each
+        # verdict as it completes, so a stop loses only the handful in flight
+        # and the next run picks the rest up -- which is exactly what
+        # re-running is designed to do.
+        #
+        # Exit 3 is the provider's daily token budget. grade.py gives it its
+        # own code precisely so a wrapper can tell "come back later" apart from
+        # "something is broken" without parsing the log. Exit 2 is individual
+        # candidates that failed to grade -- the run stands, they stay pending,
+        # and the next run retries them.
+        run: |
+          limit="${{ github.event.inputs.grade_limit }}"
+          limit="${limit:-2}"
+          set +e
+          timeout --signal=INT 4500 python manage.py grade --all --limit "$limit"
+          code=$?
+          set -e
+          case $code in
+            0) echo "grading ok" ;;
+            2) echo "::warning::Some candidates failed to grade. They stay pending and the next run retries them." ;;
+            3) echo "::warning::Stopped on the provider's daily token budget. Already-scored candidates are skipped, so the next run resumes the queue." ;;
+            124) echo "::warning::Grading hit the 75-minute bound and was stopped. Every verdict completed before that point is saved; the rest stay pending for the next run." ;;
+            *) echo "::error::Grading failed (exit $code)."; exit $code ;;
+          esac

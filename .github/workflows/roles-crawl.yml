@@ -1,0 +1,128 @@
+# The roles crawl, weekly, with the assessment text committed back.
+#
+# WHY IT IS SEPARATE FROM batch.yml. Stage 1 of the ingest is the only part of
+# this system that writes to the working tree: `ingest_roles()` writes each
+# role's live assessment to assessments/<slug>.md "so it can be reviewed in
+# git" (backend/pipeline/ingest.py). Three things follow, and together they are
+# why this is its own file on its own schedule:
+#
+#   * It cannot run on Vercel at all. The filesystem there is read-only, so
+#     the write raises and the sync dies part-way through stage 1.
+#   * It is ~52 admin page fetches at PORTAL_CRAWL_DELAY apart, for text that
+#     changes a few times a year. Running it every three hours alongside the
+#     submissions sync is a lot of crawling for a file that is usually
+#     byte-identical.
+#   * Committing is the entire point of writing it. A crawl whose output is
+#     thrown away when the runner is destroyed tells nobody that an assessment
+#     changed. The diff on this commit IS the notification.
+#
+# THE COMMIT IS OPT-IN. `vars.COMMIT_ASSESSMENTS` has to be set to `1` before
+# anything is pushed. Unset -- the default -- the crawl still runs and the diff
+# is printed in the log and uploaded as an artifact, so you can see what moved
+# without this workflow writing to your default branch. Turn it on once you are
+# happy with what the first run reports.
+
+name: Roles crawl
+
+on:
+  schedule:
+    # Mondays, 04:00 UTC. Best-effort like every GitHub schedule; nothing here
+    # is time-sensitive.
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+# Shares batch.yml's group: stage 1 and stage 2 both upsert the roles
+# collection, and grading derives its grid from a role document.
+concurrency:
+  group: batch
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # The commit step needs to push; nothing else here writes to the repo.
+    permissions:
+      contents: write
+
+    env:
+      MONGO_URI: ${{ secrets.MONGO_URI }}
+      PORTAL_EMAIL: ${{ secrets.PORTAL_EMAIL }}
+      PORTAL_PASSWORD: ${{ secrets.PORTAL_PASSWORD }}
+      MONGO_DB: ${{ vars.MONGO_DB }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Refuse to run without credentials
+        run: |
+          missing=""
+          for name in MONGO_URI PORTAL_EMAIL PORTAL_PASSWORD; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing"
+            exit 1
+          fi
+          echo "credentials present"
+
+      - name: Crawl roles and assessments
+        # --roles-only: no submissions. batch.yml owns those, every three
+        # hours, and pulling them here as well would only duplicate the work.
+        run: python manage.py ingest --roles-only
+
+      - name: What changed
+        id: diff
+        # `git diff --stat` on assessments/ only. A crawl that rewrote
+        # something outside that directory is a bug, not a content change, and
+        # the commit step below stages assessments/ alone so it cannot happen
+        # quietly.
+        run: |
+          git add --intent-to-add assessments/
+          if git diff --quiet -- assessments/; then
+            echo "changed=0" >> "$GITHUB_OUTPUT"
+            echo "No assessment text changed."
+          else
+            echo "changed=1" >> "$GITHUB_OUTPUT"
+            git diff --stat -- assessments/
+            git diff -- assessments/ > assessment-changes.patch
+          fi
+
+      - name: Keep the diff whether or not it is committed
+        if: steps.diff.outputs.changed == '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: assessment-changes
+          path: assessment-changes.patch
+          retention-days: 30
+
+      - name: Commit the new assessment text
+        if: steps.diff.outputs.changed == '1' && vars.COMMIT_ASSESSMENTS == '1'
+        run: |
+          rm -f assessment-changes.patch
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assessments/
+          # [skip ci] so this does not spend a CI run on a text-only change to
+          # files no test reads.
+          git commit -m "Refresh assessment text from the portal [skip ci]"
+          git push
+
+      - name: Say so when the commit was skipped
+        if: steps.diff.outputs.changed == '1' && vars.COMMIT_ASSESSMENTS != '1'
+        run: |
+          echo "::notice::Assessment text changed but was not committed. \
+          Download the assessment-changes artifact to see the diff, and set \
+          the repository variable COMMIT_ASSESSMENTS=1 to have future runs \
+          commit it."
