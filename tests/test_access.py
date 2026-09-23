@@ -212,6 +212,21 @@ def run(manager_email: str) -> int:
           all(row["job_id"] in owned for row in rejected["candidates"]),
           f"{rejected['total']} of "
           f"{admin.get('/api/evaluations/rejected').get_json()['total']}")
+    spotlight = manager.get("/api/evaluations/spotlight").get_json()
+    spot_rows = spotlight["employers"] + spotlight["schools"]
+    check("the spotlights hold only their roles",
+          all(row["job_id"] in owned for row in spot_rows),
+          f"{len(spot_rows)} rows")
+    check("and only their New York seats",
+          all(row["id"] in owned for row in spotlight["new_york_roles"]),
+          f"{len(spotlight['new_york_roles'])} seats")
+    # The score rule on a hand-built row. These rows never pass through
+    # _project(), so MANAGER_DASHBOARD_SCORES is re-applied by hand in
+    # _spotlight_row -- which is exactly the kind of restatement that drifts.
+    check("a spotlight row withholds the score when the setting is off",
+          spotlight["scores_visible"]
+          or all(row["evaluation"] is None for row in spot_rows),
+          f"scores_visible={spotlight['scores_visible']}")
 
     # --- one candidate on somebody else's role ----------------------------
     print("\n--- one candidate on somebody else's role ---")

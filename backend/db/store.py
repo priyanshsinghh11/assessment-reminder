@@ -79,6 +79,13 @@ def ensure_indexes() -> None:
     db.submissions.create_index([("submitted_at", DESCENDING)])
     # The pipeline board reads one stage at a time, across every role.
     db.submissions.create_index([("pipeline.stage", ASCENDING)])
+    # "Whose pedigree is not current" is asked on every dashboard load, and
+    # without this it is a collection scan -- which, because the answer is
+    # normally "nobody", is 10,000 documents read to return nothing.
+    db.submissions.create_index([("pedigree.version", ASCENDING)])
+    # ...and the handful of them who are actually on one of the two lists.
+    db.submissions.create_index([("pedigree.hit", ASCENDING),
+                                 ("evaluation.score", DESCENDING)])
     db.roles.create_index([("slug", ASCENDING)])
     # Review links are looked up by token on every request the manager makes,
     # and listed per role by the dashboard.
@@ -216,6 +223,23 @@ def get_roles(job_ids: Optional[set[int]] = None) -> list[dict]:
     # Sorted by the portal's title in the query, then re-sorted here: a role
     # renamed to "AI Strategist" has to land under A where a reader looks for
     # it, not under "Ajaia ..." where the database still has it.
+    return sorted((_titled(r) for r in rows),
+                  key=lambda r: (not r.get("published"), (r.get("title") or "").lower()))
+
+
+def role_index(job_ids: Optional[set[int]] = None) -> list[dict]:
+    """
+    Just the id, title and slug of each role, in the same order as get_roles().
+
+    get_roles() returns whole role documents, and a role document carries its
+    live assessment markdown -- which for 37 roles is megabytes, and measured
+    at 2.4 seconds against Atlas. A caller that only needs to put a name and a
+    rubric slug against a job id should not pay for that; the spotlight route
+    needs exactly those three fields and nothing else.
+    """
+    query: dict = {} if job_ids is None else {"_id": {"$in": sorted(job_ids)}}
+    rows = get_db().roles.find(
+        query, {"title": 1, "slug": 1, "published": 1})
     return sorted((_titled(r) for r in rows),
                   key=lambda r: (not r.get("published"), (r.get("title") or "").lower()))
 
@@ -754,6 +778,15 @@ RESUME_FIELDS = (
 )
 
 
+# What grading.pedigree.read() looks at, and therefore the only fields
+# pedigree_unread() asks Mongo for. Spelled out here rather than imported from
+# the grading package so this module keeps depending on nothing above it.
+PEDIGREE_SOURCE_FIELDS = (
+    "resume_text", "workable_experience", "workable_education",
+    "candidate_headline",
+)
+
+
 # The fields a Workable-sourced record owns, for the CV-only roles that have no
 # portal assignment behind them. Same contract as PORTAL_FIELDS: this is what a
 # re-ingest overwrites, and `decision`, `evaluation` and `pipeline` are not in
@@ -928,6 +961,135 @@ def block_cv_evaluation(submission_id: int, reason: str = "cv_cannot_be_fetched"
              "decision.at": now(),
          }},
     )
+
+
+# ---------------------------------------------------------------------------
+# Pedigree -- the employers and schools a candidate's record names
+# ---------------------------------------------------------------------------
+#
+# Ours, not the portal's, and written to its own `pedigree` sub-document for
+# exactly the reason `evaluation` and `decision` are: an ingest $sets the keys
+# the crawler produced and this is not one of them, so a re-crawl cannot wipe
+# a scan. Do not add it to PORTAL_FIELDS or WORKABLE_FIELDS.
+#
+# It is a CACHE of a pure function -- grading.pedigree.read() over text we
+# already hold -- so it is safe to throw away and rebuild at any time, and
+# `version` is what makes that happen by itself: bump pedigree.VERSION and
+# every stored read stops counting as current on the next dashboard load.
+
+
+def pedigree_unread(version: str, job_ids: Optional[set[int]] = None,
+                    limit: int = 0) -> list[dict]:
+    """
+    Submissions whose pedigree has not been read, or was read by older lists.
+
+    Projected to the source fields alone -- see pedigree.SOURCE_FIELDS -- plus
+    the id to write back to. That matters more here than anywhere else in this
+    file: `resume_text` is up to 8 KB a row, and this is the one query that
+    has to ask for it in bulk.
+
+    `limit` caps one pass. The scan is cheap per row but it is still a scan
+    over every CV in scope, and a first load after a version bump should hand
+    the reader a page rather than hold the request open while 4,000 resumes
+    are read. What it does not cover this pass, it covers on the next.
+
+    TWO QUERIES, AND THE FIRST ONE ASKS FOR NOTHING BUT IDS. A single query
+    projecting the source fields costs the same whether it matches ten rows or
+    none, because Mongo has to read each candidate document to project
+    `resume_text` out of it -- measured at 9.8 seconds against 10,162
+    submissions to return an empty list, on every dashboard load, forever after
+    the backfill finished. The id query is served by the `pedigree.version`
+    index and touches no resume at all; the second only runs when there is
+    something to do.
+    """
+    query: dict = {"pedigree.version": {"$ne": version}}
+    if job_ids is not None:
+        query["job_id"] = {"$in": sorted(job_ids)}
+    cursor = get_db().submissions.find(query, {"_id": 1})
+    if limit:
+        cursor = cursor.limit(limit)
+    ids = [row["_id"] for row in cursor]
+    if not ids:
+        return []
+    projection = {field: 1 for field in PEDIGREE_SOURCE_FIELDS}
+    return list(get_db().submissions.find({"_id": {"$in": ids}}, projection))
+
+
+def count_pedigree_unread(version: str,
+                          job_ids: Optional[set[int]] = None) -> int:
+    """
+    How many submissions in scope are still waiting on a pedigree read.
+
+    Its own count rather than len(pedigree_unread(...)) because that would
+    fetch every one of their resumes to throw them away -- this is the number
+    behind a one-line "still reading N CVs" and it should cost a count, not a
+    few megabytes.
+    """
+    query: dict = {"pedigree.version": {"$ne": version}}
+    if job_ids is not None:
+        query["job_id"] = {"$in": sorted(job_ids)}
+    return get_db().submissions.count_documents(query)
+
+
+def set_pedigree_many(reads: dict[int, dict]) -> int:
+    """
+    Store a batch of pedigree reads. Returns how many rows were written.
+
+    Bulk, because the caller has just read several hundred CVs in a loop and
+    writing them back one at a time would spend more time on round trips than
+    on the scan itself.
+    """
+    if not reads:
+        return 0
+    stamp = now()
+    ops = [
+        UpdateOne({"_id": submission_id},
+                  {"$set": {"pedigree": {**read, "read_at": stamp}}})
+        for submission_id, read in reads.items()
+    ]
+    result = get_db().submissions.bulk_write(ops, ordered=False)
+    return result.modified_count
+
+
+def pedigree_pool(version: str, job_ids: Optional[set[int]] = None) -> list[dict]:
+    """
+    Every candidate in scope whose record named at least one employer or
+    school, with just enough beside it to draw a row and open the drawer.
+
+    `pedigree.hit` is the whole point of the query: the vast majority of
+    submissions match nothing, and there is no reason to move them. It is a
+    stored boolean rather than a test on the two arrays because only the
+    boolean can be indexed usefully -- see pedigree.read(). Candidates already turned down are left
+    out for the same reason -- the spotlight is a queue of people still waiting
+    on a decision, and a panel that kept offering somebody who was rejected
+    last week is a panel a reader stops trusting.
+
+    Sorted best score first, then newest, matching list_submissions() so the
+    same person is in the same place on both screens.
+    """
+    query: dict = {
+        "pedigree.version": version,
+        "pedigree.hit": True,
+        "decision.status": {"$ne": "rejected"},
+    }
+    if job_ids is not None:
+        query["job_id"] = {"$in": sorted(job_ids)}
+    projection = {
+        "candidate_name": 1, "candidate_email": 1, "candidate_location": 1,
+        "candidate_headline": 1, "job_id": 1, "job_title": 1,
+        "submitted_at": 1, "resume_link": 1, "admin_url": 1, "video_link": 1,
+        "decision": 1, "pipeline": 1, "pedigree": 1, "rubric_tier": 1,
+        # The score and the marks that qualify it, not the whole grid. See
+        # views_evaluations.SPOTLIGHT_VERDICT_FIELDS for why.
+        "evaluation.score": 1, "evaluation.score_provisional": 1,
+        "evaluation.grid_complete": 1, "evaluation.grid_of": 1,
+        "evaluation.grid_marked": 1,
+    }
+    cursor = get_db().submissions.find(query, projection).sort([
+        ("evaluation.score", DESCENDING),
+        ("submitted_at", DESCENDING),
+    ])
+    return list(cursor)
 
 
 def set_rubric_tier(submission_id: int, tier: Optional[str], source: str,

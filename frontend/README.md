@@ -36,6 +36,32 @@ best candidates to whoever owns the seat. Role cards carry the owner's name, a
 "sent" chip once a hand-off has gone out, and a **no manager** flag when a role
 has candidates and nobody to send them to.
 
+**The spotlights — the "Worth a look" button.** In the header, beside
+Accounts, with a count of how many of these people have had no decision yet.
+It opens a drawer over whatever is on screen holding two cross-role lists of
+candidates picked out by their record rather than by their score: **Top
+companies** — their CV names an employer from the watch list in
+`backend/grading/pedigree.py` — and **Top schools · New York**, a top-50 US
+university or an elite liberal-arts college, narrowed to the seats whose rubric
+says New York. Both are scoped like everything else here, so a hiring manager
+gets their roles and nobody else's.
+
+A drawer rather than a panel on the page, for the reason Accounts is one: it
+unloads nothing underneath it, so closing puts the reader back on the same
+role, the same tab and the same scroll position. Clicking a row opens that
+candidate's card *on top of* the list, so closing the card returns to the list
+rather than to the dashboard — which is what makes working through twenty of
+them one task instead of twenty.
+
+Every row prints the exact names that matched and, in its tooltip, the line of
+the CV they were read off. A filled chip was found in the parsed employment or
+education block; a dashed one was found elsewhere in the document and is worth
+less. **Nothing here moves anybody.** It is a shortcut to a file, not a
+decision about a person: where somebody worked and where they studied are
+proxies for access as much as for ability, so the evidence is on screen, the
+grid is one click underneath, and a candidate already booked in is shown with
+their stage rather than offered again.
+
 **One assignment, two dashboards.** Where two Workable postings at different
 seniorities sit the same portal assessment — the AI Strategist pair, and
 nothing else today — the role grid shows a card per *posting* rather than one
@@ -428,6 +454,84 @@ on. 409 for a role with nothing scored, 503 if `openpyxl` is missing.
 
 **Admin only.** A full re-crawl of the portal on behalf of the whole company —
 not a per-role action a manager fires from their own seat.
+
+### `GET /api/evaluations/spotlight`
+
+The two lists above the role grid: `employers` across every role in scope, and
+`schools` on the New York seats only. Each row carries the candidate, the role
+as the dashboard names it, their verdict, their pipeline stage, and `matches` —
+`{name, category, source}` per hit, where `source` is `record` (inside the
+parsed employment or education block) or `cv` (loose in the document).
+
+**Where a seat is comes off the rubric pack's `location` line**, which is the
+only record of it this codebase keeps — the portal crawl does not carry one. A
+role the pack does not cover is therefore absent from `new_york_roles` rather
+than guessed at, and its candidates never reach the school panel.
+
+**EMPLOYERS COME FROM THE WORK-EXPERIENCE SECTION AND NOWHERE ELSE.** That one
+rule is the matcher, and it replaced two earlier attempts that were both wrong.
+
+The first looked for a company name anywhere in the CV. Over 971 real resumes
+it reported 368 people as having worked at Google and 294 at Microsoft — two in
+five applicants — off lines like `Google Ads (Search, Performance Max)`,
+`Other: Microsoft Office, Google Workspace`, `Technologies: AWS Lambda, Amazon
+DynamoDB` and `Ran a $3M renovation`.
+
+The second judged each line on its own shape — a date range, an `at` connector,
+no bullet. That is beaten by a real CV in this database:
+
+```
+PROJECTS
+Google Hackathon                      New York, NY
+Google AI Challenge – Finalist        Oct–Nov 2024
+```
+
+An organisation, a place, a date range: every structural signal a job entry
+has, and the candidate has never worked at Google. As *lines* those are not
+distinguishable from employment. What distinguishes them is the heading they
+sit under.
+
+So `_sections()` splits the CV on its headings, employers are read only from
+the work-experience block and schools only from the education block, and a CV
+whose headings cannot be found contributes **nothing**. That last part is
+deliberate rather than a gap to fill in later: guessing at employment from an
+unsectioned document is precisely what produced "368 of our applicants worked
+at Google". Headings are recognised by what they *say*, not how they are
+typeset — shape alone read `Amazon Development Centre` as a heading and closed
+the section it was sitting in.
+
+Inside the section a second layer still applies, because a duty bullet under a
+real job is where clients and tools live. A name does not count on a bullet, a
+skills list, a certificate, a client list, a portfolio project, more than 60
+characters into the line (PDF extraction runs a header and its first bullet
+together), inside brackets (`(Cisco TAC)`, `(Amazon FBA)`), after a line that
+opens with a verb, or in letter-spaced PDF text. AI-vendor names — OpenAI,
+Anthropic, Databricks, Snowflake, Datadog — are taken **only** from Workable's
+structured parse, since this applicant pool names them as APIs constantly.
+
+`tests/test_pedigree.py` holds every one of those as a case, each a real line
+from this database, and asserts the rule from both sides: a well-formed job
+entry counts under `WORK EXPERIENCE` and the *same line* counts for nothing
+under `PROJECTS`, `CERTIFICATIONS`, `FELLOWSHIPS & RESEARCH`, `VOLUNTEER
+EXPERIENCE` or `LEADERSHIP EXPERIENCE`.
+
+Every match carries the `line` it was read off, which the chip shows on hover.
+That is deliberate: the matcher is sometimes wrong, and a chip that hid its
+reasoning would be asking to be trusted further than it deserves.
+
+**The scan is incremental.** A candidate's employers and schools are read once
+and cached on their submission under `pedigree`, keyed by the module's
+`VERSION`; bumping that re-reads everybody. One request reads at most
+`SPOTLIGHT_SCAN_BATCH` unread CVs and reports what is left as `pending_scan`,
+which the drawer says out loud — the alternative is a list that silently grows
+between two refreshes. `pedigree.hit` is a stored boolean the dashboard's query
+indexes on; the honest predicate (`employers != [] OR schools != []`) is two
+multikey array comparisons and reads all 10,000 submissions.
+
+`evaluation` is withheld entirely when `MANAGER_DASHBOARD_SCORES=0` and the
+caller is not an admin. These rows are built by hand and do not pass through
+`_project()`, so that rule is restated in `_spotlight_row` and checked by
+`tests/test_spotlight.py`.
 
 ### `GET /api/evaluations/rejected?job_id=`
 

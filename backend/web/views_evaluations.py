@@ -20,7 +20,8 @@ from backend import auth
 from backend.config import (AUTH_ENABLED, MANAGER_DASHBOARD_SCORES,
                             SHORTLIST_MAX, SHORTLIST_SIZE, LLM_CONCURRENCY)
 from backend.db import store
-from backend.grading import evaluator, rubric_pack, tier_resolver, grader
+from backend.grading import (evaluator, pedigree, rubric_pack,
+                             tier_resolver, grader)
 from backend.mail import candidate_mail, shortlist
 from backend.pipeline import ingest
 from backend.scraping import resume_reader
@@ -247,6 +248,221 @@ def api_roles():
                                         if _is_admin()
                                         else MANAGER_INVITES_FROM_COMPOSER),
         },
+    })
+
+
+# ---------------------------------------------------------------------------
+# The spotlights -- candidates the record itself puts in front of you
+# ---------------------------------------------------------------------------
+#
+# Two filtered lists across every role the account may see: people whose CV
+# names one of the employers in grading/pedigree.py, and people who studied at
+# one of the schools there. They sit above the role grid because the question
+# they answer -- "is there anybody I should look at today" -- is not a question
+# about one seat, and a manager who had to open four roles to ask it would
+# stop asking.
+#
+# WHAT THIS IS NOT. It is not a score, it is not a ranking, and nothing here
+# advances anybody. Each row carries the exact names that matched and which
+# part of the record they were found in, and the only actions on it are the
+# ones the candidate drawer already had -- a human opens the card, reads the
+# work, and moves them. A shortcut to somebody's file is a different thing from
+# a decision about them, and this is firmly the first.
+#
+# It is worth being plain about what a list like this does to a funnel, too.
+# Where somebody worked and where they studied are proxies for access as much
+# as for ability, so a spotlight that quietly became the shortlist would narrow
+# this pipeline along lines nobody chose. That is the reason for the shape
+# above: the evidence is on screen, the grid is still one click away, and the
+# panel is a starting point rather than a filter applied to everybody else.
+
+# How many un-scanned CVs one request reads before answering. The scan is
+# milliseconds per candidate, but the rows carry up to 8 KB of resume text
+# each, and the first load after a pedigree.VERSION bump would otherwise hold
+# the request open while every CV in the database is re-read. Whatever is left
+# over is reported as `pending_scan` and picked up by the next load.
+SPOTLIGHT_SCAN_BATCH = 400
+
+
+def _spotlight_scan(scope):
+    """
+    Read the CVs in scope that no current pedigree read covers.
+
+    Returns (scanned now, still pending). It runs inside the request because
+    there is no worker here to put it on, and it is safe there because it is
+    idempotent and bounded: two dashboards loading at once do the same work
+    twice and write the same answer, which is wasteful for one request and
+    wrong in no way at all.
+    """
+    rows = store.pedigree_unread(pedigree.VERSION, job_ids=scope,
+                                 limit=SPOTLIGHT_SCAN_BATCH)
+    if rows:
+        store.set_pedigree_many({row["_id"]: pedigree.read(row) for row in rows})
+    # Only worth a second query when this pass filled its batch -- a short
+    # batch means it read everything there was.
+    pending = (store.count_pedigree_unread(pedigree.VERSION, job_ids=scope)
+               if len(rows) == SPOTLIGHT_SCAN_BATCH else 0)
+    return len(rows), pending
+
+
+def _new_york_seats(roles):
+    """
+    {job_id: "onsite" | "hybrid"} for the New York seats among `roles`.
+
+    Where a seat is comes off the rubric pack's `location` line, which is the
+    only record of it this codebase keeps -- the portal crawl does not carry
+    one. A role with no pack grid is absent here rather than guessed at, and
+    its candidates stay out of the school spotlight.
+
+    A tiered role is checked at every tier it has. The AI Strategist pair is
+    one assignment sat by two postings, and both being New York seats is
+    exactly the case where reading only the default grid's line would drop half
+    a role for no reason a reader could name.
+    """
+    seats = {}
+    for role in roles:
+        slug = role.get("slug")
+        tiers = rubric_pack.tiers_for_slug(slug) or (None,)
+        for tier in tiers:
+            grid = rubric_pack.for_slug(slug, tier)
+            where = pedigree.new_york_seat((grid or {}).get("location"))
+            if not where:
+                continue
+            # On-site wins over hybrid where a role is both. It is the stricter
+            # of the two, and the label is on the row to tell a reader how much
+            # being local actually matters here.
+            if seats.get(role["_id"]) != "onsite":
+                seats[role["_id"]] = where
+    return seats
+
+
+# What a spotlight row needs out of a verdict, and nothing else.
+#
+# A stored `evaluation` carries the whole grid -- every block, every criterion,
+# the anchors, the findings -- and runs to about 8 KB. The row draws ONE
+# number through scoreCell(), with provisionalMark() beside it, and those two
+# read five fields between them. Sending the rest was 1.3 MB of grid detail per
+# refresh for a table that shows none of it; the drawer fetches the full
+# verdict when somebody opens a candidate, which is the point at which they
+# are actually going to read it.
+SPOTLIGHT_VERDICT_FIELDS = (
+    "score", "score_provisional", "grid_complete", "grid_of", "grid_marked",
+)
+
+
+def _spotlight_row(sub, matches, scores):
+    """
+    One candidate, flattened to what a spotlight row draws.
+
+    `evaluation` rides along whole rather than as a bare number, so the page
+    draws it through the same scoreCell() every other table uses and the
+    partial-grading mark travels with it. It is dropped entirely when the
+    account may not read scores -- the same rule _manager_submission applies,
+    restated here because these rows are built by hand and never pass through
+    _project(): an allowlist keyed on submission field names would strip a row
+    that is mostly not submission fields.
+    """
+    # _json_safe() walks a document, and both of these can arrive as something
+    # else. `submitted_at` is a bare string on a portal row and a datetime on a
+    # Workable one, and `evaluation` is absent on anybody not graded yet.
+    submitted = sub.get("submitted_at")
+    evaluation = sub.get("evaluation")
+    return {
+        "id": sub["_id"],
+        "name": sub.get("candidate_name") or "",
+        "email": sub.get("candidate_email") or "",
+        "headline": sub.get("candidate_headline") or "",
+        "location": sub.get("candidate_location") or "",
+        "job_id": sub.get("job_id"),
+        "job_title": sub.get("job_title") or "",
+        "tier": (sub.get("rubric_tier") or {}).get("tier"),
+        "submitted_at": (submitted.isoformat()
+                          if isinstance(submitted, datetime)
+                          else submitted or ""),
+        # The share/view URL, never resume_reader's download URL -- the same
+        # distinction api_role_candidates keeps, and for the same reason.
+        "resume_open_link": sub.get("resume_link") or "",
+        "video_link": sub.get("video_link") or "",
+        "status": (sub.get("decision") or {}).get("status") or "pending",
+        "stage": (sub.get("pipeline") or {}).get("stage") or None,
+        "evaluation": ({k: evaluation.get(k) for k in SPOTLIGHT_VERDICT_FIELDS
+                        if k in evaluation}
+                       if scores and evaluation else None),
+        "matches": matches,
+    }
+
+
+@app.route("/api/evaluations/spotlight")
+def api_spotlight():
+    """
+    Candidates surfaced by their own record: top employers anywhere, and top US
+    schools on the New York seats.
+
+    Scoped like everything else on this page -- a hiring manager sees their own
+    roles and nothing else, so the two panels are theirs rather than the
+    company's. An admin sees all of it.
+    """
+    error = _mongo_guard()
+    if error:
+        return error
+
+    scope = _scope()
+    scanned, pending = _spotlight_scan(scope)
+
+    # The light read: id, title and slug. A whole role document carries its
+    # assessment markdown, and this route needs none of it.
+    roles = store.role_index(job_ids=scope)
+    titles = {role["_id"]: role.get("title") or "" for role in roles}
+    seats = _new_york_seats(roles)
+    scores = _is_admin() or MANAGER_DASHBOARD_SCORES
+
+    employers = []
+    schools = []
+    for sub in store.pedigree_pool(pedigree.VERSION, job_ids=scope):
+        read = sub.get("pedigree") or {}
+        # The stored `job_title` is the portal's. ROLE_TITLES renames some of
+        # them for the screen, and a spotlight row filed under a name that
+        # appears nowhere else on this dashboard is a row nobody can match to
+        # the card it came from. See store._titled.
+        sub["job_title"] = titles.get(sub.get("job_id")) or sub.get("job_title")
+
+        if read.get("employers"):
+            employers.append(_spotlight_row(sub, read["employers"], scores))
+
+        # The school panel is the New York seats only, because that is the
+        # question it was asked: who could walk into this office. On a remote
+        # or out-of-state role the same list would be prestige for its own
+        # sake, which is not something this dashboard should be offering.
+        seat = seats.get(sub.get("job_id"))
+        if seat and read.get("schools"):
+            row = _spotlight_row(sub, read["schools"], scores)
+            row["seat"] = seat
+            schools.append(row)
+
+    return jsonify({
+        "employers": employers,
+        "schools": schools,
+        # Both panels are "who is worth a look", so somebody already booked in
+        # or already hired stays listed -- with their stage on the row, so
+        # nobody is invited twice. This is the count of the ones with no
+        # decision yet, which is the number the navbar badge carries.
+        "waiting": {
+            "employers": sum(1 for r in employers if not r["stage"]),
+            "schools": sum(1 for r in schools if not r["stage"]),
+        },
+        "new_york_roles": [
+            {"id": job_id, "title": titles.get(job_id) or "", "seat": seat}
+            for job_id, seat in sorted(seats.items(),
+                                       key=lambda kv: titles.get(kv[0]) or "")
+        ],
+        "scores_visible": scores,
+        # How much of the pile this request read and how much is left. Drawn
+        # rather than hidden: the alternative to a progress line is a panel
+        # that silently grows between two refreshes, which makes a reader
+        # wonder what else it is not telling them.
+        "scanned": scanned,
+        "pending_scan": pending,
+        "pack_version": pedigree.VERSION,
     })
 
 

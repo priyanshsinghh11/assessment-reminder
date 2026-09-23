@@ -139,6 +139,25 @@ const state = {
     empty: '',
     loading: false,
   },
+  // The two cross-role lists above the roles grid, and which of the three
+  // overview sections is on screen. Loaded once per page rather than per role
+  // -- the whole point of them is that they are not about one seat -- and
+  // re-read only when something asks. See the spotlight section.
+  spotlight: {
+    // Which of the two lists the drawer is showing. There is no third value:
+    // the drawer is either closed, or open on one of them.
+    view: 'employers',
+    employers: [],
+    schools: [],
+    waiting: { employers: 0, schools: 0 },
+    newYorkRoles: [],
+    // How many CVs the server has still to read. The scan is incremental and
+    // bounded per request, so a fresh database answers with a partial list
+    // and this is what says so on screen.
+    pendingScan: 0,
+    loaded: false,
+    loading: false,
+  },
   knownManagers: [],
   shortlistSize: 20,
   shortlistMax: 100,
@@ -490,6 +509,10 @@ async function loadRoles() {
     if (data.pipeline) renderPipelineCounts(data.pipeline);
     renderStats();
     renderRoles();
+    // Not awaited. On a cold database its first call reads several hundred
+    // CVs, and the roles grid -- which is what the reader came for -- must not
+    // sit blank behind it. It draws itself in when it answers.
+    loadSpotlight();
     const totals = state.roles.reduce((n, r) => n + r.counts.total, 0);
     // A hiring manager is looking at 2 roles out of 26 and has no way to know
     // that from a grid of 2. Say it in the line that is already there rather
@@ -2377,6 +2400,334 @@ function downloadTopCandidatesXlsx() {
  * see the README. Deriving a grid for a role the pack does not cover is a
  * command-line job now rather than a button.
  */
+
+/* =======================================================================
+ * The spotlights -- who the record itself puts in front of you
+ ======================================================================= */
+
+/*
+ * Two cross-role lists at the top of the overview: candidates whose CV names
+ * one of the employers in backend/grading/pedigree.py, and candidates from one
+ * of the US schools on that same list who applied to a New York seat.
+ *
+ * THE MATCHES ARE THE POINT, not the ranking. Every row prints the exact names
+ * that were found and, in its tooltip, which part of the record they were
+ * found in -- the parsed employment section, or loose in the document. A
+ * reader who disagrees can see why the row is there and dismiss it in a
+ * glance, which is the difference between a shortcut to a file and a verdict
+ * about a person. Nothing here advances anybody: a row opens the same drawer
+ * the Candidates tab opens, with the same buttons on it and the same grid
+ * underneath the score.
+ */
+
+const SPOTLIGHT_GROUPS = {
+  employers: {
+    tab: 'tabCountEmployers',
+    // Word for word what the tab says. The drawer's h2 IS the active tab,
+    // and two names for one list makes a reader wonder whether they are
+    // looking at the thing they clicked.
+    heading: 'Top companies',
+    // Said in the panel rather than left implicit. A list like this is a
+    // proxy for access as much as for ability, and a reader who is told that
+    // reads it as a starting point instead of a verdict.
+    caption: 'Their CV names an employer from the recruiting team’s watch '
+      + 'list. It says nothing about how they scored — open the card and '
+      + 'read the work before you move anyone.',
+    empty: 'Nobody on your roles has one of the watch-list employers on their '
+      + 'record yet.',
+  },
+  schools: {
+    tab: 'tabCountSchools',
+    heading: 'Top schools · New York',
+    caption: 'A top-50 US university or an elite liberal-arts college on their '
+      + 'record, narrowed to the seats that need somebody in New York. '
+      + 'Where they studied is background, not a score.',
+    empty: 'None of your New York seats has a candidate from one of those '
+      + 'schools yet.',
+  },
+};
+
+const SEAT_LABEL = { onsite: 'on-site', hybrid: 'hybrid' };
+
+const MATCH_SOURCE = {
+  record: 'From the structured record their application came with — the '
+    + 'strongest evidence there is',
+  cv: 'Read off a line of their CV that looks like a job or a degree — '
+    + 'check the line before you rely on it',
+};
+
+
+/* Whether this page has the spotlight markup on it at all.
+ *
+ * The same problem setHidden() was written for: neither evaluations.html nor
+ * evaluations.js is fingerprinted, so for a reload or two after a deploy a
+ * browser can hold an old page against new script -- and the elements missing
+ * from it are exactly the ones added most recently, which is these. Every
+ * entry point below checks first and draws nothing rather than throwing
+ * halfway through and leaving the roles grid underneath it half-rendered. */
+const hasSpotlightMarkup = () =>
+  Boolean($('spotlightDrawer') && $('spotlightTabs') && $('spotlightBody'));
+
+/* Fetch both lists. Cheap on a revisit -- it redraws what it already holds
+ * unless something asked it to re-read, because the first call after a
+ * pedigree version bump reads several hundred CVs and doing that again on
+ * every click back to the overview would be a slow page for no new names. */
+async function loadSpotlight(force = false) {
+  const spot = state.spotlight;
+  if (!hasSpotlightMarkup() || spot.loading) return;
+  if (!force && spot.loaded) { renderSpotlight(); return; }
+
+  spot.loading = true;
+  try {
+    const data = await api('/api/evaluations/spotlight');
+    spot.employers = data.employers || [];
+    spot.schools = data.schools || [];
+    spot.waiting = data.waiting || { employers: 0, schools: 0 };
+    spot.newYorkRoles = data.new_york_roles || [];
+    spot.pendingScan = data.pending_scan || 0;
+    spot.loaded = true;
+  } catch (err) {
+    // A spotlight that will not load is not a reason to lose the dashboard
+    // under it. The panel stays hidden and the roles grid is untouched.
+    spot.loaded = false;
+    toast(err.message, true);
+  } finally {
+    spot.loading = false;
+  }
+  renderSpotlightRoleOptions();
+  renderSpotlight();
+}
+
+/* The role filter's options: only the roles that actually have somebody in one
+ * of the two lists. Offering all twenty-six would mean most choices empty the
+ * panel, which reads as a broken filter rather than an empty role. */
+function renderSpotlightRoleOptions() {
+  if (!hasSpotlightMarkup()) return;
+  const spot = state.spotlight;
+  const seen = new Map();
+  for (const row of [...spot.employers, ...spot.schools]) {
+    if (!seen.has(row.job_id)) seen.set(row.job_id, row.job_title || `Role ${row.job_id}`);
+  }
+  const select = $('spotlightRole');
+  const keep = select.value;
+  select.innerHTML = '<option value="">All roles</option>'
+    + [...seen.entries()]
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([id, title]) => `<option value="${id}">${esc(title)}</option>`)
+      .join('');
+  // A refresh must not silently widen a filter somebody set.
+  if (keep && seen.has(Number(keep))) select.value = keep;
+}
+
+/* --- opening and closing --------------------------------------------------
+ *
+ * The same contract as the accounts drawer: it sits over whatever is on screen
+ * and unloads none of it, so closing puts the reader back on the same role,
+ * the same tab and the same scroll position. That matters more here than it
+ * does for accounts, because the thing a reader does from this list is open a
+ * candidate -- and they have nineteen more to get through afterwards.
+ */
+
+function openSpotlight(group) {
+  if (!hasSpotlightMarkup()) return;
+  $('spotlightDrawer').hidden = false;
+  // Opened on whichever list has somebody on it, so the first thing a reader
+  // sees is never an empty panel with the populated tab sitting beside it.
+  const spot = state.spotlight;
+  setSpotlightTab(group
+    || (spot[spot.view].length ? spot.view
+        : (spot.employers.length ? 'employers' : 'schools')));
+  // NOT cleared on open, unlike the accounts search. Somebody who filtered to
+  // one role, opened a candidate and came back is still working that role.
+  $('spotlightSearch')?.focus();
+  loadSpotlight();
+}
+
+function closeSpotlight() {
+  if (!hasSpotlightMarkup()) return;
+  $('spotlightDrawer').hidden = true;
+  $('spotlightBtn')?.focus();
+}
+
+const spotlightIsOpen = () => $('spotlightDrawer')?.hidden === false;
+
+/* Which of the two lists is on screen. */
+function setSpotlightTab(name) {
+  if (!hasSpotlightMarkup()) return;
+  state.spotlight.view = name === 'schools' ? 'schools' : 'employers';
+  for (const btn of $('spotlightTabs').querySelectorAll('.viewtab')) {
+    const on = btn.dataset.spotlight === state.spotlight.view;
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-selected', String(on));
+  }
+  renderSpotlight();
+  // A tab switch starts at the top of what it opened, rather than partway down
+  // wherever the previous list had been scrolled to.
+  $('spotlightDrawer').querySelector('.drawer-body')?.scrollTo({ top: 0 });
+}
+
+/* The search box and the role select, applied to one list.
+ *
+ * The search covers the matched names as well as the person, so "McKinsey"
+ * finds the three people who worked there. That is the column a reader is
+ * actually scanning, and a search that ignored it would send them back to
+ * reading the table by eye. */
+function spotlightRows(key) {
+  const term = $('spotlightSearch').value.trim().toLowerCase();
+  const role = $('spotlightRole').value;
+  return state.spotlight[key].filter((row) => {
+    if (role && String(row.job_id) !== role) return false;
+    if (!term) return true;
+    const hay = `${row.name} ${row.email} ${row.job_title} `
+      + row.matches.map((m) => m.name).join(' ');
+    return hay.toLowerCase().includes(term);
+  });
+}
+
+/* The matched names, each carrying the line it was read off.
+ *
+ * THE LINE IS THE POINT. This matcher is wrong sometimes -- it reads a CV with
+ * regular expressions, and a CV is not a structured document -- so every chip
+ * hands the reader the sentence behind it. A row claiming somebody worked at
+ * Amazon, hovered, either says "Business Analyst, Amazon, Aug 2023" or it says
+ * something about a stack, and the reader knows which kind of row it is
+ * without opening anything. A chip with no evidence under it would be asking
+ * to be trusted, and this is not a thing to trust that far. */
+function matchChips(matches) {
+  return matches.map((m) => {
+    const why = MATCH_SOURCE[m.source] || '';
+    const line = m.line ? `\n\n“${m.line}”` : '';
+    return `<span class="spot-chip spot-chip-${esc(m.source)}"
+      title="${esc(m.name)} — ${esc(why)}${esc(line)}">${esc(m.name)}</span>`;
+  }).join('');
+}
+
+/* Where this person already is, if anywhere. Drawn for the same reason the
+ * top-candidates table draws it: a spotlight that kept offering somebody who
+ * was booked in last week gets a second invitation sent. */
+function spotlightWhere(row) {
+  if (row.stage) {
+    return `<span class="badge ${STAGE_CLASS[row.stage] || ''}">${
+      esc(STAGE_LABEL[row.stage] || row.stage)}</span>`;
+  }
+  if (row.status === 'pending') return '<span class="dim">not scored yet</span>';
+  return '<span class="dim">awaiting a decision</span>';
+}
+
+function spotlightRow(row, key) {
+  const seat = key === 'schools' && row.seat
+    ? ` <span class="spot-seat">${esc(SEAT_LABEL[row.seat] || row.seat)}</span>`
+    : '';
+  return `
+    <tr class="row-click" data-spot-id="${row.id}">
+      <td>
+        <div class="cand-name">${esc(row.name || '—')}</div>
+        <div class="cand-email">${esc(row.email || '')}</div>
+      </td>
+      <td>
+        <div>${esc(row.job_title || '—')}${seat}</div>
+        ${row.location ? `<div class="spot-sub" title="${esc(row.location)}">${esc(row.location)}</div>` : ''}
+      </td>
+      ${scoreCell(row.evaluation, row)}
+      <td><div class="spot-chips">${matchChips(row.matches)}</div></td>
+      <td>${spotlightWhere(row)}</td>
+    </tr>`;
+}
+
+/* One list, either as the preview over the roles grid or in full.
+ *
+ * The count in the heading is the whole list; the rows under it may be fewer,
+ * because a preview is showing five of them and a search may be hiding some.
+ * Both are said out loud rather than left for the reader to work out from a
+ * number that does not match what they can see. */
+/* One list, drawn in full.
+ *
+ * The tally above it names the whole list; the rows under it may be fewer,
+ * because a search is hiding some. Both are said out loud rather than left for
+ * a reader to work out from a number that does not match what they can see. */
+function spotlightGroup(key) {
+  const meta = SPOTLIGHT_GROUPS[key];
+  const rows = spotlightRows(key);
+  const total = state.spotlight[key].length;
+  const waiting = state.spotlight.waiting[key] || 0;
+
+  if (!total) return `<p class="empty">${esc(meta.empty)}</p>`;
+  if (!rows.length) {
+    return '<p class="empty">Nobody on this list matches that search.</p>';
+  }
+
+  return `
+    <p class="spot-tally">${rows.length.toLocaleString()} candidate${
+      rows.length === 1 ? '' : 's'}${
+      waiting ? ` \u00b7 ${waiting.toLocaleString()} still waiting on a decision` : ''
+    }${rows.length !== total ? ` \u00b7 filtered from ${total.toLocaleString()}` : ''}</p>
+    <div class="table-wrap">
+      <table class="spot-table">
+        <thead>
+          <tr>
+            <th>Candidate</th>
+            <th>Role</th>
+            <th class="num">AI score</th>
+            <th>Found on their record</th>
+            <th>Where they are</th>
+          </tr>
+        </thead>
+        <tbody>${rows.map((row) => spotlightRow(row, key)).join('')}</tbody>
+      </table>
+    </div>`;
+}
+
+function renderSpotlight() {
+  if (!hasSpotlightMarkup()) return;
+  const spot = state.spotlight;
+  const waiting = (spot.waiting.employers || 0) + (spot.waiting.schools || 0);
+  const total = spot.employers.length + spot.schools.length;
+
+  // The button carries the number, so the drawer is worth opening before it
+  // has been opened -- and stays away entirely until a load has actually found
+  // somebody, because a button that opens an empty panel is a button that gets
+  // clicked exactly once.
+  setHidden('spotlightBtn', !spot.loaded || !total);
+  const badge = $('spotlightCount');
+  if (badge) badge.textContent = waiting ? String(waiting) : '';
+
+  const count = (id, n) => { const el = $(id); if (el) el.textContent = n.toLocaleString(); };
+  count('tabCountEmployers', spot.employers.length);
+  count('tabCountSchools', spot.schools.length);
+
+  // Everything below draws the drawer. Nothing to do while it is shut, and a
+  // background refresh must not pay for two tables nobody is looking at.
+  if (!spotlightIsOpen()) return;
+
+  const meta = SPOTLIGHT_GROUPS[spot.view];
+  $('spotlightTitle').textContent = meta.heading;
+  // The caption sits in the drawer's subtitle rather than over each list:
+  // with one list on screen at a time there is exactly one caption to say,
+  // and it belongs beside the heading it qualifies.
+  $('spotlightSub').textContent = meta.caption;
+
+  // The scan is incremental, so say so rather than letting the list quietly
+  // grow between two refreshes and leave a reader wondering what else it is
+  // not telling them.
+  const hint = $('spotlightHint');
+  if (hint) {
+    hint.hidden = !spot.pendingScan;
+    hint.textContent = spot.pendingScan
+      ? `Still reading ${spot.pendingScan.toLocaleString()} more CVs \u2014 `
+        + 'refresh in a moment for the rest.'
+      : '';
+  }
+
+  $('spotlightBody').innerHTML = spotlightGroup(spot.view);
+
+  for (const tr of $('spotlightBody').querySelectorAll('[data-spot-id]')) {
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('a, input, label, button')) return;
+      openDrawer(Number(tr.dataset.spotId));
+    });
+  }
+}
+
 
 async function loadRubric(jobId) {
   state.rubric = null;
@@ -5237,6 +5588,22 @@ $('userSearch')?.addEventListener('input', renderUsers);
 $('accountsRefresh').addEventListener('click', loadUsers);
 $('roleSearch').addEventListener('input', renderRoles);
 $('roleFilter').addEventListener('change', renderRoles);
+
+/* The spotlights. `?.` throughout for the same reason setHidden() tolerates a
+ * missing id: a cached evaluations.html against a fresh evaluations.js is
+ * missing exactly the elements added most recently, and one throw in this
+ * block would stop every listener below it from binding. */
+$('spotlightBtn')?.addEventListener('click', () => openSpotlight());
+$('spotlightTabs')?.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-spotlight]');
+  if (btn) setSpotlightTab(btn.dataset.spotlight);
+});
+for (const el of document.querySelectorAll('[data-spotlight-close]')) {
+  el.addEventListener('click', closeSpotlight);
+}
+$('spotlightSearch')?.addEventListener('input', renderSpotlight);
+$('spotlightRole')?.addEventListener('change', renderSpotlight);
+$('spotlightRefresh')?.addEventListener('click', () => loadSpotlight(true));
 $('candSearch').addEventListener('input', renderCandidates);
 $('statusFilter').addEventListener('change', renderCandidates);
 $('candidatePanel').addEventListener('click', (e) => {
@@ -5266,6 +5633,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (!$('mailPreview').hidden || !$('drawer').hidden
       || $('accountsDrawer')?.hidden === false
+      || $('spotlightDrawer')?.hidden === false
       || InviteComposer.isOpen() || RejectionComposer.isOpen()) return;
   if (state.activeRoleId !== null) backToRoles();
 });
@@ -5288,6 +5656,10 @@ document.addEventListener('keydown', (e) => {
   // one a browser on cached HTML is likeliest to be missing -- and a throw here
   // would take Escape away from the other three as well.
   else if ($('accountsDrawer')?.hidden === false) closeAccounts();
+  // Last of all, and after the candidate drawer above it: a card opened FROM
+  // this list sits on top of the list, so the first Escape closes the card and
+  // puts the reader back on the twenty they were working through.
+  else if ($('spotlightDrawer')?.hidden === false) closeSpotlight();
 });
 
 /* The composer, told how this page talks and what to do afterwards.

@@ -616,6 +616,13 @@ MANAGER_SUBMISSION_FIELDS = (
     "assignment_name", "resume_link", "resume_source_link", "video_link",
     "admin_url", "submitted_at", "started_at", "submission_status",
     "auto_submitted", "pipeline", "submission_markdown", "resume_text",
+    # The candidate's own one-line headline and the city they gave, both off
+    # their application. Added for the spotlight panels, which are read by
+    # managers and where "is this person in New York" is half the question
+    # being asked -- and added HERE rather than only there, so this tuple
+    # stays the one record of what a manager may read and the two surfaces
+    # cannot drift into disagreeing about it.
+    "candidate_headline", "candidate_location",
 )
 
 # Every score there is, in one field. `rubric_score`, the grid rows, the band,

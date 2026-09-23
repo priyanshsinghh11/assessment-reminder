@@ -41,6 +41,21 @@
          hidden, not disabled, by applyAccountView(). -->
     <button class="btn btn-ghost" id="accountsBtn" type="button" hidden
             title="Who can sign in, and which roles they can open">Accounts</button>
+    <!-- The two spotlights, behind one button. They were briefly a tab strip
+         and a panel at the top of the roles view, which was wrong twice over:
+         it pushed the roles grid -- the thing people come here for -- below
+         the fold on every single load, and a reader who wanted the lists had
+         to scroll back up to the top of the page to change between them.
+
+         A drawer instead, like Accounts. It opens over whatever is on screen
+         and unloads none of it, so closing puts you back on the same role,
+         the same tab and the same scroll position. Hidden until the first
+         load finds somebody; the count is on the button so it is worth
+         opening before you open it. -->
+    <button class="btn btn-ghost" id="spotlightBtn" type="button" hidden
+            title="Candidates whose CV names a top employer or a top US school">
+      Worth a look<span class="btn-count" id="spotlightCount"></span>
+    </button>
     <button class="btn" id="syncBtn" title="Re-download submissions from the portal">Sync portal</button>
     <button class="btn" id="refreshBtn">Refresh</button>
   </div>
@@ -57,7 +72,7 @@
 
     <section class="stats" id="stats"></section>
 
-    <section class="panel">
+    <section class="panel" id="rolesPanel">
       <div class="panel-head">
         <h2>Roles</h2>
         <div class="controls">
@@ -664,6 +679,51 @@
   </section>
 
 </main>
+
+<!-- The spotlights. Placed BEFORE the candidate drawer and given a lower
+     z-index on purpose: clicking a row here opens that candidate's card, and
+     the card has to land on top of the list it was opened from. Closing the
+     card puts the reader back on the list rather than back on the dashboard,
+     which is what makes working through twenty of them one task. -->
+<div class="drawer is-under" id="spotlightDrawer" hidden>
+  <div class="drawer-scrim" data-spotlight-close></div>
+  <aside class="drawer-panel is-wide" role="dialog" aria-modal="true"
+         aria-labelledby="spotlightTitle">
+    <div class="drawer-head">
+      <div>
+        <p class="eyebrow">Worth a look</p>
+        <h2 id="spotlightTitle">Top companies</h2>
+        <p class="subtitle" id="spotlightSub">Loading&hellip;</p>
+      </div>
+      <div class="drawer-head-actions">
+        <button class="btn btn-ghost" id="spotlightRefresh" type="button">Refresh</button>
+        <button class="btn btn-ghost" data-spotlight-close
+                aria-label="Close worth a look">Close</button>
+      </div>
+    </div>
+
+    <nav class="viewtabs" id="spotlightTabs" role="tablist"
+         aria-label="Spotlight sections">
+      <button class="viewtab is-active" type="button" role="tab"
+              data-spotlight="employers" aria-selected="true">Top companies<span
+              class="viewtab-count" id="tabCountEmployers"></span></button>
+      <button class="viewtab" type="button" role="tab"
+              data-spotlight="schools" aria-selected="false">Top schools
+              &middot; New York<span class="viewtab-count"
+              id="tabCountSchools"></span></button>
+    </nav>
+
+    <div class="drawer-body">
+      <div class="controls spotlight-controls">
+        <input type="search" id="spotlightSearch" autocomplete="off"
+               placeholder="Search name, company or school">
+        <select id="spotlightRole"><option value="">All roles</option></select>
+      </div>
+      <p class="hint" id="spotlightHint" hidden></p>
+      <div id="spotlightBody"></div>
+    </div>
+  </aside>
+</div>
 
 <div class="drawer" id="drawer" hidden>
   <div class="drawer-scrim" data-close></div>

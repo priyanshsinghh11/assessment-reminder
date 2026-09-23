@@ -1677,3 +1677,172 @@ tr.is-picked > td { background: var(--surface-hover); }
  * candidate broke. */
 .seeded-flag b { color: #9a3412; }
 .seeded-flag i { display: block; margin-top: 2px; }
+
+/* --- The spotlights --------------------------------------------------
+ *
+ * The two cross-role lists at the top of the overview. Deliberately quieter
+ * than the role cards below them despite sitting above: they are a heads-up,
+ * not the page's subject, and a panel painted in the accent would read as
+ * "these are the candidates" rather than "these are worth a look".
+ *
+ * The chips are the one thing here allowed any colour, because they carry the
+ * only fact on the row a reader cannot get anywhere else -- which name matched
+ * and how much the match is worth. Everything else on the row is borrowed
+ * from tables that already exist. */
+
+/* A drawer that opens UNDER another one. The candidate card opened from a
+ * spotlight row has to land on top of the list it came from, so that closing
+ * the card returns the reader to the list rather than to the dashboard. */
+.drawer.is-under { z-index: 55; }
+
+/* The tab strip inside the drawer sits flush under the head, not floating in
+ * the body, so the two lists read as two halves of one panel. */
+/* The tab strip inside the drawer sits flush under the head rather than
+ * floating in the body, so the two lists read as two halves of one panel.
+ *
+ * `flex: none` is the load-bearing line. `.drawer-panel` is a flex column, so
+ * the nav is a flex ITEM -- and a flex item's default `flex-shrink: 1` meant
+ * the table below squeezed it to half its height, clipping the tab labels
+ * through the middle. It looked like a rendering bug and no assertion in the
+ * UI test could see it; a screenshot could. */
+#spotlightDrawer .viewtabs {
+  position: static;
+  flex: none;
+  padding: 6px 22px 0;
+  margin: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* The body is the only thing that scrolls. `min-height: 0` is what lets it:
+ * a flex item will not shrink below its content without it, so the panel
+ * would grow past the viewport and take the head and tabs off screen with it. */
+#spotlightDrawer .drawer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.spotlight-controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.spotlight-controls input[type="search"] { flex: 1 1 220px; }
+
+/* The count on the header button: how many of these people have had no
+ * decision yet, which is the only number that makes the button worth
+ * pressing. Empty when there are none, and :empty hides it. */
+.btn-count {
+  display: inline-block;
+  min-width: 18px;
+  margin-left: 7px;
+  padding: 0 5px;
+  border-radius: 9px;
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  line-height: 17px;
+  text-align: center;
+  color: var(--bg);
+  background: var(--accent-bright);
+}
+
+.btn-count:empty { display: none; }
+
+.spot-tally {
+  margin: 0 0 12px;
+  font-size: var(--fs-body-sm);
+  color: var(--text-faint);
+}
+
+/* Five columns in a 760px drawer, so the widths are stated rather than left
+ * to the browser. Without this, "General Manager & Head of Growth" wrapped
+ * over five lines in a column the browser had decided was 100px wide, and the
+ * rows around it were 160px tall. */
+.spot-table { width: 100%; table-layout: fixed; }
+.spot-table th:nth-child(1), .spot-table td:nth-child(1) { width: 28%; }
+.spot-table th:nth-child(2), .spot-table td:nth-child(2) { width: 20%; }
+.spot-table th:nth-child(3), .spot-table td:nth-child(3) { width: 10%; }
+.spot-table th:nth-child(4), .spot-table td:nth-child(4) { width: 22%; }
+.spot-table th:nth-child(5), .spot-table td:nth-child(5) { width: 20%; }
+
+/* The stage badge is `nowrap` everywhere else, where it sits in a column as
+ * wide as it needs. Here the table is fixed-layout in a 760px drawer, and a
+ * nowrap badge does not widen its cell -- it spills out of it and gets cut
+ * off by the edge of the drawer, which is how "Interview scheduled" was
+ * reading as "Interview schedul". */
+.spot-table .badge { white-space: normal; }
+
+/* The address off their application. One line, clipped -- it is here to
+ * answer "are they anywhere near this office", which the first few words
+ * settle, and "New York, New York, United States" on three lines was making
+ * every row twice as tall as the one above it. The full text is the title. */
+.spot-sub {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* An email can be one long unbroken token; let it wrap rather than push the
+ * table sideways. */
+.spot-table .cand-email { overflow-wrap: anywhere; }
+
+.spot-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-width: 34ch;
+}
+
+.spot-chip {
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 1px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  color: var(--sky);
+  white-space: nowrap;
+  cursor: help;
+}
+
+/* Found inside the parsed employment or education block: the ATS's own read,
+ * or the block under the CV's own heading. This is the match worth trusting,
+ * so it is the one that is filled in. */
+.spot-chip-record {
+  color: var(--accent-bright);
+  border-color: var(--accent-bright);
+  background: var(--surface-hover);
+}
+
+/* Found loose in the document. Could be a previous employer, could be a client
+ * or a course. Drawn dashed for exactly that reason -- the row is still worth
+ * a look, the chip is not worth quoting. */
+.spot-chip-cv {
+  color: var(--text-faint);
+  border-style: dashed;
+}
+
+/* On-site or hybrid, beside the role on a school row. It is the reason that
+ * row is in this list at all. */
+.spot-seat {
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  color: var(--text-faint);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 6px;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+.spot-sub {
+  font-size: var(--fs-body-sm);
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
+
+@media (max-width: 760px) {
+  .spot-chips { max-width: none; }
+}
