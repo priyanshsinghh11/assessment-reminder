@@ -232,6 +232,73 @@ def under(heading, *lines):
     return {"resume_text": heading + "\n" + "\n".join(lines) + "\nSKILLS\nPython"}
 
 
+# --- the recall side ------------------------------------------------------
+#
+# Everything above this point is about NOT reporting a job somebody never had.
+# These are the opposite failure, and it is just as real: a candidate who did
+# work at Amazon and was left off the list. Each was found by a reader looking
+# at the live panel and saying "she worked there, why isn't it shown".
+#
+# The rules that caused them were all over-broad in the same way -- they
+# matched a word where they meant a phrase, or a date format they had not
+# been shown. A miss is quieter than a false positive and nothing on the
+# screen points at it, which is why they are pinned here.
+
+WAS_MISSED = {
+    # `customers?` matched "Customer" in the job TITLE. Half the titles in
+    # support and account management contain one of the third-party nouns.
+    "a customer-service title":
+        ("Operations Manager - Customer Service | Amazon India Sep 2020 - Aug 2025",
+         "Amazon"),
+    # The company on one line and the dates on the next -- the single largest
+    # group of real jobs the line-at-a-time rule threw away.
+    "dates on the following line":
+        ("Amazon Development Center - Risk Analyst (TRMS)\n"
+         "Bangalore, India   Jun 2019 - Mar 2022", "Amazon"),
+    # "NVIDIA 2018 - 2023 . 5 yrs 5 mos": the dash, the dot and the two 5s
+    # are four of nine tokens, so a letter-spacing test that counted every
+    # one-character token called this PDF rubbish.
+    "a duration after the dates":
+        ("NVIDIA 2018 - 2023 . 5 yrs 5 mos", "Nvidia"),
+    # Month/year ranges, which the date pattern simply did not know.
+    "a month/year range": ("Apple, New York, NY 10/2011 - 10/2025", "Apple"),
+    # "2016-17" rather than "2016-2017".
+    "a two-digit end year":
+        ("MarcomCentral (2016-17) . Microsoft / Nokia (2012-14) . "
+         "Bank of America (2006-09)", "Microsoft"),
+}
+
+# The false positives that the fixes above had to not reintroduce. Loosening
+# a rule for recall is exactly when the precision cases matter most, so these
+# run against the same widened matcher.
+STILL_NOT_A_JOB = {
+    "a named client": "Client Caterpillar Inc.\nAnalyst 2019 - 2023",
+    "an agency that serves them":
+        "Full operational leadership of a US-focused Amazon services agency "
+        "serving clients 2019-2023",
+    "a duty listing platforms":
+        "Insourced Google, Meta, TikTok, and programmatic media and rebuilt "
+        "measurement 2020-2024",
+    "a project named after a marketplace":
+        "Amazon Sellers Dynamic Data Analytics System Coimbatore, Tamil Nadu 2022",
+    "a freelance platform specialism":
+        "Freelance TikTok Shop Expert & AI Video Content Creator 2023-2025",
+}
+
+
+@pytest.mark.parametrize("label", sorted(WAS_MISSED))
+def test_a_real_job_is_not_missed(label):
+    line, want = WAS_MISSED[label]
+    read = pedigree.read(under("WORK EXPERIENCE", line))
+    assert want in names(read["employers"]), f"{label}: got {names(read['employers'])}"
+
+
+@pytest.mark.parametrize("label", sorted(STILL_NOT_A_JOB))
+def test_widening_for_recall_did_not_let_these_back_in(label):
+    read = pedigree.read(under("WORK EXPERIENCE", STILL_NOT_A_JOB[label]))
+    assert read["employers"] == [], f"{label}: {names(read['employers'])}"
+
+
 @pytest.mark.parametrize("label", sorted(NOT_A_JOB))
 def test_a_mention_is_not_employment(label):
     """

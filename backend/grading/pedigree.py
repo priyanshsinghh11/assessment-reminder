@@ -57,7 +57,7 @@ from typing import Optional
 # move a candidate in or out of a spotlight. Stored on each submission's cached
 # read so a change here re-reads every CV instead of leaving the dashboard
 # showing yesterday's lists for everyone who was already scanned.
-VERSION = "2026-09-23k"   # job-line matching replaced whole-document matching
+VERSION = "2026-09-24e"   # job-line matching replaced whole-document matching
 
 
 # ---------------------------------------------------------------------------
@@ -459,9 +459,9 @@ _PRODUCT_AFTER = re.compile(r"""\s*(?:
     watson|cloud\s+pak|maximo|
     hana|abap|fiori|ariba|successfactors|erp|s/?4|b1|bw|basis|sd|mm|fico|
     financials|fusion|netsuite|peoplesoft|
-    fba|seller\s+central|marketplace|tac|vrp|quest|
+    fba|sellers?|seller\s+central|marketplace|tac|vrp|quest|shop|ads?\s+manager|
     emc|poweredge|isilon|
-    learning|recruiter|sales\s+navigator|premium|
+    learning|recruiter|sales\s+navigator|premium|support|helpdesk|
     graphql|client|server|sdk|api|integration|plugin|checkout|subscriptions|
     actions|pages|repo|repositor|
     certified|certificate|certification|
@@ -506,12 +506,28 @@ _A_PROJECT = re.compile(
 # A LINE ABOUT SOMEBODY ELSE'S COMPANY. Clients, partners and logos on a
 # slide. "Presenting to stakeholders at Amazon, IKEA, SAP and Cisco" is a
 # sentence about four companies the candidate did not work for, and it carries
-# an "at" connector, so nothing above this catches it.
-_THIRD_PARTY = re.compile(
-    r"\b(?:clients?|customers?|partners?|partnerships?|stakeholders?|vendors?|"
-    r"accounts?|logos?|such\s+as|brands?\s+like|companies\s+like|"
-    r"executives?|leadership|senior\s+leaders?|on\s+behalf\s+of|agency)\b",
-    re.IGNORECASE)
+# an "at" connector, so nothing else catches it.
+#
+# THE WORDS ARE NOT ENOUGH ON THEIR OWN, and matching them bare was a bug that
+# cost a real candidate her real job: "Operations Manager -- Customer Service |
+# Amazon India  Sep 2020 - Aug 2025" was thrown away because `customers?`
+# matched "Customer". Half the job titles in customer support, customer success
+# and account management contain one of these nouns.
+#
+# So each one needs the grammar that makes it a list of other people's
+# companies -- a colon, a "such as", an "including", or a preposition after
+# "stakeholders"/"executives". A noun sitting in a job title has none of those.
+_THIRD_PARTY = re.compile(r"""
+      \b(?:clients?|customers?|partners?|accounts?|brands?|logos?|vendors?)
+        \s*(?::|\s+(?:such\s+as|including|like|served|serviced|serving|
+                       spanning))
+    | \b(?:client|account|brand)\s+(?=[A-Z])
+    | \bserving\s+(?:clients?|customers?|brands?)
+    | \bagency\s+(?:for|serving)
+    | \b(?:stakeholders?|executives?|leadership|leaders?)\s+(?:at|across|from)
+    | \bon\s+behalf\s+of\b
+    | \bsuch\s+as\b
+    """, re.IGNORECASE | re.VERBOSE)
 
 
 # A VENDOR NAME IN FRONT OF A JOB TITLE names the specialism, not the
@@ -526,13 +542,24 @@ _TITLE_AFTER = re.compile(
 
 
 # A date range, which is the strongest single tell that a line is a job entry.
-# Both the numeric and the month-name forms, and the open-ended "to present"
-# that a current role is written with.
+#
+# Four shapes, because CVs write dates four ways and the corpus contains all
+# of them. The last two were added after an audit found real jobs being
+# dropped for no reason but their punctuation:
+#
+#     Apple, New York, NY            10/2011 - 10/2025     month/year
+#     Microsoft / Nokia (2012-14)  . Bank of America (2006-09)   short end year
+#
+# The end year is `(?:19|20)?\d\d` so that "2016-17" closes as well as
+# "2016-2020"; the start is always four digits, which is what stops a price or
+# a headcount reading as a date.
 _DATED = re.compile(r"""(?:
-      (?:19|20)\d\d\s*(?:[-‒-―/]|\bto\b|\bthrough\b)\s*
-      (?:(?:19|20)\d\d|present|current|now|date)
-    | (?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(?:19|20)\d\d
-    | \b(?:19|20)\d\d\s*[-‒-―]\s*(?:19|20)\d\d\b
+      \d{1,2}\s*/\s*(?:19|20)\d\d
+    | (?:19|20)\d\d\s*(?:[-\u2012-\u2015/]|\bto\b|\bthrough\b|\buntil\b)\s*
+      (?:\d{1,2}\s*/\s*)?(?:(?:19|20)?\d\d|present|current|now|date|ongoing)
+    | (?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*,?\s*
+      (?:19|20)\d\d
+    | \b(?:19|20)\d\d\s*[-\u2012-\u2015]\s*(?:19|20)\d\d\b
     )""", re.IGNORECASE | re.VERBOSE)
 
 # "Senior Engineer at Acme", "PM @ Acme". A connector between a role and a
@@ -553,7 +580,7 @@ _LIST_HEAD = re.compile(
     r"^\W*(?:technical\s+)?(?:skills?|tools?|technolog(?:y|ies)|tech\s+stack|"
     r"stack|languages?|frameworks?|platforms?|software|proficienc(?:y|ies)|"
     r"competenc(?:y|ies)|certifications?|courses?|awards?|interests?|"
-    r"expertise|other|productivity|databases?|libraries)\b\s*[:–-]",
+    r"expertise|other|productivity|databases?|libraries)\b(?:\s*[:–-]|\s+(?:used|include[ds]?))",
     re.IGNORECASE)
 
 # The bullet characters a duties line starts with. A job HEADER is not a
@@ -768,7 +795,11 @@ _DUTY_OPENER = re.compile(
     r"analy[sz]ed|automated|drove|ran|supported|maintained|collaborated|"
     r"partnered|worked|served|provided|performed|conducted|assisted|"
     r"responsible|utilized|utilised|leveraged|spearheading|handling|"
-    r"managing|leading|building|working)\b", re.IGNORECASE)
+    r"managing|leading|building|working|insourced|launched|oversaw|directed|"
+    r"executed|produced|generated|negotiated|restructured|championed|"
+    r"introduced|established|scaled|grew|reduced|increased|improved|"
+    r"optimi[sz]ed|streamlined|migrated|integrated|deployed|rebuilt|"
+    r"overseeing|delivering|driving|owning|reporting)\b", re.IGNORECASE)
 
 # A name in brackets beside a job is the account, the programme or the
 # platform -- "(Cisco TAC)", "(Amazon FBA)", "(Meta & YouTube Ecosystems)",
@@ -793,7 +824,11 @@ def _spaced_out(line: str) -> bool:
     tokens = line.split()
     if len(tokens) < 8:
         return False
-    singles = sum(1 for t in tokens if len(t) == 1)
+    # Single LETTERS only. Counting every one-character token made
+    # "NVIDIA  2018 - 2023  *  5 yrs 5 mos" look letter-spaced -- the dash, the
+    # bullet and the two 5s are four of its nine tokens -- and threw away a
+    # five-year job at Nvidia.
+    singles = sum(1 for t in tokens if len(t) == 1 and t.isalpha())
     return singles / len(tokens) > 0.4
 
 
@@ -812,11 +847,30 @@ def _job_lines(text: str) -> list[str]:
     live -- the two sentences that made the first version of this module
     useless. A list line is never one either, however it is punctuated.
     """
+    lines = _clean(text).splitlines()
+    # Which lines carry a date range. A CV very often puts the employer on one
+    # line and the dates on the next --
+    #
+    #     Amazon Development Center - Risk Analyst (TRMS)
+    #     Bangalore, India                     Jun 2019 - Mar 2022
+    #
+    # -- and requiring both on one line threw away the largest single group of
+    # real jobs in this corpus. Read as a two-line header instead. This only
+    # relaxes WHERE the date may be; everything else still has to hold, and it
+    # only applies inside the work-experience section to begin with.
+    dated = [bool(_DATED.search(l)) for l in lines]
+
     out = []
-    for raw in _clean(text).splitlines():
-        line = raw.strip()
+    for index, raw in enumerate(lines):
+        line = " ".join(raw.split())
+        # Collapsed before measuring: PDF text pads lines out with runs of
+        # spaces, and a 90-character header was being rejected as a
+        # 230-character one.
         if not line or len(line) > 220:
             continue
+        near_date = (dated[index]
+                     or any(dated[j] for j in (index - 1, index + 1)
+                            if 0 <= j < len(lines)))
         if _BULLET.match(raw) or _LIST_HEAD.match(line) or _spaced_out(line):
             continue
         # A header starts with a name, a title or a date -- never with a verb,
@@ -830,7 +884,7 @@ def _job_lines(text: str) -> list[str]:
         # sentence about a job, whatever it calls itself.
         if sum(line.count(sep) for sep in ("|", "•", "·", ";")) >= 4:
             continue
-        if _DATED.search(line) or _AT_CONNECTOR.search(line) or _CORPORATE.search(line):
+        if near_date or _AT_CONNECTOR.search(line) or _CORPORATE.search(line):
             out.append(line)
     return out
 
