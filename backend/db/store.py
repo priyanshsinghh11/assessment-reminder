@@ -49,13 +49,33 @@ def get_db():
     return _client[MONGO_DB]
 
 
+def safe_uri(uri: str = None) -> str:
+    """
+    A connection string with its password removed, for error messages.
+
+    THE LEAK THIS CLOSES. `ping()` names the URI when it fails, because "which
+    database could not be reached" is the question a reader has and the URI is
+    the only thing that answers it. An Atlas URI carries its own credentials,
+    so that message used to print a live username and password -- and the
+    caller that prints it most often is `manage.py ingest`, whose stdout on a
+    scheduled run is an Actions page on a PUBLIC repository: world-readable,
+    indexed and permanent.
+
+    GitHub does mask registered secrets in its own logs, which would have
+    caught this one. That is a second line of defence, not this one: it only
+    replaces exact matches, and it does not exist at all for a laptop, a
+    container log, or any other collector this message reaches.
+    """
+    return re.sub(r"://[^/@]*:[^/@]*@", "://***:***@", uri or MONGO_URI)
+
+
 def ping() -> None:
     """Raise MongoUnavailable unless the server answers."""
     try:
         get_db().command("ping")
     except PyMongoError as exc:
         raise MongoUnavailable(
-            f"Cannot reach MongoDB at {MONGO_URI}: {exc}"
+            f"Cannot reach MongoDB at {safe_uri()}: {exc}"
         ) from exc
 
 

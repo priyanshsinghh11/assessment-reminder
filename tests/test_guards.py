@@ -362,3 +362,57 @@ class TestCandidateLogRedaction:
         for module in ("backend/pipeline/grade.py", "backend/grading/grader.py"):
             source = (ROOT / module).read_text(encoding="utf-8")
             assert "LOG_CANDIDATE_DETAIL" in source,                 f"{module} no longer checks LOG_CANDIDATE_DETAIL"
+
+
+class TestTheDatabaseUriNeverReachesALog:
+    """
+    A scheduled run's stdout is a public Actions page on this repository, and
+    the Atlas URI carries its own username and password. `ping()` names the URI
+    when it cannot connect -- which is the right thing to say and the wrong
+    thing to say it with.
+
+    GitHub masks registered secrets in its own logs and would have caught this
+    one. These pin the fix anyway, because that masking only covers exact
+    matches and does not exist for a laptop, a container log, or a platform
+    collector.
+    """
+
+    SRV = "mongodb+srv://a_user:s3cr3t-p4ss@cluster.izzotww.mongodb.net/db?retryWrites=true"
+
+    def test_the_password_is_removed(self):
+        from backend.db.store import safe_uri
+        assert "s3cr3t-p4ss" not in safe_uri(self.SRV)
+
+    def test_the_username_is_removed_too(self):
+        # It is half a credential and it names a real Atlas account.
+        from backend.db.store import safe_uri
+        assert "a_user" not in safe_uri(self.SRV)
+
+    def test_the_host_survives(self):
+        # The whole point of naming the URI is answering "which database".
+        from backend.db.store import safe_uri
+        out = safe_uri(self.SRV)
+        assert "cluster.izzotww.mongodb.net" in out and out.startswith("mongodb+srv://")
+
+    def test_a_uri_without_credentials_is_untouched(self):
+        from backend.db.store import safe_uri
+        plain = "mongodb://127.0.0.1:27017"
+        assert safe_uri(plain) == plain
+
+    def test_the_failure_message_itself_is_clean(self):
+        """The message, not just the helper -- that is what reaches the log."""
+        import backend.db.store as store
+        monkey = store.MONGO_URI
+        try:
+            store.MONGO_URI = self.SRV
+            store._client = None
+            try:
+                store.ping()
+            except store.MongoUnavailable as exc:
+                assert "s3cr3t-p4ss" not in str(exc),                     "ping() still puts the password in its error message"
+                assert "***" in str(exc)
+            else:
+                pytest.skip("a server answered at the fake URI")
+        finally:
+            store.MONGO_URI = monkey
+            store._client = None
