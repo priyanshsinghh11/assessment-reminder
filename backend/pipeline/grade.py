@@ -43,6 +43,10 @@ from backend.logging_setup import setup_logging
 
 log = logging.getLogger("grade")
 
+# How many roles `--next` may step through in one run before giving up. Only
+# reached when a role raises before grading anything -- see _rotation.
+ROTATION_ATTEMPTS = 3
+
 
 def _resolve_tiers(role: dict) -> None:
     """Fill in which posting each candidate applied to, where that decides the grid."""
@@ -78,15 +82,31 @@ def _next_role(roles: list[dict], pending: dict[int, int],
     Pure on purpose -- the queries live in store, so the rule that decides
     where an hour of LLM budget goes can be tested without a database.
     """
+    order = _rotation(roles, pending, last_graded)
+    return order[0] if order else None
+
+
+def _rotation(roles: list[dict], pending: dict[int, int],
+              last_graded: dict) -> list[dict]:
+    """
+    Every role with work waiting, in the order the rotation should take them.
+
+    The caller needs more than the head of this list because of one failure
+    mode: a role whose grid will not derive raises before it grades anything,
+    which means its `graded_at` does not move, which means it is still the
+    least recently graded role an hour later. Handed only the head, an hourly
+    run would pick that same broken role every hour forever and never reach
+    the other thirty -- while reporting success, because nothing failed that
+    it counted. main() walks a few of these instead, so one bad role costs a
+    log line rather than the whole queue.
+    """
     waiting = [r for r in roles if pending.get(r["_id"], 0) > 0]
-    if not waiting:
-        return None
 
     def key(role: dict):
         when = last_graded.get(role["_id"])
         return ((0, None) if when is None else (1, when), role["_id"])
 
-    return min(waiting, key=key)
+    return sorted(waiting, key=key)
 
 
 def _grade_role(role: dict, limit: int, force_rubric: bool,
@@ -257,19 +277,43 @@ def main() -> int:
     if args.all:
         roles = [r for r in store.get_roles() if r.get("published")]
     elif args.next:
-        # One role per run, taken in turn. See _next_role: the rotation is the
-        # grading timestamps themselves, so nothing here has to be remembered
+        # One role per run, taken in turn. See _rotation: the order is the
+        # grading timestamps themselves, so nothing has to be remembered
         # between runs, and a run that finds every queue empty is a success
         # that says so rather than a failure.
-        published = [r for r in store.get_roles() if r.get("published")]
+        #
+        # The list is trimmed rather than taken whole: the loop below stops at
+        # the first role that grades, so the extras are only reached when a
+        # role raises before grading anything. Three is enough to step over a
+        # broken role without spending the hour discovering that every role is
+        # broken -- if it is, the exit code says so and a human should look.
+        # role_index() rather than get_roles(): choosing a role needs an id, a
+        # title and whether it is published, while get_roles() carries every
+        # role's live assessment markdown with it. Measured against Atlas on a
+        # warm connection, 37 roles: 0.07s for the index against 0.33s and
+        # ~0.4MB for the full documents. Small either way -- the point is that
+        # it is text this run will not read, fetched once an hour forever, and
+        # it grows with the assessments rather than with the work.
+        published = [r for r in store.role_index() if r.get("published")]
         waiting = store.ungraded_counts_by_role()
-        role = _next_role(published, waiting, store.last_graded_by_role())
-        if role is None:
+        order = _rotation(published, waiting, store.last_graded_by_role())
+        if not order:
             print("Nothing pending in any published role.")
             return 0
         log.info("Next in rotation: [%s] (job %s), %d waiting.",
-                 role.get("title"), role["_id"], waiting.get(role["_id"], 0))
-        roles = [role]
+                 order[0].get("title"), order[0]["_id"],
+                 waiting.get(order[0]["_id"], 0))
+        # The full document IS needed to grade -- derive_grid reads the
+        # assessment text -- so the chosen few are fetched whole. Normally that
+        # is one role; the rest are only reached if it turns out to be broken.
+        # A role that vanished between the index and here is dropped rather
+        # than crashing the hour.
+        roles = [full for full in
+                 (store.get_role(r["_id"]) for r in order[:ROTATION_ATTEMPTS])
+                 if full is not None]
+        if not roles:
+            log.error("The roles picked for this run no longer exist.")
+            return 1
     else:
         role = store.get_role(args.job)
         if role is None:
@@ -280,17 +324,25 @@ def main() -> int:
 
     totals = {"graded": 0, "failed": 0, "remaining": 0}
     exhausted = False
+    broken_roles = 0
     for role in roles:
         try:
             result = _grade_role(role, args.limit, args.force_rubric, args.rubric_only)
         except evaluator.QuotaExhausted as exc:
             # Raised before this role graded anything -- the budget went on an
-            # earlier one, or on a grid derivation.
+            # earlier one, or on a grid derivation. Not this role's fault, so
+            # it is not counted against it, and the next run retries it.
             log.warning("[%s] %s", role.get("title"), exc)
             exhausted = True
             break
         except (evaluator.EvaluationFailed, evaluator.EvaluatorNotConfigured) as exc:
+            # This role cannot be graded at all -- usually a grid that will not
+            # derive from its assessment text. Counted, because a run that
+            # reports success having graded nobody is how a broken role stays
+            # broken. Under --next the loop moves on to the next role in the
+            # rotation rather than ending the run here.
             log.error("[%s] %s", role.get("title"), exc)
+            broken_roles += 1
             continue
         totals["graded"] += result["graded"]
         totals["failed"] += result["failed"]
@@ -298,8 +350,15 @@ def main() -> int:
         if result.get("exhausted"):
             exhausted = True
             break
+        if args.next:
+            # One role per run. Anything that raised above never reached this
+            # line, which is what lets a broken role be stepped over instead
+            # of wedging every later hour on the same role.
+            break
 
-    print(f"\nGraded {totals['graded']} submission(s), {totals['failed']} failed.")
+    unusable = f", {broken_roles} role(s) could not be graded at all" if broken_roles else ""
+    print(f"\nGraded {totals['graded']} submission(s), "
+          f"{totals['failed']} failed{unusable}.")
     if exhausted:
         # A daily cap is not a failure to fix, it is a queue to come back to,
         # so it gets its own exit code: a cron wrapper can retry on 3 and
@@ -310,7 +369,11 @@ def main() -> int:
               f"same command once it resets; already-scored candidates are "
               f"skipped.")
         return 3
-    return 0 if totals["failed"] == 0 else 2
+    # `broken_roles` counts here too. Exit 2 means "the run stands but
+    # something needs a human", and a role whose grid will not derive is
+    # exactly that -- left out of this it would be invisible on a run page,
+    # and under --next it would be invisible every hour.
+    return 0 if not totals["failed"] and not broken_roles else 2
 
 
 if __name__ == "__main__":

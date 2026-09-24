@@ -214,7 +214,7 @@ jobs:
           set -e
           case $code in
             0) echo "grading ok" ;;
-            2) echo "::warning::Some candidates failed to grade. They stay pending and a later run retries them." ;;
+            2) echo "::warning::Something needs a human: either individual candidates failed to grade, or a role could not be graded at all (usually a grid that will not derive from its assessment text). The run stands and the queue is not stuck -- a role that cannot be graded is stepped over, not retried forever -- but read the log above, because nothing else will report this." ;;
             3) echo "::warning::Stopped on the provider's daily token budget. Already-scored candidates are skipped, so the next run resumes the queue. At 50/hour this is the limit to expect first." ;;
             124) echo "::warning::Grading hit the 45-minute bound and was stopped. Every verdict completed before that point is saved; the rest stay pending and this role stays at the front of the rotation." ;;
             *) echo "::error::Grading failed (exit $code)."; exit $code ;;

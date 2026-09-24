@@ -12,7 +12,7 @@ dicts, and that split is what makes these tests possible.
 
 from datetime import datetime
 
-from backend.pipeline.grade import _next_role
+from backend.pipeline.grade import ROTATION_ATTEMPTS, _next_role, _rotation
 
 
 def role(job_id: int, title: str = "") -> dict:
@@ -108,3 +108,50 @@ class TestItSkipsEmptyQueues:
         # published roles. Pinned so that contract is not quietly moved here.
         only = [role(9)]
         assert _next_role(only, {9: 1}, {})["_id"] == 9
+
+
+class TestABrokenRoleCannotWedgeTheQueue:
+    """
+    THE FAILURE THIS EXISTS FOR. A role whose grid will not derive raises
+    before it grades anything, so its `graded_at` never moves -- which means it
+    is still the least recently graded role an hour later, and an hour after
+    that. Handed only the head of the rotation, an hourly run would pick that
+    same role every hour forever, never reach the other thirty, and report
+    success each time because nothing it counted had failed.
+
+    main() walks the first ROTATION_ATTEMPTS entries and stops at the first
+    role that actually grades, so a broken role costs a log line instead of the
+    whole queue. These pin the list it walks.
+    """
+
+    def test_the_rotation_offers_more_than_one_role(self):
+        pending = {1: 50, 2: 50, 3: 50}
+        last = {1: at(24, 9), 2: at(24, 7), 3: at(24, 8)}
+        assert [r["_id"] for r in _rotation(ROLES, pending, last)] == [2, 3, 1]
+
+    def test_the_head_is_what_next_role_returns(self):
+        # The two must not be able to disagree about whose turn it is.
+        pending = {1: 50, 2: 50, 3: 50}
+        last = {1: at(24, 9), 2: at(24, 7), 3: at(24, 8)}
+        assert _rotation(ROLES, pending, last)[0] is _next_role(ROLES, pending, last)
+
+    def test_enough_attempts_to_step_over_a_broken_role(self):
+        # If the cap were 1 the whole guard would be decorative.
+        assert ROTATION_ATTEMPTS >= 2
+
+    def test_the_fallback_is_the_next_role_in_turn_not_a_random_one(self):
+        pending = {1: 50, 2: 50, 3: 50}
+        last = {1: at(24, 9), 2: at(24, 7), 3: at(24, 8)}
+        order = _rotation(ROLES, pending, last)
+        # Role 2 is broken, so the run should land on 3 -- the next in turn,
+        # not role 1, and not role 2 again.
+        assert order[1]["_id"] == 3
+
+    def test_empty_queues_are_absent_from_the_rotation_too(self):
+        # The fallback must not hand main() a role with nothing to grade; that
+        # would spend an attempt and still grade nobody.
+        pending = {1: 0, 2: 7, 3: 0}
+        assert [r["_id"] for r in _rotation(ROLES, pending, {})] == [2]
+
+    def test_rotation_is_empty_when_nothing_waits(self):
+        assert _rotation(ROLES, {}, {}) == []
