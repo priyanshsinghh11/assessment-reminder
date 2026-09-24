@@ -1721,7 +1721,8 @@ LOG_FILE_MODE = 0o600
 # what a scheduled run is watched for. Only the per-candidate detail goes.
 #
 # Default ON, so a laptop, the dashboard and the container all behave exactly
-# as before; .github/workflows/batch.yml sets it to 0. tests/test_guards.py
-# pins both halves.
+# as before; .github/workflows/grade.yml sets it to 0, and tests/test_guards.py
+# pins that every workflow job running `manage.py grade` does. It pins both
+# halves: the flag's own behaviour, and the workflow that turns it off.
 LOG_CANDIDATE_DETAIL = os.environ.get(
     "LOG_CANDIDATE_DETAIL", "1").strip().lower() not in ("0", "false", "no", "off")

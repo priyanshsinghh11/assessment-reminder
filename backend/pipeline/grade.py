@@ -5,6 +5,7 @@ Run AI evaluation over pending submissions.
     python manage.py grade --job 23                  grade every pending AI Trainer
     python manage.py grade --job 31 --limit 10       ten of them, to sanity-check first
     python manage.py grade --all --limit 50          across all roles
+    python manage.py grade --next --limit 50         one role, whoever's turn it is
     python manage.py grade --job 4 --rubric-only     write the grid, grade nothing
     python manage.py grade --job 4 --force-rubric    regenerate the grid first
 
@@ -19,6 +20,12 @@ Only submissions in the `pending` bucket are graded -- anything auto-rejected
 for a missing artefact, still in progress, or already scored is skipped.
 Re-running picks up where the last run stopped, so a rate-limited run can just
 be started again.
+
+--next grades ONE role, the one with work waiting that was graded least
+recently, and is what the hourly workflow runs. It takes the roles in turn
+without storing a cursor: grading a role is what moves it to the back of the
+queue. A role nobody has graded yet goes first, and a role with an empty queue
+is skipped rather than spending the hour. See _next_role.
 """
 
 import argparse
@@ -46,6 +53,40 @@ def _resolve_tiers(role: dict) -> None:
             "postings.", role.get("title", role["_id"]),
             result["written"], result["unresolved"], result["both"],
         )
+
+
+def _next_role(roles: list[dict], pending: dict[int, int],
+               last_graded: dict) -> Optional[dict]:
+    """
+    Of the roles with work waiting, the one graded least recently.
+
+    This is the whole rotation. An hourly run grades one role, which makes that
+    role the most recently graded, which sends it to the back of the queue --
+    so the roles come round in turn without anybody storing a cursor. Two
+    properties that matter more than the ordering:
+
+      * A role with nothing waiting is never chosen, so an hour is never spent
+        on an empty queue while another role has a backlog.
+      * A role nobody has ever graded sorts FIRST. A newly published role does
+        not wait for a full cycle before it is looked at.
+
+    The sort key is (0, None) for never-graded and (1, when) otherwise, which
+    is deliberate: it never compares None to a datetime, and never compares
+    datetimes that came from different places. The job id breaks ties so that
+    two roles in the same state cannot swap places between runs.
+
+    Pure on purpose -- the queries live in store, so the rule that decides
+    where an hour of LLM budget goes can be tested without a database.
+    """
+    waiting = [r for r in roles if pending.get(r["_id"], 0) > 0]
+    if not waiting:
+        return None
+
+    def key(role: dict):
+        when = last_graded.get(role["_id"])
+        return ((0, None) if when is None else (1, when), role["_id"])
+
+    return min(waiting, key=key)
 
 
 def _grade_role(role: dict, limit: int, force_rubric: bool,
@@ -186,6 +227,9 @@ def main() -> int:
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument("--job", type=int, help="portal job id (e.g. 23)")
     target.add_argument("--all", action="store_true", help="every role")
+    target.add_argument("--next", action="store_true",
+                        help="one role: whichever has work waiting and was "
+                             "graded least recently")
     parser.add_argument("--limit", type=int, default=0,
                         help="max submissions per role (0 = no cap)")
     parser.add_argument("--rubric-only", action="store_true",
@@ -212,6 +256,20 @@ def main() -> int:
 
     if args.all:
         roles = [r for r in store.get_roles() if r.get("published")]
+    elif args.next:
+        # One role per run, taken in turn. See _next_role: the rotation is the
+        # grading timestamps themselves, so nothing here has to be remembered
+        # between runs, and a run that finds every queue empty is a success
+        # that says so rather than a failure.
+        published = [r for r in store.get_roles() if r.get("published")]
+        waiting = store.ungraded_counts_by_role()
+        role = _next_role(published, waiting, store.last_graded_by_role())
+        if role is None:
+            print("Nothing pending in any published role.")
+            return 0
+        log.info("Next in rotation: [%s] (job %s), %d waiting.",
+                 role.get("title"), role["_id"], waiting.get(role["_id"], 0))
+        roles = [role]
     else:
         role = store.get_role(args.job)
         if role is None:

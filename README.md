@@ -1486,9 +1486,9 @@ image. `tests/test_guards.py` pins it, because a laptop always has a writable
 
 ### Automated on GitHub Actions — the batch half
 
-Portal sync and grading run on a schedule in `.github/workflows/batch.yml`, on
-a GitHub-hosted runner, and Vercel serves the dashboard and review surface as
-before. The split follows the workload: the web half is request-shaped Mongo
+Portal sync and grading run on a schedule on a GitHub-hosted runner — the sync
+in `.github/workflows/sync.yml`, grading in `.github/workflows/grade.yml` — and
+Vercel serves the dashboard and review surface as before. The split follows the workload: the web half is request-shaped Mongo
 work that a serverless function does well, and the batch half is neither.
 
 **Why not Vercel cron.** Three limits, none of them about how this code is
@@ -1512,13 +1512,51 @@ which this is not.
 
 | Workflow | Schedule | Command |
 |---|---|---|
-| `batch.yml` | every 3 hours | `ingest --skip-roles`, then `grade --all --limit 2` |
+| `sync.yml` | daily, 03:00 UTC | `ingest --skip-roles` |
+| `grade.yml` | hourly, :30 | `grade --next --limit 50` |
 | `roles-crawl.yml` | Mondays 04:00 UTC | `ingest --roles-only`, then commits the assessment diff |
 
-Both share one `concurrency` group, because ingest's stage 3 moves submissions
-between buckets while grading walks the pending queue. That guard does not
-reach across machines: `manage.py grade` on a laptop while a run is in flight
-is the one overlap nothing detects.
+Sync and grading were one workflow on one schedule until they needed two
+cadences: submissions are pulled once a day, and grading runs every hour. A
+single job cannot carry two schedules, so they are two files.
+
+All three share one `concurrency` group, because ingest's stage 3 moves
+submissions between buckets while grading walks the pending queue — separate
+workflows do not separate the database, and that group is the only thing
+serialising them. It does not reach across machines: `manage.py grade` on a
+laptop while a run is in flight is the one overlap nothing detects.
+
+Splitting them also narrowed what each runner holds. `sync.yml` is never given
+`LLM_API_KEY`, and `grade.yml` is never given the portal password, because
+neither command reads the other's credentials.
+
+**One role per hour, in turn.** `--next` grades the published role that has
+work waiting and was graded least recently — so the first hour takes one role,
+the next hour a different one, and the roles come round in turn at 50
+candidates apiece. Not `--all`: that walks all ~33 roles in a single run, which
+at 50 each would be 1,650 candidates and about thirteen hours of model calls in
+a job that gets one.
+
+Nothing stores the rotation. Grading a role updates its newest `graded_at`,
+which is what moves it to the back of the queue, so the order survives a
+re-run, a cancelled job, and a role being added or unpublished. A role with an
+empty queue is skipped rather than spending the hour, and a role nobody has
+graded yet goes first. The rule is `_next_role` in
+[`backend/pipeline/grade.py`](backend/pipeline/grade.py) and
+`tests/test_rotation.py` pins it — including the case that costs real money,
+which is picking a role with nothing waiting while another has a backlog.
+
+**Fifty is sized to the hour, not picked round.** At `LLM_CONCURRENCY=6` and a
+measured ~170s per candidate, 50 candidates is about 24 minutes, leaving roughly
+half the hour as slack for a slow provider. Doubling it to 100 is ~48 minutes
+and would start colliding with the next run through the shared concurrency
+group. Measure before raising it.
+
+**Watch the token budget at this cadence.** 50 an hour is up to 1,200
+candidates a day, a different order of spend from a few times a day. Grading
+exits 3 when the provider's daily budget runs out, which the workflow reports
+as a warning rather than a failure — already-scored candidates are skipped, so
+the next run resumes the queue.
 
 Neither workflow sends mail. `AUTOMATION_ENABLED` is deliberately not set in
 either — it gates the reminder send, not ingest and not grading, and while it
@@ -1529,7 +1567,7 @@ eligible. See [Automation is paused](#automation-is-paused).
 
 | Secret | Why |
 |---|---|
-| `MONGO_URI` | **Required.** A missing one does not fail loudly — `config.py` defaults it to `127.0.0.1:27017`, which on a runner is nothing, and the run would report a clean sync of zero records. `batch.yml` refuses to start without it for that reason. |
+| `MONGO_URI` | **Required.** A missing one does not fail loudly — `config.py` defaults it to `127.0.0.1:27017`, which on a runner is nothing, and the run would report a clean sync of zero records. Both workflows refuse to start without it for that reason. |
 | `PORTAL_EMAIL`, `PORTAL_PASSWORD` | The portal crawl and the submissions CSV. |
 | `LLM_API_KEY` | Grading. |
 | `WORKABLE_API_TOKEN` | Optional. Decides which of a family's grids a candidate is marked against; unset, everyone falls back to the senior grid rather than being skipped. |
@@ -1554,15 +1592,17 @@ quote behind it. An Actions run page on a public repo is world-readable,
 indexed and permanent — that is an accusation against a named private
 individual on a page they will never see.
 
-`batch.yml` therefore sets `LOG_CANDIDATE_DETAIL=0`. The run still reports
+`grade.yml` therefore sets `LOG_CANDIDATE_DETAIL=0`. The run still reports
 roles, counts, how many marks were unevidenced and how many tells fired; it
 just never says who, and never quotes the work. The flag defaults **on**, so a
 laptop, the dashboard and the container are unchanged — run `manage.py grade`
 locally and you get the full per-candidate lines as before. `grader.py` honours
 it too, because the fetch notes carry candidate Drive share URLs and a share
 URL is a capability, not just an identifier. `tests/test_guards.py` pins the
-default, the override, that the workflow sets it, and that both guards are
-still in the code.
+default, the override, that **every** workflow job running `manage.py grade`
+sets it, and that both guards are still in the code. That test parses the
+workflows and keys off the command rather than the filename, so splitting or
+renaming a file cannot leave it silently watching nothing.
 
 Ingest needs no such switch: it logs counts, queue names and submission IDs
 only.

@@ -321,14 +321,41 @@ class TestCandidateLogRedaction:
 
     def test_the_scheduled_run_turns_it_off(self):
         """
-        The workflow is the only place this is set to 0, and it is the whole
-        reason the flag exists. A batch.yml that stops setting it starts
-        publishing candidate names on the next scheduled run, and nothing on
-        the run page would say so.
+        The scheduled grading workflow is the only place this is set to 0, and
+        it is the whole reason the flag exists. A workflow that grades without
+        setting it publishes candidate names on the next scheduled run, and
+        nothing on the run page would say so.
+
+        Found by what a job RUNS, not by the file it lives in. This test used
+        to open `.github/workflows/batch.yml` by name; when that file was split
+        into sync.yml and grade.yml the assertion would have gone on passing
+        against a path that no longer existed, which is the one failure mode a
+        guard must not have.
+
+        Parsed, not grepped, for the same reason as the wsgi test above: these
+        files discuss `manage.py grade` in their comments, and a substring
+        search reads the discussion as the deed.
         """
-        workflow = (ROOT / ".github/workflows/batch.yml").read_text(encoding="utf-8")
-        assert "LOG_CANDIDATE_DETAIL" in workflow,             "batch.yml no longer sets LOG_CANDIDATE_DETAIL -- a scheduled "             "run would print candidate names to a public log"
-        assert '"0"' in workflow.split("LOG_CANDIDATE_DETAIL", 1)[1][:40]
+        import yaml
+
+        workflows = sorted((ROOT / ".github/workflows").glob("*.yml"))
+        assert workflows, "no workflows found at all"
+
+        graders = []
+        for path in workflows:
+            spec = yaml.safe_load(path.read_text(encoding="utf-8"))
+            for name, job in (spec.get("jobs") or {}).items():
+                script = " ".join(step.get("run", "")
+                                  for step in (job.get("steps") or []))
+                if "manage.py grade" in script:
+                    graders.append((path.name, name, job))
+
+        assert graders,             "no job runs `manage.py grade` -- the grading workflow has been "             "renamed or removed, and this guard was watching nothing"
+
+        for filename, job_name, job in graders:
+            env = job.get("env") or {}
+            assert "LOG_CANDIDATE_DETAIL" in env,                 f"{filename} job '{job_name}' grades without setting "                 "LOG_CANDIDATE_DETAIL -- a scheduled run would print "                 "candidate names to a public log"
+            assert str(env["LOG_CANDIDATE_DETAIL"]) == "0",                 f"{filename} job '{job_name}' sets LOG_CANDIDATE_DETAIL to "                 f"{env['LOG_CANDIDATE_DETAIL']!r}, not \"0\""
 
     def test_both_guards_are_still_in_place(self):
         """The flag does nothing if nobody reads it."""

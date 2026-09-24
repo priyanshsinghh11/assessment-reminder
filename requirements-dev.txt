@@ -13,3 +13,10 @@
 # run by hand against staging:  python manage.py test-access
 -r requirements.txt
 pytest>=8.0.0
+
+# Read by tests/test_guards.py, which parses .github/workflows/*.yml to
+# check that every job running `manage.py grade` sets
+# LOG_CANDIDATE_DETAIL=0. It parses rather than greps because those files
+# mention the command in their comments too. Test-only: nothing under
+# backend/ imports yaml.
+PyYAML>=6.0

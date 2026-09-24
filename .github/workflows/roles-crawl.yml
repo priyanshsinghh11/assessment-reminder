@@ -1,6 +1,6 @@
 # The roles crawl, weekly, with the assessment text committed back.
 #
-# WHY IT IS SEPARATE FROM batch.yml. Stage 1 of the ingest is the only part of
+# WHY IT IS SEPARATE FROM sync.yml. Stage 1 of the ingest is the only part of
 # this system that writes to the working tree: `ingest_roles()` writes each
 # role's live assessment to assessments/<slug>.md "so it can be reviewed in
 # git" (backend/pipeline/ingest.py). Three things follow, and together they are
@@ -9,9 +9,8 @@
 #   * It cannot run on Vercel at all. The filesystem there is read-only, so
 #     the write raises and the sync dies part-way through stage 1.
 #   * It is ~52 admin page fetches at PORTAL_CRAWL_DELAY apart, for text that
-#     changes a few times a year. Running it every three hours alongside the
-#     submissions sync is a lot of crawling for a file that is usually
-#     byte-identical.
+#     changes a few times a year. Running it daily alongside the submissions
+#     sync is a lot of crawling for a file that is usually byte-identical.
 #   * Committing is the entire point of writing it. A crawl whose output is
 #     thrown away when the runner is destroyed tells nobody that an assessment
 #     changed. The diff on this commit IS the notification.
@@ -31,8 +30,8 @@ on:
     - cron: "0 4 * * 1"
   workflow_dispatch:
 
-# Shares batch.yml's group: stage 1 and stage 2 both upsert the roles
-# collection, and grading derives its grid from a role document.
+# Shares the group sync.yml and grade.yml use: stage 1 and stage 2 both upsert
+# the roles collection, and grading derives its grid from a role document.
 concurrency:
   group: batch
   cancel-in-progress: false
@@ -78,8 +77,8 @@ jobs:
           echo "credentials present"
 
       - name: Crawl roles and assessments
-        # --roles-only: no submissions. batch.yml owns those, every three
-        # hours, and pulling them here as well would only duplicate the work.
+        # --roles-only: no submissions. sync.yml owns those, daily, and
+        # pulling them here as well would only duplicate the work.
         run: python manage.py ingest --roles-only
 
       - name: What changed

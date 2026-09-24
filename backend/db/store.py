@@ -2275,13 +2275,17 @@ def pipeline_counts() -> dict:
     return {"stages": stages, "by_role": by_role}
 
 
-def ungraded(job_id: Optional[int] = None, limit: int = 0,
-             tier: Optional[str] = None,
-             default_tier: Optional[str] = None) -> list[dict]:
+def _ungraded_query(job_id: Optional[int] = None,
+                    tier: Optional[str] = None,
+                    default_tier: Optional[str] = None) -> dict:
     """
-    Submissions eligible for AI grading: submitted, not auto-rejected, and not
-    already scored. Includes the answer markdown, since that is what gets sent
-    to the model.
+    The filter behind `ungraded()`, and behind the per-role counts that decide
+    which role an hourly rotating run picks next.
+
+    Factored out rather than written twice because the two MUST agree. If the
+    count were even slightly broader than the queue, the rotation would send an
+    hour at a role with nothing gradeable in it and the run would report "0
+    graded" -- indistinguishable, on a run page, from a grader that is broken.
     """
     query = {
         "submission_status": "submitted",
@@ -2304,7 +2308,55 @@ def ungraded(job_id: Optional[int] = None, limit: int = 0,
     if job_id is not None:
         query["job_id"] = job_id
     query.update(tier_filter(tier, default_tier))
+    return query
+
+
+def ungraded(job_id: Optional[int] = None, limit: int = 0,
+             tier: Optional[str] = None,
+             default_tier: Optional[str] = None) -> list[dict]:
+    """
+    Submissions eligible for AI grading: submitted, not auto-rejected, and not
+    already scored. Includes the answer markdown, since that is what gets sent
+    to the model.
+    """
+    query = _ungraded_query(job_id, tier, default_tier)
     cursor = get_db().submissions.find(query).sort([("submitted_at", ASCENDING)])
     if limit:
         cursor = cursor.limit(limit)
     return list(cursor)
+
+
+def ungraded_counts_by_role() -> dict[int, int]:
+    """
+    How many submissions each role has waiting for the grader, as {job_id: n}.
+
+    One aggregation rather than a count per role: the rotation asks this every
+    hour and there are ~33 published roles, so the round trips are the cost,
+    not the counting. Roles with nothing waiting are simply absent.
+    """
+    rows = get_db().submissions.aggregate([
+        {"$match": _ungraded_query()},
+        {"$group": {"_id": "$job_id", "count": {"$sum": 1}}},
+    ])
+    return {r["_id"]: r["count"] for r in rows if r["_id"] is not None}
+
+
+def last_graded_by_role() -> dict[int, datetime]:
+    """
+    When each role was last graded, as {job_id: when}.
+
+    This is the rotation's memory, and the reason it needs no cursor document
+    of its own: grading a role updates the role's newest `graded_at`, which
+    moves it to the back of the queue by itself. A role nobody has graded is
+    absent, and the caller treats absent as "longest ago".
+
+    NOTE the values come back NAIVE UTC -- MongoClient is built without
+    tz_aware, so what `now()` wrote as an aware datetime reads back without a
+    tzinfo. That is consistent across every row here, so comparing them to each
+    other is safe; comparing one to `now()` is not.
+    """
+    rows = get_db().submissions.aggregate([
+        {"$match": {"evaluation.graded_at": {"$exists": True}}},
+        {"$group": {"_id": "$job_id", "at": {"$max": "$evaluation.graded_at"}}},
+    ])
+    return {r["_id"]: r["at"] for r in rows if r["_id"] is not None}

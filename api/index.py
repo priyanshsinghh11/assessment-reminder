@@ -46,9 +46,10 @@ being able to find later:
     Sync portal and grading time out; the reminder run is the dangerous one --
     it returns 202 and then dies frozen, having already mailed some candidates.
     Run those from a machine with a real process, not from here. Portal
-    ingest and grading already have one: .github/workflows/batch.yml runs
-    both on a GitHub runner every three hours, which is why nothing schedules
-    them against this deployment.
+    ingest and grading already have one: .github/workflows/sync.yml runs the
+    sync daily and .github/workflows/grade.yml grades one role an hour, both
+    on a GitHub runner, which is why nothing schedules them against this
+    deployment.
 
   * Every candidate's name, address, CV and score is now behind nothing but the
     login form, on the open internet. AUTH_ENABLED must stay on, and the admin
