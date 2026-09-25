@@ -129,3 +129,62 @@ def client():
     server.app.config["TESTING"] = True
     server.app.config["REVIEW_ONLY"] = False
     return server.app.test_client()
+
+
+# Captured at import, before _no_database can replace it, so a test that needs
+# a genuine connection ATTEMPT can put it back.
+from backend.db import store as _store_module
+_REAL_GET_DB = _store_module.get_db
+
+
+@pytest.fixture(autouse=True)
+def _no_database(monkeypatch, request):
+    """
+    This suite does not talk to MongoDB, and now it cannot.
+
+    pytest.ini says what is collected here: "the pure logic that needs no
+    database, no network and no credentials, so it can run on every commit."
+    Nothing enforced it, and a test that quietly reached the database was
+    invisible on a developer's machine -- a local mongod is listening, so the
+    call succeeds and the test passes -- while CI, which has none, went red.
+
+    Five tests in test_rejections.py did exactly that and CI stayed red for
+    days. One signed an unsubscribe link, which reads the app secret, which
+    store WRITES on first use; four called a route whose _mongo_guard had not
+    been stood down. Neither is visible in the test body.
+
+    Failing here names the test that did it, at the moment it did it, instead
+    of leaving a KeyError on a field an error response never carried.
+
+    A test that genuinely needs a database asks for it:
+
+        @pytest.mark.needs_db
+    """
+    if request.node.get_closest_marker("needs_db"):
+        return
+    from backend.db import store
+
+    def refuse(*args, **kwargs):
+        raise AssertionError(
+            "This test reached MongoDB, and this suite runs without one. "
+            "Mock the store call it makes (monkeypatch.setattr(store, ...)), "
+            "or use the `fixed_secret` fixture if it is signing something. "
+            "Mark it @pytest.mark.needs_db only if a real database is the "
+            "point -- and then it belongs with test_access.py, not here.")
+
+    monkeypatch.setattr(store, "get_db", refuse)
+
+
+@pytest.fixture
+def connection_attempt_allowed(_no_database, monkeypatch):
+    """
+    Put the real `get_db` back, for a test about what happens when connecting
+    FAILS.
+
+    This is not the same as needing a database. The caller points MONGO_URI at
+    a host that does not exist and asserts on the error that comes back -- so
+    the attempt has to be real, and it has to fail. Depends on _no_database so
+    it is ordered after it and undoes it rather than racing it.
+    """
+    from backend.db import store
+    monkeypatch.setattr(store, "get_db", _REAL_GET_DB)

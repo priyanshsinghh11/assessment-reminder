@@ -484,7 +484,13 @@ class TestTheRoutes:
         assert "Asha" in body["message"] and "{first_name}" not in body["message"]
         assert seams["sent"] == []
 
-    def test_the_preview_offers_the_placeholders_it_will_fill(self, dashboard):
+    def test_the_preview_offers_the_placeholders_it_will_fill(self, dashboard,
+                                                              fixed_secret):
+        # fixed_secret because the preview builds a real email, and the footer
+        # carries a signed unsubscribe link -- signing reads the app secret,
+        # which store WRITES to Mongo on first use. Without it this test passes
+        # only on a machine that happens to have a database listening, and
+        # fails in CI, which has none.
         # The chips under the message box are built from this. A hardcoded list
         # in the browser is one that goes stale the day a token is added, and a
         # chip for a token nobody fills in writes "{role}" into a candidate's
@@ -694,6 +700,14 @@ class TestTheRejectedQueueIsAnnotated:
     @pytest.fixture
     def queue(self, dashboard, monkeypatch):
         from backend.web import app as web_app, server, views_shortlist
+        from backend.web import views_evaluations
+
+        # /api/evaluations/rejected lives in views_evaluations and calls its
+        # OWN _mongo_guard. The `dashboard` fixture stands down the one in
+        # views_shortlist, which is a different function -- so without this the
+        # route answers 503 and every assertion below dies on a KeyError for a
+        # field the error body never had.
+        monkeypatch.setattr(views_evaluations, "_mongo_guard", lambda: None)
 
         rows = [
             {"_id": 1, "candidate_name": "A", "candidate_email": "a@x.com",

@@ -399,8 +399,15 @@ class TestTheDatabaseUriNeverReachesALog:
         plain = "mongodb://127.0.0.1:27017"
         assert safe_uri(plain) == plain
 
-    def test_the_failure_message_itself_is_clean(self):
-        """The message, not just the helper -- that is what reaches the log."""
+    def test_the_failure_message_itself_is_clean(self, connection_attempt_allowed):
+        """
+        The message, not just the helper -- that is what reaches the log.
+
+        `connection_attempt_allowed` because this test needs the connection to
+        be genuinely tried and to genuinely fail; the host below does not
+        exist. It does not need a database, and must not be marked as though
+        it does.
+        """
         import backend.db.store as store
         monkey = store.MONGO_URI
         try:
