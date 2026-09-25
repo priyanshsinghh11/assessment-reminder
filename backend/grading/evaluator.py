@@ -564,6 +564,24 @@ def _chat(messages: list[dict], max_tokens: int = 1500,
                         "retrying (attempt %d/%d)", LLM_TTFT_TIMEOUT,
                         attempt + 1, LLM_MAX_RETRIES)
             continue
+        except requests.exceptions.InvalidHeader as exc:
+            # NOT a connection fault, and not worth a single retry: the request
+            # was never built. Practically the only way to get here is a
+            # malformed LLM_API_KEY -- a newline picked up when it was pasted
+            # into a secret box -- and every attempt, for every candidate, in
+            # every role, will fail in exactly the same way.
+            #
+            # It is an InvalidHeader, which is a RequestException, so it used
+            # to land in the branch below and be reported as
+            # "connection error: ...". A scheduled run failed all 18
+            # candidates in a role that way, and the log blamed the network
+            # for a paste. Raised here instead so the run stops on the first
+            # candidate and says what is actually wrong.
+            raise EvaluatorNotConfigured(
+                f"LLM_API_KEY cannot be sent as an HTTP header ({exc}). That "
+                "is a malformed credential, not a network fault -- check the "
+                "secret for a trailing newline or stray whitespace."
+            ) from exc
         except requests.RequestException as exc:
             # A refused connection or a broken DNS lookup is a real fault and
             # does want the backoff below -- retrying that one instantly just

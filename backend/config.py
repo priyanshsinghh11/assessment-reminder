@@ -79,8 +79,12 @@ WORKABLE_MAX_RETRIES = 4
 # --- Assessment Portal ---
 PORTAL_BASE_URL = "https://candidateassessments.ajaia.ai"
 PORTAL_LOGIN_URL = f"{PORTAL_BASE_URL}/admin/login"
-PORTAL_EMAIL = os.environ.get("PORTAL_EMAIL", "")
-PORTAL_PASSWORD = os.environ.get("PORTAL_PASSWORD", "")
+# Stripped, like every other credential here -- see LLM_API_KEY for the
+# failure that taught us. A portal login sends these in a form body rather
+# than a header, so a stray newline fails as a wrong password instead of an
+# error, which is worse to diagnose.
+PORTAL_EMAIL = _env("PORTAL_EMAIL", "")
+PORTAL_PASSWORD = _env("PORTAL_PASSWORD", "")
 # The portal's own "Export CSV" endpoint. One request returns every submission
 # with real columns -- far more reliable than scraping the dashboard HTML,
 # which is paginated and renders only ~200 of the rows.
@@ -194,7 +198,7 @@ PORTAL_CRAWL_DELAY = 0.4         # seconds between assignment page fetches
 # --- MongoDB ---
 # Stores every submission (including the full answer markdown), each role's
 # live assessment, and our own accept/reject decisions and AI evaluations.
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017")
+MONGO_URI = _env("MONGO_URI", "mongodb://127.0.0.1:27017")
 # _env, not os.environ.get: sync.yml and grade.yml pass this as
 # ${{ vars.MONGO_DB }}, which arrives EMPTY rather than unset when the
 # repository variable is undefined. See _env.
@@ -227,7 +231,22 @@ CV_ONLY_REQUIRED_ARTEFACTS = ("resume_link",)
 # LLM_MODEL for whichever provider you land on (Groq, Together, OpenRouter, a
 # local llama.cpp server); nothing below is vendor-specific.
 LLM_BASE_URL = _env("LLM_BASE_URL", "https://api.groq.com/openai/v1")
-LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
+# STRIPPED, AND THAT IS NOT COSMETIC. This goes straight into an HTTP header:
+#
+#     headers = {"Authorization": f"Bearer {LLM_API_KEY}", ...}
+#
+# A header value may not contain a newline, so a key carrying one does not
+# fail as "unauthorized" -- requests refuses to build the request at all:
+#
+#     InvalidHeader: Invalid leading whitespace, reserved character(s), or
+#     return character(s) in header value
+#
+# which the evaluator reports as a CONNECTION error, so the log blames the
+# network for a paste. A scheduled run hit exactly this and failed all 18
+# candidates in a role: a trailing newline is easy to include when pasting
+# into a secret box, and .env strips it on the way in, so a laptop never
+# sees the problem.
+LLM_API_KEY = _env("LLM_API_KEY", "")
 # The default names a model rather than nothing so a fresh checkout with only
 # LLM_API_KEY set still grades. It moves when a provider retires one:
 # gpt-oss-120b went end-of-life on 2026-09-03 and answers HTTP 410, which reads
