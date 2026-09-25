@@ -92,8 +92,26 @@ USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 _DRIVE_ID = re.compile(r"/d/([A-Za-z0-9_-]{20,})|[?&]id=([A-Za-z0-9_-]{20,})")
 
 
+def _safe_parse(link: str):
+    """
+    urlparse's result, or None for a link it refuses to parse.
+
+    Same hazard as submission_reader._parse: urlparse RAISES on a malformed
+    netloc -- ValueError("Invalid IPv6 URL") for an unbalanced "[" -- and the
+    links here come from a portal export, which is to say from whatever a
+    candidate typed. One of them took a whole sync down.
+    """
+    try:
+        return urlparse(link)
+    except ValueError:
+        return None
+
+
 def _host(link: str) -> str:
-    return (urlparse(link).netloc or "").lower().removeprefix("www.")
+    parsed = _safe_parse(link)
+    if parsed is None:
+        return ""
+    return (parsed.netloc or "").lower().removeprefix("www.")
 
 
 def direct_url(link: str) -> str:
@@ -105,7 +123,12 @@ def direct_url(link: str) -> str:
     clean 404 into a wrong-looking success.
     """
     host = _host(link)
-    parsed = urlparse(link)
+    parsed = _safe_parse(link)
+    if parsed is None:
+        # Unrecognised hosts are returned unchanged, and a link that will not
+        # parse is the same case: let it fetch, fail, and be recorded as what
+        # it is rather than crashing the run that found it.
+        return link
 
     if host in ("drive.google.com", "docs.google.com"):
         # A folder has no single file to download. Left alone so it fetches,

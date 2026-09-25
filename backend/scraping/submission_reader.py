@@ -49,14 +49,47 @@ _MEDIA_SUFFIXES = (".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm", ".mp3", ".wa
 MEDIA_MARKER = "__media__:"
 
 
+def _parse(url: str):
+    """
+    urlparse's result, or None for a string it refuses to parse.
+
+    THE RUN THIS COMES FROM. urlparse does not return something inert for a
+    malformed netloc -- it RAISES. An unbalanced "[" gives
+    ValueError("Invalid IPv6 URL"), and because this runs over whatever a
+    candidate pasted into their submission, one such string killed an entire
+    scheduled sync: portal login fine, 5005 rows fetched, then a traceback and
+    exit 1, with nothing written.
+
+    _URL_RE manufactures the condition rather than protecting against it: it
+    excludes "]" from a match, so even a legitimate IPv6 URL arrives here with
+    its closing bracket already stripped and raises on arrival.
+
+    A URL that cannot be parsed cannot be on the allow-list, so None is answer
+    enough for every caller in this module.
+    """
+    try:
+        return urlparse(url)
+    except ValueError:
+        return None
+
+
 def _host(url: str) -> str:
-    return (urlparse(url).netloc or "").lower().split(":", 1)[0]
+    parsed = _parse(url)
+    if parsed is None:
+        return ""
+    return (parsed.netloc or "").lower().split(":", 1)[0]
 
 
 def _allowed(url: str) -> bool:
-    host = _host(url)
-    content_host = host.endswith(".googleusercontent.com") or host == "drive.usercontent.google.com"
-    return (host in _ALLOWED_HOSTS or content_host) and urlparse(url).scheme == "https"
+    # Parsed once, not twice: the scheme and the host come from the same
+    # result, so a URL cannot pass one check and fail to parse for the other.
+    parsed = _parse(url)
+    if parsed is None or parsed.scheme != "https":
+        return False
+    host = (parsed.netloc or "").lower().split(":", 1)[0]
+    content_host = (host.endswith(".googleusercontent.com")
+                    or host == "drive.usercontent.google.com")
+    return host in _ALLOWED_HOSTS or content_host
 
 
 def extract_links(markdown: str) -> list[str]:
@@ -68,7 +101,9 @@ def extract_links(markdown: str) -> list[str]:
         if not _allowed(url) or "{" in url or "}" in url:
             continue
         # Do not let a tracking fragment create another fetch of the same file.
-        parsed = urlparse(url)
+        parsed = _parse(url)
+        if parsed is None:          # _allowed already rejects these; belt and braces
+            continue
         normal = parsed._replace(fragment="").geturl()
         if normal not in seen:
             seen.add(normal)
@@ -190,7 +225,10 @@ def _html_links(data: bytes, base_url: str) -> Iterable[str]:
         # ends in a redirect off-host -- `?tab=oo` did exactly that here.
         if _is_drive_furniture(url):
             continue
-        yield urlparse(url)._replace(fragment="").geturl()
+        parsed = _parse(url)
+        if parsed is None:
+            continue
+        yield parsed._replace(fragment="").geturl()
 
 
 def _is_drive_furniture(url: str) -> bool:
@@ -208,7 +246,11 @@ def _is_drive_furniture(url: str) -> bool:
     Nothing else on these hosts is a candidate artefact, so the question is
     asked that way round instead.
     """
-    parsed = urlparse(url)
+    parsed = _parse(url)
+    if parsed is None:
+        # Not parseable, so not a document either. Treated as furniture so the
+        # caller skips it instead of spending a fetch on it.
+        return True
     if file_id_of(url):
         return False
     if "/folders/" in parsed.path:
