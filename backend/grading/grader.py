@@ -170,9 +170,16 @@ def ensure_linked_submission(submission: dict, persist: bool = True) -> dict:
             log.info("linked submission fetch notes for %s: %s",
                      submission.get("_id"), "; ".join(result["errors"]))
         else:
-            log.info("linked submission: %d of %d link(s) could not be read "
-                     "for submission %s.", len(result["errors"]),
-                     len(result["links"]), submission.get("_id"))
+            # Counted against what was FETCHED, not against the number of
+            # links in the submission. One link can be a folder of twenty
+            # files, each of which is fetched separately and can fail on its
+            # own, so the old denominator gave "12 of 1 link(s) could not be
+            # read" -- a ratio of two different things.
+            attempted = result.get("attempted") or len(result["errors"])
+            log.info("linked submission: %d of %d fetched item(s) could not "
+                     "be read for submission %s (from %d link(s)).",
+                     len(result["errors"]), attempted,
+                     submission.get("_id"), len(result["links"]))
     if not persist:
         return submission
     try:

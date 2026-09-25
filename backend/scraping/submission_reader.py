@@ -490,6 +490,13 @@ def read_submission(markdown: str) -> dict:
         "errors": errors,
         "links": roots,
         "media": media,
+        # How many things were actually FETCHED, which is not len(links).
+        # `roots` are the links written in the submission; a single one of them
+        # can be a folder holding twenty files, and each of those is visited,
+        # can fail, and gets its own entry in `errors`. Reporting errors
+        # against len(links) produced log lines like "12 of 1 link(s) could not
+        # be read", which is not a ratio of anything.
+        "attempted": len(visited),
     }
 
 
