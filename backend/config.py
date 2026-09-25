@@ -283,7 +283,7 @@ LLM_REASONING_EFFORT = os.environ.get("LLM_REASONING_EFFORT", "").strip()
 # tokens; on one that meters requests per minute, like NVIDIA, it is free --
 # Groq, by contrast, counted the reservation rather than the usage against both
 # the minute and the day.
-LLM_MAX_OUTPUT_TOKENS = int(os.environ.get("LLM_MAX_OUTPUT_TOKENS", "6000"))
+LLM_MAX_OUTPUT_TOKENS = _env_int("LLM_MAX_OUTPUT_TOKENS", 6000)
 # Two clocks, because a stalled call and a slow one are different faults.
 #
 # Some providers -- NVIDIA's free build-tier endpoint especially -- accept a
@@ -328,7 +328,7 @@ LLM_MAX_RETRIES = int(os.environ.get("LLM_MAX_RETRIES", "2"))
 # verdict from ~17% to ~3%; a third buys half a percent and costs another
 # full generation. The transport retries underneath are the ones worth
 # spending, because those attempts mostly fail fast.
-LLM_MAX_VERDICT_DRAWS = int(os.environ.get("LLM_MAX_VERDICT_DRAWS", "1"))
+LLM_MAX_VERDICT_DRAWS = _env_int("LLM_MAX_VERDICT_DRAWS", 1)
 # Wall-clock ceiling on one candidate, across every draw and retry.
 #
 # The retry counts above bound the number of calls; this bounds the time,

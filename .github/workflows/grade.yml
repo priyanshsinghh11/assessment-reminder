@@ -117,6 +117,22 @@ jobs:
       LLM_MODEL: ${{ vars.LLM_MODEL }}
       LLM_CONCURRENCY: ${{ vars.LLM_CONCURRENCY }}
 
+      # Tunable without a code change, because the right values depend on the
+      # model rather than on this system. nemotron-3-super is a REASONING
+      # model: on a long submission it can spend its whole output budget
+      # thinking and never reach the JSON, which arrives here as "No JSON in
+      # model reply" and costs the candidate a verdict. Raising
+      # LLM_MAX_OUTPUT_TOKENS is the first thing to try -- the reasoning has
+      # to fit AND leave room for the verdict. LLM_MAX_VERDICT_DRAWS buys a
+      # second attempt at the same candidate, which helps when the model is
+      # merely unlucky rather than short of room, and costs a second call
+      # every time it is used.
+      #
+      # Both read through _env_int(), so leaving them undefined is safe --
+      # which it was NOT before they were listed here, because int("") raises.
+      LLM_MAX_OUTPUT_TOKENS: ${{ vars.LLM_MAX_OUTPUT_TOKENS }}
+      LLM_MAX_VERDICT_DRAWS: ${{ vars.LLM_MAX_VERDICT_DRAWS }}
+
       # AUTOMATION_ENABLED IS DELIBERATELY ABSENT. It gates the reminder SEND
       # (backend/mail/reminder.py), not grading, and it is off by design --
       # while it is off, reminders go out from the dashboard after a human has
