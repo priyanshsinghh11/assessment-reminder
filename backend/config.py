@@ -35,6 +35,39 @@ except ImportError:
     pass
 
 
+def _env(name: str, default: str) -> str:
+    """
+    An environment variable, falling back to `default` when unset OR EMPTY.
+
+    THE DIFFERENCE BETWEEN UNSET AND EMPTY IS NOT ACADEMIC HERE, and it cost a
+    scheduled run. `os.environ.get(name, default)` returns the default only
+    when the name is ABSENT; a name that is present and empty returns "".
+
+    GitHub Actions produces exactly that. A workflow line reading
+
+        MONGO_DB: ${{ vars.MONGO_DB }}
+
+    does not leave MONGO_DB unset when the repository variable has never been
+    defined -- it sets it to the empty string. So a runner with an empty
+    variables list did not get the default database name, it got "", and the
+    sync died on `database name cannot be the empty string` having reached
+    Atlas perfectly well. LLM_CONCURRENCY was worse: int("") is a ValueError
+    at import, so grading would have failed with a traceback before it ran a
+    line of its own code.
+
+    An `.env` with a blank `FOO=` does the same thing, which is the more
+    ordinary way to meet this.
+
+    Use this for anything a workflow passes through `${{ vars.X }}`.
+    """
+    return os.environ.get(name, "").strip() or default
+
+
+def _env_int(name: str, default: int) -> int:
+    """`_env` for a whole number -- see there for why empty is not unset."""
+    return int(_env(name, str(default)))
+
+
 # --- Workable ---
 WORKABLE_API_TOKEN = os.environ.get("WORKABLE_API_TOKEN", "").strip()
 WORKABLE_BASE_URL = "https://ajaia.workable.com/spi/v3"
@@ -162,7 +195,10 @@ PORTAL_CRAWL_DELAY = 0.4         # seconds between assignment page fetches
 # Stores every submission (including the full answer markdown), each role's
 # live assessment, and our own accept/reject decisions and AI evaluations.
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017")
-MONGO_DB = os.environ.get("MONGO_DB", "assessment-evaluation")
+# _env, not os.environ.get: sync.yml and grade.yml pass this as
+# ${{ vars.MONGO_DB }}, which arrives EMPTY rather than unset when the
+# repository variable is undefined. See _env.
+MONGO_DB = _env("MONGO_DB", "assessment-evaluation")
 
 # --- Screening rules ---
 # A submission missing either artefact is auto-rejected without ever reaching
@@ -190,7 +226,7 @@ CV_ONLY_REQUIRED_ARTEFACTS = ("resume_link",)
 # Provider-agnostic, OpenAI-compatible chat-completions. Set LLM_BASE_URL and
 # LLM_MODEL for whichever provider you land on (Groq, Together, OpenRouter, a
 # local llama.cpp server); nothing below is vendor-specific.
-LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.groq.com/openai/v1")
+LLM_BASE_URL = _env("LLM_BASE_URL", "https://api.groq.com/openai/v1")
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 # The default names a model rather than nothing so a fresh checkout with only
 # LLM_API_KEY set still grades. It moves when a provider retires one:
@@ -201,7 +237,7 @@ LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 # JSON probe -- several models pass the probe and then leak reasoning prose
 # ahead of the JSON, and several more grade cleanly and mark every criterion a
 # 5. The bake-off that chose this one is written up in .env next to the value.
-LLM_MODEL = os.environ.get("LLM_MODEL", "nvidia/nemotron-3-ultra-550b-a55b")
+LLM_MODEL = _env("LLM_MODEL", "nvidia/nemotron-3-ultra-550b-a55b")
 # Reasoning models think before they answer, and those tokens come out of the
 # same output budget as the JSON. Sent only when set, because a model without a
 # reasoning mode rejects the parameter outright -- so this moves with LLM_MODEL
@@ -303,7 +339,7 @@ LLM_MAX_BACKOFF = float(os.environ.get("LLM_MAX_BACKOFF", "120"))
 # minute rather than tokens. At ~135s a call, six in flight is under three
 # requests a minute -- nowhere near that ceiling -- and it is the cheapest
 # throughput available here, because the wait is queue time rather than work.
-LLM_CONCURRENCY = int(os.environ.get("LLM_CONCURRENCY", "6"))
+LLM_CONCURRENCY = _env_int("LLM_CONCURRENCY", 6)
 # Answers run to 129k characters at the extreme. Truncate before sending so a
 # single outlier cannot blow the context window or the bill.
 MAX_ANSWER_CHARS = 60_000

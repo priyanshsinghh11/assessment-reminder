@@ -63,9 +63,15 @@ jobs:
       PORTAL_PASSWORD: ${{ secrets.PORTAL_PASSWORD }}
 
       # --- Configuration, not secrets. Set this as a repository VARIABLE. ---
-      # Falls back to the default in backend/config.py when unset. NOTE the
-      # runner has no .env -- it is gitignored and never checked out -- so this
-      # is the only configuration the run sees.
+      # AN UNDEFINED REPOSITORY VARIABLE ARRIVES AS THE EMPTY STRING, not as
+      # an unset name. This line therefore always sets MONGO_DB; when no
+      # variable exists it sets it to "". backend/config.py reads it with
+      # _env(), which treats empty as unset -- without that, the first run
+      # here died on `database name cannot be the empty string` having
+      # reached Atlas perfectly well.
+      #
+      # NOTE the runner has no .env -- it is gitignored and never checked out
+      # -- so this and the defaults in config.py are all the run sees.
       MONGO_DB: ${{ vars.MONGO_DB }}
 
       # AUTOMATION_ENABLED IS DELIBERATELY ABSENT. It gates the reminder SEND

@@ -101,11 +101,17 @@ jobs:
       LOG_CANDIDATE_DETAIL: "0"
 
       # --- Configuration, not secrets. Set these as repository VARIABLES. ---
-      # Each falls back to the default in backend/config.py when unset, so an
-      # empty vars list still produces a working run. NOTE the runner has no
-      # .env -- it is gitignored and never checked out -- so these are the
-      # only configuration the run sees. LLM_CONCURRENCY in particular falls
-      # back to 6 here, not to whatever a laptop's .env says.
+      # AN UNDEFINED REPOSITORY VARIABLE ARRIVES AS THE EMPTY STRING, not as
+      # an unset name, so every line below always sets its variable -- to ""
+      # when no repository variable exists. backend/config.py reads these with
+      # _env(), which treats empty as unset. Without that, LLM_CONCURRENCY
+      # reached int("") and grading died with a ValueError at import, before
+      # running a line of its own code.
+      #
+      # NOTE the runner has no .env -- it is gitignored and never checked out
+      # -- so these and the defaults in config.py are all the run sees.
+      # LLM_CONCURRENCY in particular falls back to 6 here, not to whatever a
+      # laptop's .env says.
       MONGO_DB: ${{ vars.MONGO_DB }}
       LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
       LLM_MODEL: ${{ vars.LLM_MODEL }}
