@@ -35,6 +35,15 @@
 # queue is skipped, and a role nobody has tried yet goes first.
 # backend/pipeline/grade.py:_rotation is the rule; tests/test_rotation.py pins
 # it.
+#
+# EACH RUN STARTS THE NEXT WHILE THERE IS WORK. GitHub's scheduler is
+# best-effort: the hourly cron below arrived 25-35 minutes late and skipped
+# whole hours, so "hourly" was four to six runs a day. A run that graded
+# somebody therefore dispatches the next one itself (see the last step), which
+# goes straight onto the queue rather than through the scheduler. The chain
+# stops when a run grades nobody, the queue is empty, the provider's daily
+# budget is spent, or a sync or crawl is waiting for the group. The cron is
+# only there to restart it.
 
 name: Grading
 
@@ -81,6 +90,13 @@ jobs:
     # hung job dies before the next one is due rather than blocking it through
     # the shared concurrency group.
     timeout-minutes: 55
+
+    # `actions: write` is for the last step, which dispatches the next run.
+    # A workflow_dispatch made with the job's own token is the one event GitHub
+    # lets that token trigger, so no personal token is needed.
+    permissions:
+      contents: read
+      actions: write
 
     env:
       # --- Required. The guard step below fails the run if one is missing. ---
@@ -202,6 +218,7 @@ jobs:
           echo "model:    $LLM_MODEL"
 
       - name: Grade the next roles in turn
+        id: grade
         # --next picks the roles, --limit caps how many candidates the run
         # tries across them. NOT --all: that walks all ~33 published roles in
         # one run, and at a limit of 50 apiece it would be 1,650 candidates and
@@ -233,9 +250,21 @@ jobs:
           limit="${{ github.event.inputs.grade_limit }}"
           limit="${limit:-50}"
           set +e
-          timeout --signal=INT 2700 python manage.py grade --next --limit "$limit"
-          code=$?
+          PYTHONUNBUFFERED=1 timeout --signal=INT 2700 python manage.py grade --next --limit "$limit" 2>&1 | tee grade.out
+          code=${PIPESTATUS[0]}
           set -e
+          # For the chain step below: chain only after a run that finished
+          # normally (0, or 2 for individual failures) AND graded somebody. A
+          # run that graded nobody would only start another that grades nobody.
+          # A timeout (124) is left to the cron -- a run that slow is not one to
+          # repeat back to back.
+          graded=$(sed -n 's/^Graded \([0-9]\+\) submission.*/\1/p' grade.out | tail -1)
+          chain=no
+          if { [ "$code" = 0 ] || [ "$code" = 2 ]; } && [ "${graded:-0}" -gt 0 ]; then
+            chain=yes
+          fi
+          echo "limit=$limit" >> "$GITHUB_OUTPUT"
+          echo "chain=$chain" >> "$GITHUB_OUTPUT"
           case $code in
             0) echo "grading ok" ;;
             2) echo "::warning::Something needs a human: either individual candidates failed to grade, or a role could not be graded at all (usually a grid that will not derive from its assessment text). The run stands and the queue is not stuck -- a role that cannot be graded is stepped over, not retried forever -- but read the log above, because nothing else will report this." ;;
@@ -243,3 +272,28 @@ jobs:
             124) echo "::warning::Grading hit the 45-minute bound and was stopped. Every verdict completed before that point is saved; the rest stay pending and this role stays at the front of the rotation." ;;
             *) echo "::error::Grading failed (exit $code)."; exit $code ;;
           esac
+
+      - name: Start the next run while candidates are waiting
+        if: steps.grade.outputs.chain == 'yes'
+        # GitHub keeps ONE pending run per concurrency group and drops the
+        # older. So a run dispatched here while a sync or roles crawl is
+        # waiting would knock that run off the queue -- every day, while there
+        # is a backlog. Stand aside instead: the waiting run goes next, and the
+        # cron restarts grading after it. There is a window of seconds between
+        # this check and the dispatch where a sync that arrives is still lost;
+        # it is small, and the sync is daily and idempotent.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for wf in sync.yml roles-crawl.yml; do
+            waiting=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$wf" \
+              --limit 5 --json status \
+              --jq '[.[] | select(.status != "completed")] | length')
+            if [ "${waiting:-0}" != 0 ]; then
+              echo "$wf is waiting for the group; leaving the next grading run to the cron."
+              exit 0
+            fi
+          done
+          gh workflow run grade.yml --repo "$GITHUB_REPOSITORY" \
+            --ref "$GITHUB_REF_NAME" -f grade_limit="${{ steps.grade.outputs.limit }}"
+          echo "Dispatched the next grading run."
