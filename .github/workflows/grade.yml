@@ -22,17 +22,19 @@
 #     `manage.py grade` logs into the portal -- grading reads what the sync
 #     already wrote to Mongo -- so those secrets are not passed here.
 #
-# ONE ROLE PER RUN, IN TURN. `--next` picks the published role that has work
-# waiting and was graded least recently, and grades up to --limit of it. So the
-# first hour takes one role, the next hour takes a different one, and the roles
-# come round in turn -- 50 candidates at a time, an hour apart.
+# ROLES IN TURN, 50 CANDIDATES A RUN. `--next` starts at the published role
+# with work waiting that was tried least recently, and keeps going down the
+# rotation until --limit candidates have been tried. A role with two waiting
+# no longer gets the whole hour, and a role that cannot be graded is stepped
+# over rather than ending the run.
 #
-# Nothing stores that rotation. Grading a role updates its newest `graded_at`,
-# which is what sends it to the back of the queue, so the order survives a
-# re-run, a cancelled job and a role being added or unpublished. A role with
-# an empty queue is skipped rather than spending the hour, and a role nobody
-# has graded yet goes first. backend/pipeline/grade.py:_next_role is the rule;
-# tests/test_rotation.py pins it.
+# Nothing stores that rotation. Trying a role stamps it (and grading one moves
+# its newest `graded_at`), which is what sends it to the back of the queue --
+# including a role that graded nobody -- so the order survives a re-run, a
+# cancelled job and a role being added or unpublished. A role with an empty
+# queue is skipped, and a role nobody has tried yet goes first.
+# backend/pipeline/grade.py:_rotation is the rule; tests/test_rotation.py pins
+# it.
 
 name: Grading
 
@@ -199,11 +201,11 @@ jobs:
           echo "provider: $LLM_BASE_URL"
           echo "model:    $LLM_MODEL"
 
-      - name: Grade one role
-        # --next picks the role, --limit caps how much of it is graded. NOT
-        # --all: that walks all ~33 published roles in one run, and at a limit
-        # of 50 apiece it would be 1,650 candidates and roughly thirteen hours
-        # of model calls in a job that gets one.
+      - name: Grade the next roles in turn
+        # --next picks the roles, --limit caps how many candidates the run
+        # tries across them. NOT --all: that walks all ~33 published roles in
+        # one run, and at a limit of 50 apiece it would be 1,650 candidates and
+        # roughly thirteen hours of model calls in a job that gets one.
         #
         # WHY 50 FITS AN HOUR. At LLM_CONCURRENCY=6 and a measured ~170s a
         # candidate, 50 candidates is 50/6 x 170s, about 24 minutes. Install

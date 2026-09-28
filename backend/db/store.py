@@ -307,6 +307,28 @@ def derived_grid_slugs() -> set[str]:
     return {row["_id"] for row in get_db().grids.find({}, {"_id": 1})}
 
 
+def mark_grade_attempt(job_id: int) -> None:
+    """
+    Stamp a role as just tried by the hourly rotation, whatever came of it.
+
+    `graded_at` alone cannot move a role that grades nobody -- a grid that will
+    not derive, or a queue whose candidates all fail -- so such a role stayed
+    the least recently graded one and headed the rotation every hour. This
+    stamp is what sends it to the back with everyone else. Safe under ingest
+    for the same reason as `hiring_managers`: the crawler never sets it.
+    """
+    get_db().roles.update_one({"_id": job_id},
+                              {"$set": {"grade_attempted_at": now()}})
+
+
+def grade_attempts_by_role() -> dict[int, datetime]:
+    """When the rotation last tried each role, as {job_id: when}. Naive UTC,
+    like last_graded_by_role(), so the two compare with each other."""
+    rows = get_db().roles.find({"grade_attempted_at": {"$exists": True}},
+                               {"grade_attempted_at": 1})
+    return {r["_id"]: r["grade_attempted_at"] for r in rows}
+
+
 # ---------------------------------------------------------------------------
 # Hiring managers
 # ---------------------------------------------------------------------------

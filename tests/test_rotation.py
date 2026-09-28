@@ -12,6 +12,8 @@ dicts, and that split is what makes these tests possible.
 
 from datetime import datetime
 
+import pytest
+
 from backend.pipeline.grade import ROTATION_ATTEMPTS, _next_role, _rotation
 
 
@@ -119,9 +121,10 @@ class TestABrokenRoleCannotWedgeTheQueue:
     same role every hour forever, never reach the other thirty, and report
     success each time because nothing it counted had failed.
 
-    main() walks the first ROTATION_ATTEMPTS entries and stops at the first
-    role that actually grades, so a broken role costs a log line instead of the
-    whole queue. These pin the list it walks.
+    main() walks down the rotation, stepping over a role that raises, so a
+    broken role costs a log line instead of the whole queue -- and the attempt
+    stamp (TestATriedRoleGoesToTheBack) keeps it from heading the next run.
+    These pin the list it walks.
     """
 
     def test_the_rotation_offers_more_than_one_role(self):
@@ -155,3 +158,92 @@ class TestABrokenRoleCannotWedgeTheQueue:
 
     def test_rotation_is_empty_when_nothing_waits(self):
         assert _rotation(ROLES, {}, {}) == []
+
+
+class TestATriedRoleGoesToTheBack:
+    """
+    THE FAILURE THIS EXISTS FOR. A role that grades nobody -- a grid that will
+    not derive, or candidates that all fail -- never moves `graded_at`. Ordered
+    on that alone, jobs 21 and 26 headed the rotation every hour and spent two
+    of its three attempts on the same failure. The attempt stamp moves them.
+    """
+
+    def test_a_failed_attempt_moves_a_never_graded_role_back(self):
+        pending = {1: 50, 2: 50, 3: 50}
+        last = {1: at(24, 9), 3: at(24, 8)}       # role 2 never graded
+        attempted = {2: at(24, 10)}               # ...but tried an hour ago
+        assert [r["_id"] for r in _rotation(ROLES, pending, last, attempted)] == [3, 1, 2]
+
+    def test_the_later_of_the_two_stamps_decides(self):
+        pending = {1: 5, 2: 5}
+        last = {1: at(24, 12), 2: at(24, 7)}
+        attempted = {1: at(24, 6), 2: at(24, 11)}
+        # role 1: max(12, 6) = 12; role 2: max(7, 11) = 11 -> 2 goes first
+        assert _next_role(ROLES, pending, last, attempted)["_id"] == 2
+
+    def test_without_attempts_the_order_is_unchanged(self):
+        pending = {1: 50, 2: 50, 3: 50}
+        last = {1: at(24, 9), 2: at(24, 7), 3: at(24, 8)}
+        assert _rotation(ROLES, pending, last, {}) == _rotation(ROLES, pending, last)
+
+
+class TestARunFillsItsBudget:
+    """
+    main() under --next: roles taken in turn until --limit candidates have been
+    tried, rather than one role however few it had waiting.
+    """
+
+    @pytest.fixture
+    def run(self, monkeypatch):
+        from backend.pipeline import grade
+
+        def go(waiting, broken=(), limit=50, grading=None):
+            calls, stamped = [], []
+            roles = [role(j) for j in waiting]
+            monkeypatch.setattr(grade.evaluator, "is_configured", lambda: True)
+            monkeypatch.setattr(grade, "setup_logging", lambda: None)
+            monkeypatch.setattr(grade.store, "ping", lambda: None)
+            monkeypatch.setattr(grade.store, "role_index", lambda: roles)
+            monkeypatch.setattr(grade.store, "ungraded_counts_by_role", lambda: dict(waiting))
+            monkeypatch.setattr(grade.store, "last_graded_by_role", lambda: {})
+            monkeypatch.setattr(grade.store, "grade_attempts_by_role", lambda: {})
+            monkeypatch.setattr(grade.store, "get_role", lambda j: role(j))
+            monkeypatch.setattr(grade.store, "mark_grade_attempt", stamped.append)
+
+            def fake(r, lim, force, only):
+                calls.append((r["_id"], lim))
+                if r["_id"] in broken:
+                    raise grade.evaluator.EvaluationFailed("grid will not derive")
+                n = min(waiting[r["_id"]], lim) if lim else waiting[r["_id"]]
+                return {"graded": n, "failed": 0, "pending": n}
+
+            monkeypatch.setattr(grade, "_grade_role", grading or fake)
+            argv = ["grade", "--next", "--limit", str(limit)]
+            monkeypatch.setattr(grade.sys, "argv", argv)
+            code = grade.main()
+            return code, calls, stamped
+        return go
+
+    def test_small_roles_do_not_use_up_the_run(self, run):
+        code, calls, _ = run({1: 2, 2: 6, 3: 100})
+        assert calls == [(1, 50), (2, 48), (3, 42)]
+        assert code == 0
+
+    def test_it_stops_once_the_budget_is_spent(self, run):
+        _, calls, _ = run({1: 60, 2: 60})
+        assert calls == [(1, 50)]
+
+    def test_a_broken_role_is_stepped_over_and_stamped(self, run):
+        code, calls, stamped = run({1: 2, 2: 100}, broken={1})
+        assert calls == [(1, 50), (2, 50)]
+        assert stamped == [1, 2]
+        assert code == 2                           # someone should look at role 1
+
+    def test_too_many_broken_in_a_row_stops_the_run(self, run):
+        waiting = {j: 5 for j in range(1, 10)}
+        _, calls, _ = run(waiting, broken=set(waiting))
+        assert len(calls) == ROTATION_ATTEMPTS
+
+    def test_limit_zero_is_still_one_whole_role(self, run):
+        _, calls, _ = run({1: 70, 2: 70}, limit=0)
+        assert calls == [(1, 0)]
