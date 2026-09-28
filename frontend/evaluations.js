@@ -3972,11 +3972,15 @@ function renderCandHead() {
  * The ORDER still needs the number, and only a recruiter has it. A manager
  * gets submission order instead, which is honest: this list is "who is ready
  * to be looked at", not a ranking, and their ranking is the shortlist. */
+function isAwaitingDecision(c) {
+  const graded = c.graded ?? typeof c.evaluation?.score === 'number';
+  const rejected = c.rejected ?? (c.decision?.status === 'rejected');
+  return graded && !rejected && !stageOf(c);
+}
+
 function awaitingDecision() {
-  const graded = (c) => (c.graded ?? typeof c.evaluation?.score === 'number');
-  const rejected = (c) => (c.rejected ?? (c.decision?.status === 'rejected'));
   return state.candidates
-    .filter((c) => graded(c) && !rejected(c) && !stageOf(c))
+    .filter(isAwaitingDecision)
     .sort((a, b) => ((b.evaluation?.score ?? 0) - (a.evaluation?.score ?? 0))
                  || String(a.submitted_at || '').localeCompare(
                       String(b.submitted_at || '')));
@@ -4002,7 +4006,10 @@ function visibleCandidates() {
       if (view === 'rejected' ? !rejected : stage !== view) return false;
     }
     if (top && !top.has(c.id)) return false;
-    if (status && s !== status) return false;
+    // "Awaiting decision" is not a stored status: it is the Top N rule, so
+    // the filter and the shortlist count the same people.
+    if (status === 'awaiting' ? !isAwaitingDecision(c)
+      : status && s !== status) return false;
     if (term && !`${c.candidate_name || ''} ${c.candidate_email || ''}`
       .toLowerCase().includes(term)) return false;
     return true;
