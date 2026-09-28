@@ -79,3 +79,28 @@ def test_deriving_stores_the_grid_and_writes_no_file(stored, tmp_path,
     # the stored grid instead of paying for a second one.
     evaluator.derive_grid(ROLE)
     assert len(calls) == 1
+
+
+def test_a_derived_grid_survives_bson(monkeypatch):
+    # The mock above round-trips through JSON, which turns the anchors' int
+    # levels into strings without a word. BSON refuses them instead -- the
+    # 500 a Grade click on Vercel died with -- so this goes through BSON.
+    import bson
+    from types import SimpleNamespace
+    from backend.db import store
+
+    docs = {}
+    grids = SimpleNamespace(
+        replace_one=lambda query, doc, upsert: docs.__setitem__(
+            query["_id"], bson.encode(doc)),
+        find_one=lambda query, projection: bson.decode(docs[query["_id"]])
+        if query["_id"] in docs else None,
+    )
+    monkeypatch.setattr(store, "get_db", lambda: SimpleNamespace(grids=grids))
+
+    grid = {"criteria": [{"key": "k", "anchors": {5: "five", 3: "three", 1: "one"}}],
+            "derived_by": "model"}
+    store.save_derived_grid("slug", grid)
+
+    assert store.get_derived_grid("slug")["criteria"] == grid["criteria"]
+    assert store.get_derived_grid("missing") is None

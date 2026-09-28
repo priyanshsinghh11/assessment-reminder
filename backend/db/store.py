@@ -286,17 +286,36 @@ def get_role(job_id: int) -> Optional[dict]:
 # A committed grid-<slug>.json still wins over this (evaluator.load_derived_grid)
 # so a hand-edited grid stays a reviewable diff.
 
+# A grid keys each criterion's anchors by the int levels 5 / 3 / 1, as the
+# pack does, and BSON refuses a non-string key outright. So the levels go in
+# as strings and come back out as ints: the grid a caller reads is the grid
+# that was derived, not a JSON-shaped copy of it.
+
+def _anchor_keys(grid: dict, key) -> dict:
+    return {**grid, "criteria": [
+        {**c, "anchors": {key(level): text
+                          for level, text in (c.get("anchors") or {}).items()}}
+        if isinstance(c, dict) else c
+        for c in grid.get("criteria") or []
+    ]}
+
+
+def _level(key):
+    return int(key) if isinstance(key, str) and key.isdigit() else key
+
+
 def get_derived_grid(slug: str) -> Optional[dict]:
     """The stored grid for a slug, or None if none has been derived."""
     row = get_db().grids.find_one({"_id": slug}, {"grid": 1})
-    return row.get("grid") if row else None
+    grid = row.get("grid") if row else None
+    return _anchor_keys(grid, _level) if isinstance(grid, dict) else grid
 
 
 def save_derived_grid(slug: str, grid: dict) -> None:
     """Store a derived grid, replacing any earlier one for the slug."""
     get_db().grids.replace_one(
         {"_id": slug},
-        {"grid": grid, "derived_by": grid.get("derived_by"),
+        {"grid": _anchor_keys(grid, str), "derived_by": grid.get("derived_by"),
          "derived_at": now()},
         upsert=True,
     )
