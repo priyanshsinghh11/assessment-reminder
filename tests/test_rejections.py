@@ -525,9 +525,8 @@ def manager(monkeypatch):
     monkeypatch.setattr(views_shortlist, "_who", lambda: "mgr@ajaia.ai")
     # Their own list: who is rejected on role 38. Anything not in here is
     # somebody else's candidate.
-    monkeypatch.setattr(views_shortlist.store, "list_rejected",
-                        lambda **kw: [{"candidate_email": "mine@x.com",
-                                       "candidate_name": "Mine"}])
+    monkeypatch.setattr(views_shortlist.store, "rejected_emails",
+                        lambda job_ids: {"mine@x.com"} if 38 in job_ids else set())
     monkeypatch.setattr(views_shortlist.store, "clean_email",
                         lambda v: str(v or "").strip().lower())
     server.app.config["TESTING"] = True
@@ -795,3 +794,25 @@ class TestTheRejectedQueueIsAnnotated:
         monkeypatch.setattr(store, "get_db",
                             lambda: type("DB", (), {"rejections": Broken()})())
         assert store.rejections_for(["a@x.com"]) == {}
+
+
+def test_a_candidate_rejected_on_the_board_counts_as_rejected(monkeypatch):
+    # THE BUG THIS PREVENTS: a manager ticking the board's Rejected column got
+    # a 403 on the preview. A board move sets pipeline.stage and leaves
+    # decision alone, and the guard only asked about decision.
+    from types import SimpleNamespace
+    from backend.db import store
+
+    seen = {}
+
+    def find(query, projection):
+        seen["query"] = query
+        return [{"candidate_email": " Board@X.com "}, {"candidate_email": ""}]
+
+    monkeypatch.setattr(store, "get_db", lambda: SimpleNamespace(
+        submissions=SimpleNamespace(find=find)))
+
+    assert store.rejected_emails({38}) == {"board@x.com"}
+    assert {"pipeline.stage": "rejected"} in seen["query"]["$or"]
+    assert {"decision.status": "rejected"} in seen["query"]["$or"]
+    assert seen["query"]["job_id"] == {"$in": [38]}

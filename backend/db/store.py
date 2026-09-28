@@ -1527,6 +1527,26 @@ def purge_auto_rejected() -> int:
     return total
 
 
+def rejected_emails(job_ids: set[int]) -> set[str]:
+    """
+    Every address turned down on these roles, whichever way it was done.
+
+    A candidate is rejected by a grader (`decision.status`) or by a move on the
+    board (`pipeline.stage`), and the board move deliberately leaves `decision`
+    alone -- see api_set_pipeline. list_rejected() reads only the first, so a
+    manager ticking the board's Rejected column was refused a preview of the
+    mail to their own candidates. This is the permission question, so it asks
+    both.
+    """
+    rows = get_db().submissions.find(
+        {"job_id": {"$in": sorted(job_ids)},
+         "$or": [{"decision.status": "rejected"},
+                 {"pipeline.stage": "rejected"}]},
+        {"candidate_email": 1},
+    )
+    return {clean_email(r.get("candidate_email")) for r in rows} - {""}
+
+
 def list_rejected(job_id: Optional[int] = None,
                   job_ids: Optional[set[int]] = None) -> list[dict]:
     """

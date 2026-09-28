@@ -758,8 +758,8 @@ def _own_rejections_guard(emails) -> object:
     hiring manager could paste any address in the company and mail it.
 
     So the question asked is not "is this address rejected" but "is this
-    address rejected ON A ROLE YOU OWN", answered from the same
-    store.list_rejected() the panel itself is drawn from. Anything else is
+    address rejected ON A ROLE YOU OWN" -- by a grader or on the board, since
+    the board's Rejected column is where a send is started from too. Anything else is
     refused by name rather than silently dropped: a send that quietly mails
     nine of ten is worse than one that refuses and says which.
     """
@@ -779,8 +779,7 @@ def _own_rejections_guard(emails) -> object:
     if not wanted:
         return None
 
-    mine = {store.clean_email(row.get("candidate_email"))
-            for row in store.list_rejected(job_ids=scope)}
+    mine = store.rejected_emails(scope)
     stray = sorted(wanted - mine)
     if not stray:
         return None
