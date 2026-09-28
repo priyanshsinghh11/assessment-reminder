@@ -151,6 +151,16 @@ jobs:
       LLM_MAX_OUTPUT_TOKENS: ${{ vars.LLM_MAX_OUTPUT_TOKENS }}
       LLM_MAX_VERDICT_DRAWS: ${{ vars.LLM_MAX_VERDICT_DRAWS }}
 
+      # DEFAULTED HERE, NOT LEFT TO config.py, because unset is the failure.
+      # With no reasoning_effort, NVIDIA's nemotron-3-super writes its
+      # reasoning INTO the reply and spends the whole output budget on it --
+      # counting the words in a Drive URL -- so it is cut off before the JSON.
+      # The run of 2026-09-28 graded 0 of 50 that way. Measured on the same
+      # three Product Manager submissions: unset 0/3, low 3/3 then 2/3,
+      # medium 3/3 in 22-65s. A laptop's .env already says medium, which is
+      # why local grading worked while this did not.
+      LLM_REASONING_EFFORT: ${{ vars.LLM_REASONING_EFFORT || 'medium' }}
+
       # AUTOMATION_ENABLED IS DELIBERATELY ABSENT. It gates the reminder SEND
       # (backend/mail/reminder.py), not grading, and it is off by design --
       # while it is off, reminders go out from the dashboard after a human has
