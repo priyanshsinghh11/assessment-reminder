@@ -269,6 +269,45 @@ def get_role(job_id: int) -> Optional[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Derived grids
+# ---------------------------------------------------------------------------
+#
+# The grid a role is marked against when the rubric pack does not cover it,
+# as the model derived it from the assessment text. One document per slug in
+# `grids`: {_id: slug, grid, derived_by, derived_at}.
+#
+# These used to be written to assessments/grid-<slug>.json, which only ever
+# worked on a laptop. Vercel's filesystem is read-only, so the dashboard paid
+# for a derivation and then died writing it; a GitHub runner wrote the file
+# and threw it away with the runner, so every hourly run derived the grid
+# again -- and could mark the same role's candidates against a different bar
+# each time. Here, a grid is derived once and every process reads the same one.
+#
+# A committed grid-<slug>.json still wins over this (evaluator.load_derived_grid)
+# so a hand-edited grid stays a reviewable diff.
+
+def get_derived_grid(slug: str) -> Optional[dict]:
+    """The stored grid for a slug, or None if none has been derived."""
+    row = get_db().grids.find_one({"_id": slug}, {"grid": 1})
+    return row.get("grid") if row else None
+
+
+def save_derived_grid(slug: str, grid: dict) -> None:
+    """Store a derived grid, replacing any earlier one for the slug."""
+    get_db().grids.replace_one(
+        {"_id": slug},
+        {"grid": grid, "derived_by": grid.get("derived_by"),
+         "derived_at": now()},
+        upsert=True,
+    )
+
+
+def derived_grid_slugs() -> set[str]:
+    """Every slug with a stored grid, in one round trip for a page of roles."""
+    return {row["_id"] for row in get_db().grids.find({}, {"_id": 1})}
+
+
+# ---------------------------------------------------------------------------
 # Hiring managers
 # ---------------------------------------------------------------------------
 #

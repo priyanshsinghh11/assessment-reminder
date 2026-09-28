@@ -64,7 +64,8 @@ Why a Python module and not prose in `assessments/`:
 
 Roles the pack does not cover -- the 14 portal assignments with no Workable
 job mapped to them -- get a grid of the same shape derived from their
-assessment text and stored in `assessments/grid-<slug>.json`. See
+assessment text and stored in Mongo (`grids`); a committed
+`assessments/grid-<slug>.json` overrides the stored one. See
 `evaluator.derive_grid()`. Everything downstream of `for_slug()` treats the two
 kinds identically, which is the point of validating the shape here.
 

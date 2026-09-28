@@ -794,9 +794,9 @@ SHORTLIST_REQUIRE_COMPLETE_GRID = (
     os.environ.get("SHORTLIST_REQUIRE_COMPLETE_GRID", "true")
     .strip().lower() in ("1", "true", "yes", "on"))
 
-# Crawled assessment text lands here as <slug>.md, and grids derived for roles
-# the pack does not cover as grid-<slug>.json, so both can be reviewed and
-# hand-edited in git.
+# Crawled assessment text lands here as <slug>.md. A grid-<slug>.json committed
+# here overrides the derived grid stored in Mongo, for a grid edited by hand --
+# derivation itself never writes here (see store.save_derived_grid).
 ASSESSMENT_DIR = PROJECT_ROOT / "assessments"
 
 # --- Role display names ---

@@ -14,8 +14,8 @@ Okay below 60 -- and the advance bar is still 75, so Best and Better clear it.
 Two model calls, with different lifetimes:
 
   derive_grid()  once per role, and only for the roles the pack does not
-                 cover. Reads the crawled assessment and writes a grid of the
-                 same shape to assessments/grid-<slug>.json.
+                 cover. Reads the crawled assessment and stores a grid of the
+                 same shape in Mongo (`grids`), where every process finds it.
   evaluate()     once per candidate. Runs the six triage checks, rates every
                  criterion 1 to 5 with a line of evidence, names any auto-fail
                  or fraud tell it can point at, reads the GIA proxies, and
@@ -29,8 +29,9 @@ evidence them rather than to weigh them.
 
 The pack grids are code, not model output, so every candidate in a family is
 marked against exactly the same anchors and the bar cannot drift between
-candidates. Derived grids are files for the same reason -- readable,
-hand-editable, diffable in git.
+candidates. Derived grids are stored once, in Mongo, for the same reason: the
+first derivation is the one every later candidate is marked against. A
+committed grid-<slug>.json overrides it, for a grid edited by hand.
 
 Provider-agnostic: any OpenAI-compatible /chat/completions endpoint (Groq,
 Together, OpenRouter, a local server). Set LLM_BASE_URL, LLM_API_KEY and
@@ -629,22 +630,33 @@ def grid_path(slug: str):
 
 
 def load_derived_grid(role: dict) -> Optional[dict]:
-    """The hand-editable grid file for a role the pack does not cover."""
+    """
+    The derived grid for a role the pack does not cover, or None.
+
+    A committed grid-<slug>.json wins, so a hand-edited grid stays a diff in
+    git. Otherwise it is the one stored in Mongo -- the only place a derived
+    grid is written, because it is the only place every process can reach.
+    """
     slug = role.get("slug")
     if not slug:
         return None
     path = grid_path(slug)
-    if not path.exists():
-        return None
+    if path.exists():
+        where = path.name
+        try:
+            grid = json.loads(path.read_text(encoding="utf-8"))
+        except ValueError as exc:
+            raise EvaluationFailed(f"{where} is not valid JSON: {exc}") from exc
+    else:
+        where = f"stored grid for {slug}"
+        grid = store.get_derived_grid(slug)
+        if grid is None:
+            return None
     try:
-        grid = json.loads(path.read_text(encoding="utf-8"))
-    except ValueError as exc:
-        raise EvaluationFailed(f"{path.name} is not valid JSON: {exc}") from exc
-    try:
-        pack.validate_grid(grid, where=path.name)
+        pack.validate_grid(grid, where=where)
     except ValueError as exc:
         raise EvaluationFailed(
-            f"{path.name} is not a usable grid: {exc}"
+            f"{where} is not a usable grid: {exc}"
         ) from exc
     grid.setdefault("source", "derived")
     return grid
@@ -962,8 +974,8 @@ def derive_grid(role: dict, force: bool = False,
     Return the role's grid, generating and saving it on first use.
 
     Pack-covered roles never reach the model: their grid is code. For the rest,
-    hand edits are preserved -- an existing file is returned untouched unless
-    force=True.
+    an existing grid -- a committed file or the stored one -- is returned
+    untouched unless force=True.
 
     `tier` only ever reaches the pack lookup. A role whose grid has to be
     derived has one posting and one standard; if that ever stops being true the
@@ -1015,11 +1027,15 @@ def derive_grid(role: dict, force: bool = False,
     grid["derived_by"] = LLM_MODEL
     grid["pack_version"] = PACK_VERSION
 
-    ASSESSMENT_DIR.mkdir(exist_ok=True)
-    grid_path(role["slug"]).write_text(
-        json.dumps(grid, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8", newline="\n",
-    )
+    # Mongo, not a file: Vercel's filesystem is read-only and a runner's is
+    # thrown away, so a file written here was either an error or a grid the
+    # next run could not see. See store.save_derived_grid.
+    store.save_derived_grid(role["slug"], grid)
+    if grid_path(role["slug"]).exists():
+        log.warning("[%s] %s is committed and still overrides the grid just "
+                    "derived. Delete it to mark against the new one.",
+                    role.get("title"), grid_path(role["slug"]).name)
+    grid.setdefault("source", "derived")
     return grid
 
 
@@ -3352,7 +3368,10 @@ def rubric_detail(role: dict, tier: Optional[str] = None) -> dict:
         "tier": grid.get("tier") if grid else None,
         "tiers": list(pack.tiers_for_slug(slug)),
         "default_tier": pack.default_tier_for_slug(slug),
-        "path": None if covered else (grid_path(slug).name if slug else None),
+        # The committed file, when there is one. A grid that lives only in
+        # Mongo has no path.
+        "path": (grid_path(slug).name
+                 if not covered and slug and grid_path(slug).exists() else None),
         "version": grid_version(grid),
         "pack_version": PACK_VERSION,
         "has_assessment": bool((role.get("assessment") or {}).get("markdown")),

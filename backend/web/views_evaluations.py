@@ -58,18 +58,21 @@ from backend.web.app import (INTERVIEW_IS_THE_MANAGERS,
 
 
 
-def _rubric_source(role: dict) -> str | None:
+def _rubric_source(role: dict, stored: set[str]) -> str | None:
     """
     "pack" when the rubric pack covers this assessment, "derived" when a grid
-    file has been written for it, None when neither -- which is the one case
-    where grading needs a model call before it can start.
+    has been derived for it -- stored, or committed as a file -- None when
+    neither, which is the one case where grading needs a model call before it
+    can start. `stored` is store.derived_grid_slugs(), fetched once per page.
     """
     slug = role.get("slug")
     if not slug:
         return None
     if rubric_pack.for_slug(slug):
         return "pack"
-    return "derived" if evaluator.grid_path(slug).exists() else None
+    if slug in stored or evaluator.grid_path(slug).exists():
+        return "derived"
+    return None
 
 
 def _split_by_tier(role: dict, card: dict, tiers: dict) -> list[dict]:
@@ -150,6 +153,7 @@ def api_roles():
     stages = store.pipeline_counts()
     if scope is not None:
         stages = _scoped_stage_counts(stages, scope)
+    stored_grids = store.derived_grid_slugs()
     roles = []
     for role in store.get_roles(job_ids=scope):
         tally = counts.get(role["_id"], {})
@@ -174,7 +178,7 @@ def api_roles():
             # A role is gradeable when the pack covers its assessment or a
             # grid has been derived for it. The badge says which, since a pack
             # grid is a hand-authored standard and a derived one is not.
-            "rubric_source": _rubric_source(role),
+            "rubric_source": _rubric_source(role, stored_grids),
             "counts": {
                 "total": tally.get("total", 0),
                 "pending": tally.get("pending", 0),
@@ -652,7 +656,7 @@ def api_rubric(job_id: int):
 def api_derive_rubric():
     """
     Derive a pack-shaped grid for a role the pack does not cover -- one model
-    call, written to assessments/grid-<slug>.json.
+    call, stored in Mongo (`grids`).
 
     Pack-covered roles are refused rather than regenerated: their grid is
     hand-authored against the live task content, and replacing it with model

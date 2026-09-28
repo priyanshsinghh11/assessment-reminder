@@ -270,8 +270,9 @@ already submitted.
 ### `GET /api/evaluations/rubric/<job_id>`
 
 The standard a role's candidates are marked against: its grid from the Ajaia
-rubric pack, or the derived grid file for a role the pack does not cover. Reads
-`rubric_pack/` or `assessments/grid-<slug>.json`; derives nothing.
+rubric pack, or the derived grid for a role the pack does not cover. Reads
+`rubric_pack/`, a committed `assessments/grid-<slug>.json`, or the grid stored
+in Mongo; derives nothing.
 
 ```json
 {
@@ -338,9 +339,9 @@ grid was written.
 ```
 
 Derives a pack-shaped grid from the role's crawled assessment — one model call,
-written to `assessments/grid-<slug>.json` — and returns the same shape as the
-GET plus a `message`. `force: true` overwrites an existing file, discarding hand
-edits; the UI confirms first. **409 for a pack-covered role**: those grids are
+stored in Mongo — and returns the same shape as the
+GET plus a `message`. `force: true` replaces the stored grid; the UI confirms first.
+A committed `grid-<slug>.json` still overrides it until deleted. **409 for a pack-covered role**: those grids are
 hand-authored against the live assessment, and the endpoint will not replace one
 with model output. 503 if no LLM credentials, 502 if the provider fails, 409 if
 another run holds the lock.

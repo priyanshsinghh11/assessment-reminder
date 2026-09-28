@@ -638,8 +638,10 @@ candidate's `submission_markdown` is marked against it once.
 
 The fifteen portal assessments the pack covers never pay for a rubric. The
 rest derive a grid of the same shape from their assessment text on first use,
-written to `assessments/grid-<slug>.json`; hand edits are preserved, and
-`--force-rubric` regenerates it.
+stored in Mongo (`grids`) so the dashboard, the hourly runner and a laptop all
+mark against the same one. `--force-rubric` regenerates it. To edit a grid by
+hand, commit it as `assessments/grid-<slug>.json`, which overrides the stored
+grid.
 
 Any OpenAI-compatible `/chat/completions` endpoint works — Groq, Together,
 OpenRouter, or a local server. Set `LLM_BASE_URL`, `LLM_API_KEY` and
@@ -1867,7 +1869,7 @@ report:
 | `frontend/review.html` | The hiring manager's review page — token-scoped, deliberately no login, no scores |
 | `frontend/` | Both dashboards — plain HTML/CSS/JS, no build step |
 | `frontend/assets/` | The wordmark in both themes, and `ajaia-mark.png` — the square mark every page uses as its tab icon |
-| `assessments/` | Crawled assessments (`<slug>.md`) and grids derived for roles the pack does not cover (`grid-<slug>.json`) |
+| `assessments/` | Crawled assessments (`<slug>.md`) and hand-edited grids (`grid-<slug>.json`) that override the derived ones stored in Mongo |
 | `state/last_scan.json` | The last portal scan, so a restart does not leave the dashboard blank. Rebuilt by the next Sync portal click; the reminder dedupe is in MongoDB, not here |
 | `logs/reminder.log` | Run logs (auto-created) |
 
