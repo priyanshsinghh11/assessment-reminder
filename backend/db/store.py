@@ -1480,7 +1480,12 @@ def role_counts() -> dict[int, dict]:
     """
     pipeline = [{
         "$group": {
-            "_id": {"job_id": "$job_id", "status": "$decision.status"},
+            # A freshly ingested submission may not have a decision document
+            # yet. The candidate list treats that row as pending, so the
+            # dashboard aggregation must use the same default instead of
+            # putting it in an invisible `unknown` bucket.
+            "_id": {"job_id": "$job_id",
+                    "status": {"$ifNull": ["$decision.status", "pending"]}},
             "n": {"$sum": 1},
         }
     }]
