@@ -41,7 +41,7 @@ from datetime import datetime
 from backend.config import (
     BREVO_SENDER_NAME,
     CANDIDATE_REPLY_TO,
-    DASHBOARD_BASE_URL,
+    MANAGER_DASHBOARD_URL,
     PIPELINE_AUTO_EMAIL,
     PIPELINE_EMAILS_ENABLED,
 )
@@ -787,10 +787,6 @@ def send_stage_email(submission: dict, role: dict, stage: str,
 # Telling the second interviewer
 # ---------------------------------------------------------------------------
 
-def round_two_board_url(job_id) -> str:
-    return f"{DASHBOARD_BASE_URL}/evaluations.html#role={job_id}&tab=pipeline"
-
-
 def build_round_two_notice(submission: dict, role: dict, manager: dict,
                            cal_link: str = "", invited: bool = True) -> dict:
     """
@@ -807,7 +803,7 @@ def build_round_two_notice(submission: dict, role: dict, manager: dict,
     candidate = submission.get("candidate_name") or "A candidate"
     title = submission.get("job_title") or role.get("title") or "the role"
     first = (submission.get("pipeline") or {}).get("interviewer") or ""
-    board = round_two_board_url(submission.get("job_id"))
+    board = MANAGER_DASHBOARD_URL
     links = [(label, submission.get(key)) for label, key in
              (("CV", "resume_link"), ("Answers", "admin_url"),
               ("Video", "video_link")) if submission.get(key)]

@@ -966,6 +966,15 @@ UNSUBSCRIBE_MAILTO = os.environ.get(
 DASHBOARD_BASE_URL = (os.environ.get("DASHBOARD_BASE_URL", "").strip()
                       or PUBLIC_BASE_URL).rstrip("/")
 
+# Where the round 2 note sends the second interviewer: the dashboard's front
+# door, not a deep link into one role. Its own setting rather than
+# DASHBOARD_BASE_URL because that one follows whichever process sent the mail
+# -- a move made from a laptop would link a colleague to 127.0.0.1 -- and
+# because pointing DASHBOARD_BASE_URL at https here would mark the local
+# session cookie Secure and break sign-in over plain http.
+MANAGER_DASHBOARD_URL = (os.environ.get("MANAGER_DASHBOARD_URL", "").strip()
+                         or "https://assessment-reminder.vercel.app/")
+
 # Whether that deep link is rendered in the manager's copy at all. Its own
 # switch so it can be dropped without editing the template or blanking
 # DASHBOARD_BASE_URL, which would leave a setting whose emptiness is load

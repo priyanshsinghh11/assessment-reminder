@@ -148,7 +148,8 @@ class TestTheSecondInterviewer:
         assert "Asha Menon" in notice["subject"]
         assert "after a first interview with Anita Desai" in notice["text"]
         assert "https://cv.example/7" in notice["text"]
-        assert "#role=38&tab=pipeline" in notice["text"]
+        assert "https://assessment-reminder.vercel.app/" in notice["text"]
+        assert "#role=" not in notice["text"]
 
     def test_nobody_is_notified_without_an_address(self):
         result = candidate_mail.send_round_two_notice(
@@ -177,7 +178,8 @@ class TestTheHandOver:
         assert "waiting on your invitation" in notice["subject"]
         assert "NOT been emailed yet" in notice["text"]
         assert "Round 2 list" in notice["text"]
-        assert "#role=38&tab=pipeline" in notice["text"]
+        assert "https://assessment-reminder.vercel.app/" in notice["text"]
+        assert "#role=" not in notice["text"]
         # Nothing here may claim the candidate already holds a booking link.
         assert "expect a booking" not in notice["text"]
 
