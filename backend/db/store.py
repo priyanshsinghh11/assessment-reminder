@@ -86,15 +86,24 @@ def ensure_indexes() -> None:
     db.submissions.create_index([("candidate_email", ASCENDING)])
     db.submissions.create_index([("decision.status", ASCENDING)])
     db.submissions.create_index([("submission_status", ASCENDING)])
+    # Asked on every request a hiring manager makes -- see
+    # job_ids_for_round_two(). Sparse: only candidates invited to a second
+    # interview carry the field.
+    db.submissions.create_index([("pipeline.interviewer_2.email", ASCENDING)],
+                                sparse=True)
     # CV-only records are keyed on the Workable candidate id rather than on a
     # portal submission number, so every upsert in that path looks one up.
     # Sparse: the field exists on a few dozen documents out of eight thousand,
     # and a full index would be almost entirely nulls.
     db.submissions.create_index([("workable_candidate_id", ASCENDING)],
                                 sparse=True)
-    # The dashboard's default ordering: best score first within a role.
+    # The dashboard's default ordering: best score first within a role, newest
+    # first among ties. All three keys, so list_submissions() reads its order
+    # off the index -- an in-memory sort is capped at 32 MB and fails the query
+    # outright once a role's documents outgrow it.
     db.submissions.create_index(
-        [("job_id", ASCENDING), ("evaluation.score", DESCENDING)]
+        [("job_id", ASCENDING), ("evaluation.score", DESCENDING),
+         ("submitted_at", DESCENDING)]
     )
     db.submissions.create_index([("submitted_at", DESCENDING)])
     # The pipeline board reads one stage at a time, across every role.
@@ -557,6 +566,28 @@ def job_ids_for_manager(email: str) -> set[int]:
     return {
         role["_id"] for role in
         get_db().roles.find({"hiring_managers.email": address}, {"_id": 1})
+    }
+
+
+def job_ids_for_round_two(email: str) -> set[int]:
+    """
+    Every job id with a candidate waiting on `email` for a second interview.
+
+    The second interviewer is often a manager on a different seat, and they
+    have to be able to open the candidate to record the outcome. This is what
+    lets them, for exactly as long as somebody is in round 2 with their name on
+    it: the access comes from the candidate's own record, so it ends the moment
+    that candidate is hired, rejected or handed to somebody else, and there is
+    still no separate list of permissions to drift.
+    """
+    address = str(email or "").strip().lower()
+    if "@" not in address:
+        return set()
+    return {
+        job_id for job_id in get_db().submissions.distinct(
+            "job_id", {"pipeline.interviewer_2.email": address,
+                       "pipeline.stage": "interview_2"})
+        if job_id is not None
     }
 
 
@@ -1462,9 +1493,14 @@ def list_submissions(
     limit: int = 0,
     tier: Optional[str] = None,
     default_tier: Optional[str] = None,
+    ordered: bool = True,
 ) -> list[dict]:
     """
     Submissions for the dashboard, best score first.
+
+    `ordered=False` skips the sort, for a caller that walks every submission
+    and does not care in what order. Across the whole collection no index
+    carries that sort, so MongoDB does it in memory and refuses past 32 MB.
 
     `submission_markdown` is excluded unless asked for -- a single role can hold
     15 MB of answer text, which no list view needs.
@@ -1483,10 +1519,12 @@ def list_submissions(
 
     projection = ({"resume_text": 0} if include_markdown
                   else {"submission_markdown": 0, "resume_text": 0})
-    cursor = get_db().submissions.find(query, projection).sort([
-        ("evaluation.score", DESCENDING),
-        ("submitted_at", DESCENDING),
-    ])
+    cursor = get_db().submissions.find(query, projection)
+    if ordered:
+        cursor = cursor.sort([
+            ("evaluation.score", DESCENDING),
+            ("submitted_at", DESCENDING),
+        ])
     if limit:
         cursor = cursor.limit(limit)
     return list(cursor)
@@ -2235,13 +2273,23 @@ def set_pipeline_stage(
 
 
 def set_round_two_interviewer(submission_id: int, name: str = "",
-                              email: str = "", cal_link: str = "") -> None:
+                              email: str = "", cal_link: str = "",
+                              notified: bool = False,
+                              invited: bool = True) -> None:
     """
     Note who is taking a candidate's second interview.
+
+    `invited=False` is the hand-over: the candidate has been moved to round 2
+    and given to this person, and has not been emailed. The invitation is the
+    second interviewer's to send, from their Round 2 list.
 
     Its own fields rather than `pipeline.interviewer`, which is the first
     interviewer and is what a later rejection is signed with. Round 2 is with
     somebody else, and overwriting the first name would lose who invited them.
+
+    `notified` says whether that person was told the candidate is coming. The
+    address is also what gives them access to the candidate -- see
+    job_ids_for_round_two().
     """
     get_db().submissions.update_one(
         {"_id": submission_id},
@@ -2249,6 +2297,9 @@ def set_round_two_interviewer(submission_id: int, name: str = "",
             "name": str(name or "").strip(),
             "email": str(email or "").strip().lower(),
             "cal_link": clean_cal_link(cal_link),
+            "notified": bool(notified),
+            "invited": bool(invited),
+            "at": now(),
         }}},
     )
 

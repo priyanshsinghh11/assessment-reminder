@@ -657,6 +657,10 @@ def visible_job_ids(user: Optional[dict]) -> Optional[set[int]]:
     For a manager the answer is computed from the roles collection on every
     call, never cached and never stored on the account. Removing them from a
     role's hiring-manager list removes their access with the same click.
+
+    A manager also sees a role while a candidate on it is in round 2 with them
+    as the second interviewer, so they can open that candidate and record the
+    outcome. See store.job_ids_for_round_two().
     """
     if not AUTH_ENABLED:
         return None
@@ -664,7 +668,8 @@ def visible_job_ids(user: Optional[dict]) -> Optional[set[int]]:
         return None
     if not user:
         return set()
-    return store.job_ids_for_manager(user["_id"])
+    return (store.job_ids_for_manager(user["_id"])
+            | store.job_ids_for_round_two(user["_id"]))
 
 
 def can_see_job(user: Optional[dict], job_id) -> bool:

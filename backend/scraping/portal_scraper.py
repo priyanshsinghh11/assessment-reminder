@@ -206,6 +206,106 @@ def _download(session: requests.Session, url: str, label: str) -> Optional[str]:
     return None
 
 
+# A queue split by role must add back up to this share of the size the portal
+# announced for the whole queue. Not 1.0: rows move between queues while the
+# pieces are being fetched, and a few always will.
+BY_ROLE_MIN_SHARE = 0.98
+
+
+def _announced_length(session: requests.Session, url: str) -> Optional[int]:
+    """The Content-Length of an export, read off the headers without its body."""
+    try:
+        with session.get(url, timeout=300, stream=True) as resp:
+            resp.raise_for_status()
+            if resp.headers.get("Content-Encoding"):
+                return None           # a compressed length says nothing here
+            length = resp.headers.get("Content-Length", "")
+            return int(length) if length.isdigit() else None
+    except requests.RequestException:
+        return None
+
+
+def _download_bucket_by_role(
+    session: requests.Session, bucket: str, url: str,
+) -> Optional[str]:
+    """
+    One review queue, fetched a role at a time and stitched back into one CSV.
+
+    For a queue too big to come down whole. `pending` was 11 MB when the
+    per-queue split was written and 47 MB by 6 Oct 2026 -- the size at which
+    the unfiltered export used to fail, and it fails the same way. The export
+    honours `job_id` alongside `review_status` (verified that day: interview
+    alone 83 rows, with job_id=17 the 47 of them that are role 17).
+
+    All or nothing, like everything else here. Three things can make the pieces
+    less than the queue, and each returns None rather than a short body:
+    a role that will not download; a piece carrying rows for another role or
+    queue, which is what an ignored filter looks like; and a role the jobs tab
+    does not list, which nothing in the pieces can show -- so their combined
+    size is held against the length the portal announced for the whole queue.
+    """
+    # Imported here: portal_crawler imports this module for _login.
+    from backend.scraping.portal_crawler import fetch_roles
+
+    announced = _announced_length(session, url)
+    if announced is None:
+        log.error("Queue '%s': the portal did not say how big it is, so a "
+                  "role-by-role fetch could not be checked for gaps.", bucket)
+        return None
+
+    job_ids = sorted({role["job_id"] for role in fetch_roles(session)})
+    if not job_ids:
+        return None
+
+    header = ""
+    pieces: list[str] = []
+    for job_id in job_ids:
+        label = f"review_status={bucket}, job_id={job_id}"
+        body = _download(session, f"{url}&job_id={job_id}", label)
+        if body is None:
+            return None
+        head, _, rest = body.partition("\n")
+        if header and head != header:
+            log.error("Portal CSV (%s) has different columns from the rest "
+                      "of its queue.", label)
+            return None
+        header = head
+        for row in csv.DictReader(io.StringIO(body)):
+            if (row.get("job_id") != str(job_id)
+                    or row.get("review_status") != bucket):
+                log.error("Portal CSV (%s) returned a row for job %s, queue "
+                          "%s: the filter was not honoured.", label,
+                          row.get("job_id"), row.get("review_status"))
+                return None
+        if rest and not rest.endswith("\n"):
+            rest += "\n"
+        pieces.append(rest)
+
+    combined = header + "\n" + "".join(pieces)
+    size = len(combined.encode("utf-8"))
+    if size < announced * BY_ROLE_MIN_SHARE:
+        log.error(
+            "Queue '%s' came to %d bytes across %d role(s), against %d "
+            "announced for the whole queue. Some of it is on a role the jobs "
+            "tab does not list. Refusing the partial queue.",
+            bucket, size, len(job_ids), announced)
+        return None
+    log.info("  %-10s fetched across %d role(s), %d of %d bytes",
+             bucket, len(job_ids), size, announced)
+    return combined
+
+
+def download_bucket(session: requests.Session, bucket: str) -> Optional[str]:
+    """One review queue's CSV: whole if it will come, role by role if not."""
+    url = f"{PORTAL_SUBMISSIONS_CSV}?review_status={bucket}"
+    body = _download(session, url, f"review_status={bucket}")
+    if body is not None:
+        return body
+    log.warning("The '%s' queue would not download whole. Fetching it one "
+                "role at a time.", bucket)
+    return _download_bucket_by_role(session, bucket, url)
+
+
 class PortalExportSuspect(RuntimeError):
     """The body arrived but does not look like the export it claims to be."""
 
@@ -300,11 +400,7 @@ def _download_rows(session: requests.Session) -> Optional[list[dict]]:
     rows: dict[str, dict] = {}
     counts: dict[str, int] = {}
     for bucket in REVIEW_BUCKETS:
-        body = _download(
-            session,
-            f"{PORTAL_SUBMISSIONS_CSV}?review_status={bucket}",
-            f"review_status={bucket}",
-        )
+        body = download_bucket(session, bucket)
         if body is None:
             log.warning(
                 "Bucket '%s' would not download. Trying the single unfiltered "

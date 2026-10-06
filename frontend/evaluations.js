@@ -580,9 +580,10 @@ function applyAccountView() {
   // moves to the role header; see renderHeroCal().
   setHidden('tabShortlist', !admin);
 
-  // Managers keep the original single-column page. These small navbar links
-  // are shortcuts into the existing top-candidate and pipeline sections.
-  setHidden('tabPipeline', false);
+  // One list per tab. A manager's five links ARE the pipeline, one section
+  // each, so the Pipeline tab -- the same five stacked on one page under a
+  // second row of tabs -- is the recruiter's alone.
+  setHidden('tabPipeline', !admin);
   for (const nav of document.querySelectorAll('[data-manager-nav]')) {
     nav.hidden = admin;
   }
@@ -600,6 +601,11 @@ function applyAccountView() {
   // refresh -- so move off it rather than leaving an open tab with no button.
   if (!admin && state.tab === 'shortlist' && state.activeRoleId !== null) {
     setRoleTab('candidates');
+  }
+  // Same for a manager whose role opened on the pipeline before the account
+  // was known: narrow it to one section now that it is.
+  if (!admin && state.tab === 'pipeline' && state.activeRoleId !== null) {
+    setRoleTab('pipeline', false);
   }
   if (admin && !state.users.length) loadUsers();
 
@@ -1804,11 +1810,14 @@ const boardRejectRows = () => (state.pipeline.stage === 'rejected'
 const boardChosen = () => boardRejectRows().filter((c) => boardPicked.has(c.id));
 
 const PIPELINE_HINT = {
-  interview: 'Everyone a hiring manager has invited, soonest first. A row with '
-    + 'no date is one the candidate has not booked into yet. Read-only as to '
-    + 'who is here — mark the outcome from this row or from their card.',
-  interview_2: 'Through to a second interview. A row marked "not invited '
-    + 'yet" is a candidate still waiting to hear — use Send invitation on it.',
+  interview: 'Everyone invited to a first interview, soonest first. After '
+    + 'the interview, advance them to round 2 or reject them — a rejection '
+    + 'emails the candidate, an advance emails only the second interviewer, '
+    + 'who sends the invitation from Round 2.',
+  interview_2: 'Through to a second interview. The second interviewer is '
+    + 'told on the move and marks Hire or Reject here after they meet. A row '
+    + 'marked "not invited yet" is a candidate still waiting to hear — use '
+    + 'Send invitation on it.',
   hired: 'Offers accepted. The score and the grid that produced it stay on the '
     + 'record, so a hire can be read back against what the assessment predicted.',
   rejected: 'Turned down after being seen. Tick the ones to tell and press '
@@ -1821,7 +1830,7 @@ const PIPELINE_EMPTY = {
   interview: 'Nobody has been invited yet. Send a role\u2019s shortlist to its '
     + 'hiring manager from the Shortlist tab, and whoever they invite from '
     + 'their review link appears here.',
-  interview_2: 'Nobody is in round 2. Press Round 2 on a row under Interview.',
+  interview_2: 'Nobody is in round 2. Press Advance to round 2 on a row under Interview.',
   hired: 'No hires recorded yet.',
   rejected: 'Nobody has been rejected after review.',
 };
@@ -1835,19 +1844,30 @@ const PIPELINE_EMPTY = {
  * mis-recorded outcome is Remove, which puts them back on the shortlist where
  * the manager can invite them again -- and the manager finds out, which a
  * silent re-book on this page would not tell them. */
+/* Handed to a second interviewer is not the same as invited: the move names
+ * who takes round 2 and emails only them, and the candidate hears nothing
+ * until that person sends the invitation. `invited` is absent on records
+ * written before the hand-over existed, all of which were invited. */
+function roundTwoInvited(c) {
+  const second = c.pipeline?.interviewer_2;
+  return Boolean(second) && second.invited !== false;
+}
+
 function stageActions(c) {
   const stage = stageOf(c);
   const btn = (to, label, cls = 'btn-ghost') =>
     `<button class="btn ${cls} btn-sm" data-move="${to}" data-id="${c.id}">${label}</button>`;
-  const round2 = (label) =>
-    `<button class="btn btn-ghost btn-sm" data-round2="${c.id}">${label}</button>`;
+  const round2 = (label, cls = 'btn-ghost') =>
+    `<button class="btn ${cls} btn-sm" data-round2="${c.id}">${label}</button>`;
+  // After the first interview there are two answers: on to round 2, or no.
+  // A hire straight from here is rare enough to live on the card instead.
   if (stage === 'interview') {
-    return round2('Round 2') + btn('hired', 'Hired', 'btn-primary')
-      + btn('rejected', 'Reject');
+    return round2('Advance to round 2', 'btn-primary') + btn('rejected', 'Reject');
   }
+  // After the second, the other two: hire, or no.
   if (stage === 'interview_2') {
-    return (c.pipeline?.interviewer_2 ? '' : round2('Send invitation'))
-      + btn('hired', 'Hired', 'btn-primary') + btn('rejected', 'Reject');
+    return (roundTwoInvited(c) ? '' : round2('Send invitation'))
+      + btn('hired', 'Hire', 'btn-primary') + btn('rejected', 'Reject');
   }
   return btn('', 'Remove');
 }
@@ -1862,12 +1882,15 @@ function stageActions(c) {
  * get the job, and that is worth a sentence first. */
 function boardMoveDetail(row, stage) {
   const who = row?.candidate_name || 'this candidate';
-  if (stage === 'rejected' && state.mail.auto) {
+  // A rejection after an interview tells the candidate, in the same click:
+  // they have met us, and they are waiting to hear. `notify` is passed
+  // outright so it sends whatever the automation switch says.
+  if (stage === 'rejected' && state.mail.enabled !== false) {
     const ok = window.confirm(
       `Reject ${who} and email them the rejection now?\n\n`
       + 'Cancel to open their card instead, where you can add a message, '
       + 'preview the email, or record the rejection without sending one.');
-    return ok ? {} : null;
+    return ok ? { notify: true } : null;
   }
   // Moving someone back out of a closed stage is a correction of ours. The
   // candidate is not told, because there is nothing to tell them yet.
@@ -1912,6 +1935,8 @@ function renderPipeline() {
       : stage === 'interview_2'
         ? (p.interviewer_2
           ? esc(p.interviewer_2.name || p.interviewer_2.email || 'invited')
+            + (roundTwoInvited(c) ? ''
+              : ' <span class="warn">· not invited yet</span>')
           : '<span class="warn">not invited yet</span>')
       : stage === 'rejected'
         ? (c.already_told
@@ -3651,35 +3676,44 @@ function setRoleTab(tab, updateHash = true) {
     loadPipeline();
     loadRejected();
   }
+  if (tab !== 'pipeline') return;
+  // A manager never sees the whole workspace, however they got here -- a
+  // link in an email, a refresh, the button on the Candidates tab. They land
+  // on one section of it.
+  if (document.body.classList.contains('manager-view')) {
+    focusManagerSection(state.managerSection || 'top');
+    return;
+  }
   // Cheap on a revisit: it redraws what it already holds unless the role
   // changed or something asked it to re-read. Hides itself for an account
   // that is not a hiring manager on this role.
-  if (tab === 'pipeline') loadTopCandidates();
+  loadTopCandidates();
 }
 
-function jumpToManagerSection(section) {
-  setRoleTab('pipeline');
+/* Exactly one panel on screen: the top candidates, or one stage of the board
+ * with the board's own tabs put away. */
+function focusManagerSection(section) {
+  // The top list belongs to a manager named on the role. A second interviewer
+  // from another seat has no such list here, and is here for round 2.
+  if (section === 'top' && !topSectionMine()) section = 'interview_2';
+  state.managerSection = section;
   const shortcut = document.querySelector(`[data-manager-nav="${section}"]`);
   shortcut?.classList.add('is-active');
   shortcut?.setAttribute('aria-selected', 'true');
-  // These shortcuts are focused views, not a request to show the whole
-  // pipeline workspace. Keep exactly one panel visible at a time.
-  const top = $('topPanel');
-  const pipeline = $('pipelinePanel');
   if (section === 'top') {
-    setHidden('topPanel', false);
     setHidden('pipelinePanel', true);
     loadTopCandidates();
   } else {
     setHidden('topPanel', true);
     setHidden('pipelinePanel', false);
-    pipeline.classList.add('manager-stage-focus');
+    $('pipelinePanel').classList.add('manager-stage-focus');
     selectStage(section);
   }
-  window.setTimeout(() => {
-    const target = section === 'top' ? top : pipeline;
-    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, 0);
+}
+
+function jumpToManagerSection(section) {
+  state.managerSection = section;
+  setRoleTab('pipeline');
 }
 
 /* #role=12&tab=shortlist -- a section of a role is a thing worth pasting to
@@ -4419,6 +4453,13 @@ async function openDrawer(submissionId) {
         // stored under the field the stage is read by, so the board's Reason
         // column is never empty on a rejection someone explained.
         if (words) detail[stage === 'rejected' ? 'reason' : 'note'] = words;
+        // Same rule as the board row: turned down after an interview, they
+        // are told in the same click.
+        if (btn.hasAttribute('data-tell')) {
+          if (!window.confirm(`Reject ${c.candidate_name || 'this candidate'} `
+            + 'and email them the rejection now?')) return;
+          detail.notify = true;
+        }
 
         btn.disabled = true;
         const ok = await moveStage(c.id, stage, detail);
@@ -4464,10 +4505,14 @@ function stageMailFields(c) {
  * Round 2, in one dialog
  ======================================================================= */
 
-/* Pick who takes the second interview, press Send. That is the whole job, so
- * that is the whole dialog: the move to round 2 and the invitation are one
- * click, the booking link is filled in from the person picked, and the last
- * interviewer chosen is remembered for the next candidate.
+/* Two jobs, one dialog, told apart by where the candidate is.
+ *
+ * Not in round 2 yet: pick who takes the second interview and press Move. The
+ * candidate is moved and NOT emailed; the person picked is, and is asked to
+ * send the invitation from their Round 2 list.
+ *
+ * Already in round 2: this is that invitation. The booking link is filled in
+ * from the person picked, who is whoever was handed the candidate.
  *
  * The link box only appears when there is something to type -- "Someone else",
  * or a manager we hold no link for. Nothing is taken from the first interview:
@@ -4490,8 +4535,17 @@ const RoundTwo = (() => {
     const role = state.roles.find((r) => r.id === c.job_id);
     const mine = (c.managers || role?.managers || []).filter((m) => m.email);
     const seen = new Set(mine.map((m) => m.email));
-    return [...mine, ...(state.knownManagers || [])
-      .filter((m) => m.email && !seen.has(m.email))];
+    const rest = (state.knownManagers || [])
+      .filter((m) => m.email && !seen.has(m.email));
+    // Whoever was handed this candidate, when they are on neither list: a
+    // second interviewer from another seat, signed in to their own account.
+    const second = c.pipeline?.interviewer_2;
+    const known = [...mine, ...rest];
+    if (second?.email && !known.some((m) => m.email === second.email)) {
+      known.push({ name: second.name, email: second.email,
+                   cal_link: second.cal_link });
+    }
+    return known;
   }
 
   function remembered() {
@@ -4501,9 +4555,16 @@ const RoundTwo = (() => {
   function fields() {
     const picked = $('round2Manager').value;
     const other = picked === OTHER;
-    return {
-      manager_email: picked && !other ? picked : undefined,
+    const who = {
+      manager_email: other ? ($('round2Email').value.trim() || undefined)
+        : (picked || undefined),
       interviewer: other ? ($('round2Name').value.trim() || undefined) : undefined,
+    };
+    // The move writes to nobody but the interviewer, so it carries nothing
+    // meant for the candidate.
+    if (!inRound2()) return who;
+    return {
+      ...who,
       cal_link: $('round2Cal').value.trim() || undefined,
       email_note: $('round2Note').value.trim() || undefined,
     };
@@ -4514,12 +4575,21 @@ const RoundTwo = (() => {
     const other = picked === OTHER;
     const known = person();
     setHidden('round2NameWrap', !other);
-    // Asked for only when we do not already have it.
-    setHidden('round2CalWrap', !(other || (known && !known.cal_link)));
+    setHidden('round2EmailWrap', !other);
+    const moving = !inRound2();
+    // Asked for only when we do not already have it -- and never on the move,
+    // which sends the candidate nothing to put a link in.
+    setHidden('round2CalWrap',
+      moving || !(other || (known && !known.cal_link)));
+    setHidden('round2NoteWrap', moving);
+    setHidden('round2Preview', moving);
     setHidden('round2Frame', true);
-    const ready = other
-      ? Boolean($('round2Name').value.trim() && $('round2Cal').value.trim())
-      : Boolean(known && (known.cal_link || $('round2Cal').value.trim()));
+    const named = other
+      ? Boolean($('round2Name').value.trim()
+                && $('round2Email').value.includes('@'))
+      : Boolean(known);
+    const ready = named && (moving || Boolean(
+      $('round2Cal').value.trim() || (!other && known.cal_link)));
     $('round2Send').disabled = !ready;
     $('round2Preview').disabled = !ready;
   }
@@ -4536,13 +4606,18 @@ const RoundTwo = (() => {
           esc(m.name ? `${m.name} — ${m.email}` : m.email)}</option>`).join('')
       + `<option value="${OTHER}">Someone else…</option>`;
     select.value = people.some((m) => m.email === before) ? before : '';
-    for (const id of ['round2Name', 'round2Cal', 'round2Note']) $(id).value = '';
+    for (const id of ['round2Name', 'round2Email', 'round2Cal', 'round2Note']) {
+      $(id).value = '';
+    }
 
     const who = c.candidate_name || 'This candidate';
     $('round2Lead').textContent = inRound2()
-      ? `${who} is in round 2. Choose who they meet and we email them the booking link.`
-      : `${who} moves to round 2. Choose who they meet and we email them the booking link.`;
-    $('round2Send').textContent = 'Send invitation';
+      ? `${who} is in round 2. Choose who they meet: the candidate gets that `
+        + 'person\u2019s booking link, and that person is told they are coming.'
+      : `${who} moves to round 2. Choose who they meet: that person is emailed `
+        + 'to check their Round 2 list and send the invitation from there. '
+        + 'The candidate is not emailed by this move.';
+    $('round2Send').textContent = sendLabel();
     // Already there: nothing left to move, so the quiet option goes away.
     setHidden('round2Skip', inRound2());
     sync();
@@ -4555,6 +4630,8 @@ const RoundTwo = (() => {
     cand = null;
   }
 
+  const sendLabel = () => (inRound2() ? 'Send invitation' : 'Move and notify');
+
   async function refresh(id) {
     await loadPipeline();
     await loadRoles();
@@ -4566,13 +4643,15 @@ const RoundTwo = (() => {
     if (!cand) return;
     const btn = $('round2Send');
     const id = cand.id;
+    const moving = !inRound2();
     btn.disabled = true;
-    btn.textContent = 'Sending…';
+    btn.textContent = moving ? 'Moving…' : 'Sending…';
     try {
-      // One call when they still have to be moved, the send alone when they
-      // are there already. The server refuses the first before moving anyone
-      // if the invitation cannot be built.
-      const result = inRound2()
+      // The invitation when they are in round 2 already. Otherwise the move,
+      // with `notify: false` said outright: the candidate is not emailed
+      // whatever the automation switch says, and naming the interviewer is
+      // what gets that person their note.
+      const result = !moving
         ? await api('/api/pipeline/send', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -4583,18 +4662,19 @@ const RoundTwo = (() => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ submission_id: id, stage: 'interview_2',
-                                   notify: true, ...fields() }),
+                                   notify: false, ...fields() }),
           });
-      toast(result.message, !result.mail?.sent);
+      const went = moving ? result.notice?.sent : result.mail?.sent;
+      toast(result.message, !went);
       const picked = $('round2Manager').value;
-      if (result.mail?.sent && picked && picked !== OTHER) {
+      if (went && picked && picked !== OTHER) {
         try { localStorage.setItem(LAST, picked); } catch { /* private mode */ }
       }
       close();
       await refresh(id);
     } catch (err) {
       toast(err.message, true);
-      btn.textContent = 'Send invitation';
+      btn.textContent = sendLabel();
       sync();
     }
   }
@@ -4628,7 +4708,9 @@ const RoundTwo = (() => {
     $('round2Cal').value = '';
     sync();
   });
-  for (const id of ['round2Name', 'round2Cal']) $(id).addEventListener('input', sync);
+  for (const id of ['round2Name', 'round2Email', 'round2Cal']) {
+    $(id).addEventListener('input', sync);
+  }
   $('round2Send').addEventListener('click', send);
   $('round2Skip').addEventListener('click', skip);
   $('round2Preview').addEventListener('click', preview);
@@ -5329,7 +5411,8 @@ function pipelineSection(c) {
         <div><span class="dim">Round 2 invitation</span> ${invite2
           ? `sent ${esc(shortDate(invite2.at))}${
               second?.name ? ` · with ${esc(second.name)}` : ''}`
-          : '<b>not sent yet</b>'}</div>
+          : `<b>not sent yet</b>${second?.name || second?.email
+              ? ` · handed to ${esc(second.name || second.email)}` : ''}`}</div>
       </div>` : '';
 
   return `
@@ -5373,7 +5456,10 @@ function pipelineSection(c) {
               invite2 ? 'Send invitation again' : 'Send round 2 invitation'}</button>`
           : (hasInterviewed(c) ? '<button class="btn" data-round2>Move to round 2</button>' : '')}
         <button class="btn btn-primary" data-stage="hired">Mark hired</button>
-        <button class="btn" data-stage="rejected">Mark rejected</button>
+        <button class="btn" data-stage="rejected"${
+          hasInterviewed(c) && state.mail.enabled !== false ? ' data-tell' : ''}>${
+          hasInterviewed(c) && state.mail.enabled !== false
+            ? 'Reject and email' : 'Mark rejected'}</button>
         ${stage ? '<button class="btn btn-ghost" data-stage="">Remove from pipeline</button>' : ''}
       </div>
 

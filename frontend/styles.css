@@ -580,6 +580,7 @@ td.shrink { width: 1%; }
  * already style. */
 .modal[hidden],
 .field[hidden],
+.sendbar[hidden],
 .toggle[hidden] { display: none; }
 
 .modal { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; }

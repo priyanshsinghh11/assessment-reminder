@@ -133,3 +133,68 @@ class TestTheRoundTwoInvitation:
             sent, "interview_2", "https://cal.com/ravi") is not None
         assert candidate_mail.already_sent(
             sent, "interview_2", "https://cal.com/sam") is None
+
+
+# ---------------------------------------------------------------------------
+# The second interviewer: told the candidate is coming, and able to open them
+# ---------------------------------------------------------------------------
+
+class TestTheSecondInterviewer:
+    def test_the_notice_names_the_candidate_and_links_the_dashboard(self):
+        notice = candidate_mail.build_round_two_notice(
+            {**CANDIDATE, "job_id": 38, "job_title": "Developer",
+             "resume_link": "https://cv.example/7"},
+            ROLE, RAVI, "https://cal.com/ravi")
+        assert "Asha Menon" in notice["subject"]
+        assert "after a first interview with Anita Desai" in notice["text"]
+        assert "https://cv.example/7" in notice["text"]
+        assert "#role=38&tab=pipeline" in notice["text"]
+
+    def test_nobody_is_notified_without_an_address(self):
+        result = candidate_mail.send_round_two_notice(
+            CANDIDATE, ROLE, {"name": "Sam Lee"})
+        assert result["sent"] is False
+
+    def test_they_can_open_the_role_while_a_candidate_waits_on_them(
+            self, monkeypatch):
+        from backend import auth
+        monkeypatch.setattr(auth, "AUTH_ENABLED", True)
+        monkeypatch.setattr(store, "job_ids_for_manager", lambda email: {12})
+        monkeypatch.setattr(store, "job_ids_for_round_two", lambda email: {38})
+        user = {"_id": "ravi@example.com", "role": "manager"}
+        assert auth.visible_job_ids(user) == {12, 38}
+
+
+# ---------------------------------------------------------------------------
+# The hand-over: the move tells the second interviewer, and nobody else
+# ---------------------------------------------------------------------------
+
+class TestTheHandOver:
+    def test_the_note_asks_them_to_send_the_invitation(self):
+        notice = candidate_mail.build_round_two_notice(
+            {**CANDIDATE, "job_id": 38, "job_title": "Developer"},
+            ROLE, RAVI, invited=False)
+        assert "waiting on your invitation" in notice["subject"]
+        assert "NOT been emailed yet" in notice["text"]
+        assert "Round 2 list" in notice["text"]
+        assert "#role=38&tab=pipeline" in notice["text"]
+        # Nothing here may claim the candidate already holds a booking link.
+        assert "expect a booking" not in notice["text"]
+
+    def test_the_candidate_is_recorded_as_not_yet_invited(self, monkeypatch):
+        db = FakeDb()
+        monkeypatch.setattr(store, "get_db", lambda: db)
+        store.set_round_two_interviewer(
+            7, name="Ravi Rao", email="Ravi@Example.com", notified=True,
+            invited=False)
+        second = db.submissions.updates[0][1]["$set"]["pipeline.interviewer_2"]
+        assert second["email"] == "ravi@example.com"
+        assert second["invited"] is False
+
+    def test_an_invitation_marks_them_invited(self, monkeypatch):
+        db = FakeDb()
+        monkeypatch.setattr(store, "get_db", lambda: db)
+        store.set_round_two_interviewer(7, name="Ravi Rao",
+                                        email="ravi@example.com")
+        second = db.submissions.updates[0][1]["$set"]["pipeline.interviewer_2"]
+        assert second["invited"] is True

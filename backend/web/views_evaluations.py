@@ -1406,6 +1406,62 @@ def api_ingest():
 # there and nowhere else in backend.web.
 # --------------------------------------------------------------------------
 
+def _round_two_invited(submission: dict, role: dict, mail: dict,
+                       interviewer: str, manager_email: str) -> str:
+    """
+    What follows a round 2 invitation that reached the candidate: the second
+    interviewer is told, and is recorded on the candidate -- which is also what
+    lets them open the candidate to mark the outcome. Returns the sentence to
+    add to the reply.
+    """
+    address = mail.get("manager") or manager_email
+    name = mail.get("manager_name") or interviewer
+    manager = {"name": name, "email": address}
+    # Handed this candidate on the move and told so then: they are very likely
+    # the person who just pressed Send, and need no second note saying a
+    # candidate they invited is coming.
+    before = (submission.get("pipeline") or {}).get("interviewer_2") or {}
+    if (before.get("notified") and address
+            and before.get("email") == str(address).strip().lower()):
+        store.set_round_two_interviewer(
+            submission["_id"], name=name, email=address,
+            cal_link=mail.get("cal_link") or "", notified=True)
+        return ""
+    notice = candidate_mail.send_round_two_notice(
+        submission, role, manager, mail.get("cal_link") or "")
+    store.set_round_two_interviewer(
+        submission["_id"], name=name, email=address,
+        cal_link=mail.get("cal_link") or "", notified=bool(notice.get("sent")))
+    who = name or address or "The second interviewer"
+    return (f" {who} has been told they are coming." if notice.get("sent")
+            else f" {who} was NOT notified: {notice.get('reason')}.")
+
+
+def _round_two_handed_over(submission: dict, role: dict, interviewer: str,
+                           manager_email: str) -> tuple[str, dict]:
+    """
+    A move to round 2 that named who takes it: that person is recorded on the
+    candidate and emailed to go and look at their Round 2 list. The candidate
+    is told nothing -- the invitation is the second interviewer's to send, from
+    that list. Returns the sentence to add to the reply, and the notice result.
+    """
+    _, manager = candidate_mail.round_two_interviewer(
+        role, "", interviewer, manager_email)
+    if not manager or "@" not in str(manager.get("email") or ""):
+        return (" Nobody was told: no email address for the second "
+                "interviewer.", {"sent": False})
+    notice = candidate_mail.send_round_two_notice(
+        submission, role, manager, invited=False)
+    store.set_round_two_interviewer(
+        submission["_id"], name=manager.get("name") or "",
+        email=manager["email"], cal_link=manager.get("cal_link") or "",
+        notified=bool(notice.get("sent")), invited=False)
+    who = manager.get("name") or manager["email"]
+    return ((f" {who} has been emailed to send the invitation from their "
+             "Round 2 list." if notice.get("sent")
+             else f" {who} was NOT notified: {notice.get('reason')}."), notice)
+
+
 @app.route("/api/pipeline", methods=["POST"])
 def api_set_pipeline():
     """
@@ -1540,6 +1596,7 @@ def api_set_pipeline():
     message = f"{name} {said}."
 
     mail: dict = {"sent": False, "reason": "Not requested."}
+    notice: dict = {}
     if notify:
         # Re-read, so the invitation quotes back the interview time that was
         # just written rather than the one it replaced.
@@ -1559,15 +1616,17 @@ def api_set_pipeline():
             log.exception("stage mail failed")
             mail = {"sent": False, "reason": f"{type(exc).__name__}: {exc}"}
 
-        if round_two and mail.get("sent"):
-            store.set_round_two_interviewer(
-                submission_id,
-                name=mail.get("manager_name") or field("interviewer") or "",
-                email=mail.get("manager") or manager_email,
-                cal_link=mail.get("cal_link") or "")
-
         message += (f" Emailed {mail['to']}." if mail.get("sent")
                     else f" Not emailed: {mail.get('reason', 'no reason given')}")
+        if round_two and mail.get("sent"):
+            message += _round_two_invited(moved, role, mail,
+                                          field("interviewer") or "",
+                                          manager_email)
+    elif round_two and (manager_email or field("interviewer")):
+        moved = store.get_submission(submission_id) or submission
+        said_to, notice = _round_two_handed_over(
+            moved, role, field("interviewer") or "", manager_email)
+        message += " The candidate was not emailed." + said_to
     elif candidate_mail.stage_is_mailed(stage):
         # Said out loud on every silent move. The board now records and the
         # sending is a separate click, and a manager who assumed otherwise
@@ -1580,6 +1639,7 @@ def api_set_pipeline():
     return jsonify({
         "message": message,
         "mail": mail,
+        "notice": notice,
         "counts": store.pipeline_counts(),
         "submission": _json_safe(store.get_submission(submission_id)),
     })
@@ -1735,16 +1795,13 @@ def api_send_stage_email():
         log.exception("manual stage mail failed")
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
 
-    if round_two and mail.get("sent"):
-        store.set_round_two_interviewer(
-            submission_id, name=mail.get("manager_name") or interviewer,
-            email=mail.get("manager") or manager_email,
-            cal_link=mail.get("cal_link") or "")
-
     name = submission.get("candidate_name") or f"submission {submission_id}"
     what = "the round 2 invitation" if round_two else "the rejection"
     message = (f"Sent {name} {what} at {mail['to']}." if mail.get("sent")
                else f"Not sent: {mail.get('reason', 'no reason given')}")
+    if round_two and mail.get("sent"):
+        message += _round_two_invited(submission, role, mail, interviewer,
+                                      manager_email)
 
     return jsonify({
         "message": message,

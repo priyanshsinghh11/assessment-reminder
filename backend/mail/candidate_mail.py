@@ -41,6 +41,7 @@ from datetime import datetime
 from backend.config import (
     BREVO_SENDER_NAME,
     CANDIDATE_REPLY_TO,
+    DASHBOARD_BASE_URL,
     PIPELINE_AUTO_EMAIL,
     PIPELINE_EMAILS_ENABLED,
 )
@@ -216,8 +217,9 @@ def round_two_interviewer(role: dict, cal_link: str = "", interviewer: str = "",
         manager = next((m for m in (role.get("hiring_managers") or [])
                         if _norm(m.get("email")) == wanted), None)
         manager = manager or store.find_manager(wanted)
-    if manager is None and str(interviewer or "").strip():
-        manager = {"name": str(interviewer).strip()}
+    if manager is None and (str(interviewer or "").strip() or "@" in wanted):
+        manager = {"name": str(interviewer or "").strip()
+                           or wanted.split("@")[0]}
         if "@" in wanted:
             manager["email"] = wanted
 
@@ -779,6 +781,104 @@ def send_stage_email(submission: dict, role: dict, stage: str,
             "cal_link": email["cal_link"],
             "manager": (email["manager"] or {}).get("email", ""),
             "manager_name": (email["manager"] or {}).get("name", "")}
+
+
+# ---------------------------------------------------------------------------
+# Telling the second interviewer
+# ---------------------------------------------------------------------------
+
+def round_two_board_url(job_id) -> str:
+    return f"{DASHBOARD_BASE_URL}/evaluations.html#role={job_id}&tab=pipeline"
+
+
+def build_round_two_notice(submission: dict, role: dict, manager: dict,
+                           cal_link: str = "", invited: bool = True) -> dict:
+    """
+    The note to whoever takes the second interview: who is coming, what they
+    handed in, and where to record the outcome.
+
+    `invited=False` is the hand-over, sent on the move itself. The candidate
+    has heard nothing yet, so the note says so and asks the second interviewer
+    to send the invitation from their Round 2 list.
+
+    No score, for the reason the review page has none: it is the recruiting
+    team's number and it decides the interview before the conversation does.
+    """
+    candidate = submission.get("candidate_name") or "A candidate"
+    title = submission.get("job_title") or role.get("title") or "the role"
+    first = (submission.get("pipeline") or {}).get("interviewer") or ""
+    board = round_two_board_url(submission.get("job_id"))
+    links = [(label, submission.get(key)) for label, key in
+             (("CV", "resume_link"), ("Answers", "admin_url"),
+              ("Video", "video_link")) if submission.get(key)]
+
+    intro = (f"{candidate} is coming to you for a second interview for the "
+             f"{title} role"
+             + (f", after a first interview with {first}." if first else "."))
+    booking = ("They have been emailed your booking link"
+               + (f" ({cal_link})" if cal_link else "")
+               + ", so expect a booking on your calendar.")
+    after = ("After you have met them, open your dashboard and mark them "
+             "Hire or Reject under Round 2.")
+    subject = f"Second interview: {candidate} for {title}"
+    if not invited:
+        intro = (f"{candidate} has been moved to round 2 for the {title} "
+                 "role, and the second interview is with you"
+                 + (f", after a first interview with {first}." if first else "."))
+        booking = ("They have NOT been emailed yet. Open your dashboard, find "
+                   "them in the Round 2 list and click Send invitation: it "
+                   "goes to the candidate with your booking link.")
+        subject = f"Round 2: {candidate} for {title} is waiting on your invitation"
+
+    link_html = " &nbsp;·&nbsp; ".join(
+        f'<a href="{_esc(url)}" style="color:#0b2e8e;">{_esc(label)}</a>'
+        for label, url in links)
+    body = f"""
+        <p style="margin:0 0 16px;">Hi {_esc(_first_name(manager.get("name")))},</p>
+        <p style="margin:0 0 16px;">{_esc(intro)}</p>
+        <p style="margin:0 0 16px;">{_esc(booking)}</p>
+        {f'<p style="margin:0 0 16px;">{link_html}</p>' if links else ''}
+        <p style="margin:0 0 20px;">{_esc(after)}</p>
+        <p style="margin:0 0 8px;">
+          <a href="{_esc(board)}"
+             style="display:inline-block;background:{NAVY};color:#ffffff;
+                    text-decoration:none;font-weight:600;padding:12px 24px;
+                    border-radius:6px;">Open your dashboard</a>
+        </p>"""
+
+    lines = [f"Hi {_first_name(manager.get('name'))},", "", intro, "", booking, ""]
+    lines += [f"{label}: {url}" for label, url in links]
+    lines += ["", after, "", board]
+    return {"subject": subject,
+            "html": _shell(body), "text": "\n".join(lines)}
+
+
+def send_round_two_notice(submission: dict, role: dict, manager: dict | None,
+                          cal_link: str = "", invited: bool = True) -> dict:
+    """
+    Tell the second interviewer a candidate is on the way. Best-effort: the
+    candidate already has their invitation, and a failed note to a colleague is
+    reported, not raised.
+    """
+    to = str((manager or {}).get("email") or "").strip()
+    if "@" not in to:
+        return {"sent": False,
+                "reason": "no email address for the second interviewer"}
+    if not PIPELINE_EMAILS_ENABLED:
+        return {"sent": False, "reason": "emails are switched off"}
+    email = build_round_two_notice(submission, role, manager, cal_link,
+                                   invited)
+    try:
+        brevo_client.send_email(
+            to=[{"email": to, "name": manager.get("name") or to}],
+            subject=email["subject"], html=email["html"], text=email["text"],
+            reply_to=CANDIDATE_REPLY_TO,
+        )
+    except brevo_client.BrevoError as exc:
+        log.error("Round 2 notice to %s failed: %s", to, exc)
+        return {"sent": False, "reason": f"could not email {to}"}
+    log.info("Round 2 notice sent to %s", to)
+    return {"sent": True, "to": to}
 
 
 def _ledger(submission: dict, email: dict, status: str, error: str = "") -> None:

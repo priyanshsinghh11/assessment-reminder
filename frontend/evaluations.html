@@ -863,11 +863,15 @@
       <span>Their name</span>
       <input type="text" id="round2Name" placeholder="Ravi Rao">
     </label>
+    <label class="field" id="round2EmailWrap" hidden>
+      <span>Their email</span>
+      <input type="email" id="round2Email" placeholder="ravi@ajaia.ai">
+    </label>
     <label class="field" id="round2CalWrap" hidden>
       <span>Their cal.com link</span>
       <input type="text" id="round2Cal" placeholder="cal.com/ravi">
     </label>
-    <label class="field">
+    <label class="field" id="round2NoteWrap">
       <span>Message to the candidate <span class="opt">optional</span></span>
       <input type="text" id="round2Note" placeholder="Really enjoyed our conversation.">
     </label>
@@ -875,7 +879,7 @@
     <iframe id="round2Frame" class="round2-preview" title="Invitation preview" hidden></iframe>
 
     <div class="modal-actions round2-actions">
-      <button class="btn btn-ghost" type="button" id="round2Skip">Move without emailing</button>
+      <button class="btn btn-ghost" type="button" id="round2Skip">Move without notifying</button>
       <span class="round2-spacer"></span>
       <button class="btn btn-ghost" type="button" id="round2Preview">Preview</button>
       <button class="btn btn-primary" type="button" id="round2Send">Send invitation</button>

@@ -42,14 +42,15 @@ from pymongo.errors import PyMongoError
 from backend.config import (
     ASSESSMENT_DIR,
     INGEST_REVIEW_BUCKETS,
-    PORTAL_SUBMISSIONS_CSV,
     required_artefacts_for,
 )
 from backend.db import store
 from backend.scraping import portal_crawler
 from backend.scraping import resume_reader
 from backend.scraping import submission_reader
-from backend.scraping.portal_scraper import REVIEW_BUCKETS, _download, _login
+from backend.scraping.portal_scraper import (
+    REVIEW_BUCKETS, _login, download_bucket,
+)
 from backend.logging_setup import setup_logging
 
 log = logging.getLogger("ingest")
@@ -192,11 +193,7 @@ def fetch_submission_rows(
 
     log.info("Downloading review queues: %s", ", ".join(chosen))
     for bucket in chosen:
-        body = _download(
-            session,
-            f"{PORTAL_SUBMISSIONS_CSV}?review_status={bucket}",
-            f"review_status={bucket}",
-        )
+        body = download_bucket(session, bucket)
         if body is None:
             log.error(
                 "The '%s' queue would not download. Its candidates are not in "
@@ -259,7 +256,7 @@ def apply_auto_rejections() -> dict:
     """
     counts = {"rejected": 0, "pending": 0, "in_progress": 0, "skipped": 0}
 
-    for sub in store.list_submissions(include_markdown=False):
+    for sub in store.list_submissions(include_markdown=False, ordered=False):
         decision = sub.get("decision") or {}
         if decision.get("source") == "manual" or decision.get("status") == "scored":
             counts["skipped"] += 1

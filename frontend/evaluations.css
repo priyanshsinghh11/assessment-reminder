@@ -641,7 +641,10 @@ body.manager-view #pipelinePanel.manager-stage-focus > #pipelineHint {
 /* Row buttons: sized down so three of them do not out-shout the candidate's
  * name at the other end of the row. */
 .btn-sm { padding: 5px 10px; font-size: 12px; }
-.stage-actions { display: flex; gap: 6px; justify-content: flex-end; }
+/* Stays a table cell: `display: flex` on a <td> takes it out of the row's
+ * layout, and its bottom border then stops lining up with its neighbours'. */
+.stage-actions { text-align: right; }
+.stage-actions .btn + .btn { margin-left: 6px; }
 
 /* Stage counts on a role card, under the status bar rather than in it -- see
  * the comment in renderRoles(): these people are counted in the bar already. */
@@ -1463,8 +1466,9 @@ button.mgr-chip-cal {
 .badge-link-expired { color: var(--text-faint); border-style: dashed; }
 
 /* Something the recruiter must act on, in a palette with no amber: emphasis
- * does the work a warning colour would elsewhere. */
-.warn {
+ * does the work a warning colour would elsewhere. Paragraphs only -- an inline
+ * `span.warn` in a table cell is the coloured word above, not a callout. */
+p.warn {
   margin: 0 0 12px;
   padding: 10px 13px;
   background: var(--surface-hover);
