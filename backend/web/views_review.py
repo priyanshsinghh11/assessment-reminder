@@ -38,17 +38,17 @@ from backend.web.app import (FRONTEND_DIR, _mongo_guard, app, log)
 # ---------------------------------------------------------------------------
 
 # What a manager may set. `hired` and `rejected` are terminal, `interview` is
-# the step before them. Returning someone to the shortlist is not offered: it
+# the step before them and `interview_2` an optional second round in between. Returning someone to the shortlist is not offered: it
 # is the recruiter's undo, and a manager who changes their mind should say so
 # to a person rather than silently rewind a board other people are reading.
-MANAGER_STAGES = ("interview", "hired", "rejected")
+MANAGER_STAGES = ("interview", "interview_2", "hired", "rejected")
 
 # ...and which of them /decision handles. Not `interview`: an invitation is a
 # message the manager writes, so it goes through the composer and its own route
 # below, where there is a subject, a body and a preview. A one-click interview
 # button would send copy nobody read -- which is the thing this whole surface
 # was built to stop.
-MANAGER_DECISION_STAGES = ("hired", "rejected")
+MANAGER_DECISION_STAGES = ("interview_2", "hired", "rejected")
 
 REVIEW_DEAD = {
     "unknown": ("This review link is not valid. It may have been mistyped — "
@@ -205,7 +205,8 @@ def api_review(token: str):
 @app.route("/api/review/<token>/decision", methods=["POST"])
 def api_review_decision(token: str):
     """
-    A manager marking one candidate hired or rejected.
+    A manager marking one candidate hired or rejected, or putting somebody
+    they have interviewed through to round 2.
 
     Body: {submission_id, stage, note?}.
 
@@ -267,6 +268,12 @@ def api_review_decision(token: str):
         value = body.get(name)
         return value.strip() if isinstance(value, str) and value.strip() else None
 
+    if stage == "interview_2" and not store.has_interviewed(submission):
+        return jsonify({
+            "error": "Round 2 is for candidates you have already interviewed. "
+                     "Invite them to a first interview before moving them on.",
+        }), 409
+
     manager = link["manager"]
     note = field("note")
     role = store.get_role(link["job_id"]) or {}
@@ -293,7 +300,13 @@ def api_review_decision(token: str):
     # two rejections. Best-effort: the move has already happened and is not
     # rolled back because mail failed.
     mail: dict = {"sent": False, "reason": "No email is sent for this stage."}
-    if candidate_mail.stage_is_mailed(stage) and not candidate_mail.PIPELINE_AUTO_EMAIL:
+    if stage == "interview_2":
+        # Never sent from here, whatever the switch says. The invitation
+        # carries the booking link of whoever takes the second interview, and
+        # this page only knows the manager who took the first.
+        mail = {"sent": False, "queued": True,
+                "reason": "the recruiting team will send their invitation."}
+    elif candidate_mail.stage_is_mailed(stage) and not candidate_mail.PIPELINE_AUTO_EMAIL:
         # Manual mode: the decision is the manager's, the email is ours to
         # send once a recruiter has read it. Reported as `queued` rather than
         # as a failure -- nothing went wrong here, and a manager should not be
@@ -331,9 +344,13 @@ def api_review_decision(token: str):
                           "up — your decision is saved."}
 
     name = submission.get("candidate_name") or f"submission {submission_id}"
-    said = {"hired": "marked hired", "rejected": "marked rejected"}[stage]
+    said = {"interview_2": "moved to round 2", "hired": "marked hired",
+            "rejected": "marked rejected"}[stage]
     message = f"{name} {said}."
-    if candidate_mail.stage_is_mailed(stage):
+    if stage == "interview_2":
+        message += (" The recruiting team will send the invitation with the "
+                    "second interviewer's booking link.")
+    elif candidate_mail.stage_is_mailed(stage):
         if mail.get("sent"):
             message += " They have been emailed."
         elif mail.get("queued"):

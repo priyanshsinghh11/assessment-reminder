@@ -84,18 +84,27 @@ const url = (suffix) => `/api/review/${encodeURIComponent(TOKEN)}${suffix}`;
 
 const STAGE_LABEL = {
   interview: 'Interview',
+  interview_2: 'Round 2 interview',
   hired: 'Hired',
   rejected: 'Not proceeding',
 };
 
 // What each button does, in the manager's words rather than the schema's.
-const STAGE_VERB = { hired: 'Mark hired', rejected: 'Not proceeding' };
+const STAGE_VERB = { interview_2: 'Move to round 2', hired: 'Mark hired',
+                     rejected: 'Not proceeding' };
+
+// The outcomes offered on a row. Round 2 only once there has been a round 1:
+// the server refuses it otherwise, and a button that fails is worse than none.
+const decisionsFor = (c) => (
+  c.stage === 'interview' || c.stage === 'interview_2'
+    ? ['interview_2', 'hired', 'rejected'] : ['hired', 'rejected']);
 
 // Who can still be picked for an interview. Somebody already at interview can
 // -- that is a reschedule, or a resend to a candidate who says nothing
 // arrived. Somebody hired or turned down cannot: inviting a candidate who has
 // been rejected is the one mis-click on this page that cannot be walked back.
-const selectable = (c) => c.stage !== 'hired' && c.stage !== 'rejected';
+// Somebody in round 2 cannot either: the invitation is to a first interview.
+const selectable = (c) => !['interview_2', 'hired', 'rejected'].includes(c.stage);
 
 function shortDate(iso) {
   if (!iso) return '';
@@ -236,7 +245,7 @@ function render() {
   $('candList').innerHTML = rows.map((c) => {
     const decided = !!c.stage;
     const canPick = selectable(c);
-    const buttons = ['hired', 'rejected'].map((stage) => `
+    const buttons = decisionsFor(c).map((stage) => `
       <button class="btn stage-btn stage-${stage}${c.stage === stage ? ' is-current' : ''}"
               type="button" data-act="${stage}" data-id="${c.submission_id}"
               ${c.stage === stage ? 'disabled' : ''}>
@@ -345,6 +354,14 @@ function renderPickBar() {
 // in the dialog rather than the toast: after the send is too late to change
 // your mind.
 const CONFIRM = {
+  interview_2: {
+    title: 'Move to round 2',
+    body: (n) => `${n} will be moved to Round 2 on the board. The recruiting `
+                 + `team sends the invitation, with the booking link of `
+                 + `whoever is taking the second interview.`,
+    noteLabel: 'Note for the record',
+    noteHint: 'Internal only. The candidate never sees this.',
+  },
   hired: {
     title: 'Mark hired',
     body: (n) => `${n} will be moved to Hired on the board. No email is sent — `
@@ -416,7 +433,7 @@ async function submitDecision() {
       stage_at: new Date().toISOString(),
       note: $('confirmNote').value.trim() || null,
     });
-    // Somebody hired or turned down cannot be invited, so they leave any
+    // Somebody decided or in round 2 cannot be invited, so they leave any
     // selection they were part of rather than sitting in it invisibly.
     state.picked.delete(submissionId);
     closeConfirm();

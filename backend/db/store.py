@@ -497,6 +497,25 @@ def set_manager_cal_link(email: str, cal_link: str) -> int:
     return result.modified_count
 
 
+def find_manager(email: str) -> Optional[dict]:
+    """
+    One manager by address, from whichever role carries them.
+
+    For the round 2 invitation, whose interviewer is often a manager on a
+    different seat: their name, title and booking link are wanted, and they are
+    stored on a role this candidate did not apply to.
+    """
+    address = str(email or "").strip().lower()
+    if "@" not in address:
+        return None
+    role = get_db().roles.find_one({"hiring_managers.email": address},
+                                   {"hiring_managers": 1})
+    for manager in (role or {}).get("hiring_managers") or []:
+        if str(manager.get("email") or "").strip().lower() == address:
+            return manager
+    return None
+
+
 def known_managers() -> list[dict]:
     """
     Every manager on record, across all roles, for the editor's suggestions.
@@ -2133,7 +2152,30 @@ def submissions_for_review(link: dict) -> list[dict]:
 
 # In process order. `shortlist` is the absence of a stage rather than a value:
 # every scored candidate is implicitly there until someone moves them.
-PIPELINE_STAGES = ("interview", "hired", "rejected")
+#
+# `interview_2` is the second round, for a seat that wants one. It is optional:
+# a first interview can still end in `hired` or `rejected` directly.
+PIPELINE_STAGES = ("interview", "interview_2", "hired", "rejected")
+
+# The stages that are a meeting rather than an outcome.
+INTERVIEW_STAGES = ("interview", "interview_2")
+
+
+def has_interviewed(submission: dict) -> bool:
+    """
+    Whether this candidate has been through a first interview, from a
+    submission already in hand.
+
+    Round 2 is only offered to somebody who had a round 1. Read off the history
+    rather than the current stage alone, so a candidate who was rejected after
+    their interview by mistake can be put through to round 2 without first
+    being taken off the board and invited again.
+    """
+    pipeline = (submission or {}).get("pipeline") or {}
+    if pipeline.get("stage") in INTERVIEW_STAGES:
+        return True
+    return any(entry.get("stage") in INTERVIEW_STAGES
+               for entry in pipeline.get("history") or [])
 
 
 def set_pipeline_stage(
@@ -2147,7 +2189,8 @@ def set_pipeline_stage(
     by: Optional[str] = None,
 ) -> None:
     """
-    Move a candidate along the pipeline: interview -> hired or rejected.
+    Move a candidate along the pipeline: interview -> (round 2 ->) hired or
+    rejected.
 
     `stage=None` takes them back out of it, which is the undo for a misclick.
     The history is kept either way -- "was scheduled for an interview on the
@@ -2188,6 +2231,25 @@ def set_pipeline_stage(
     get_db().submissions.update_one(
         {"_id": submission_id},
         {"$set": fields, "$push": {"pipeline.history": entry}},
+    )
+
+
+def set_round_two_interviewer(submission_id: int, name: str = "",
+                              email: str = "", cal_link: str = "") -> None:
+    """
+    Note who is taking a candidate's second interview.
+
+    Its own fields rather than `pipeline.interviewer`, which is the first
+    interviewer and is what a later rejection is signed with. Round 2 is with
+    somebody else, and overwriting the first name would lose who invited them.
+    """
+    get_db().submissions.update_one(
+        {"_id": submission_id},
+        {"$set": {"pipeline.interviewer_2": {
+            "name": str(name or "").strip(),
+            "email": str(email or "").strip().lower(),
+            "cal_link": clean_cal_link(cal_link),
+        }}},
     )
 
 

@@ -1,13 +1,16 @@
 """
 Candidate-facing mail for a hiring-manager decision.
 
-When a manager moves someone on the board, the candidate hears about it. Two
-messages, and only two:
+When a manager moves someone on the board, the candidate hears about it. Three
+messages, and only three:
 
-    interview   the invitation, carrying the manager's own cal.com link so the
-                candidate books a slot that is actually free rather than
-                starting a thread about times.
-    rejected    the turn-down after a human has read them.
+    interview    the invitation, carrying the manager's own cal.com link so the
+                 candidate books a slot that is actually free rather than
+                 starting a thread about times.
+    interview_2  the invitation to a second interview, carrying the booking
+                 link of whoever is taking THAT one -- usually a different
+                 manager from the first.
+    rejected     the turn-down after a human has read them.
 
 Nothing is sent for `hired`, or for a removal from the board. An offer is a
 conversation a person has; a removal is usually a misclick being undone, and
@@ -57,7 +60,7 @@ MUTED = "#5b6270"
 
 # The stages a candidate is told about. `hired` and `None` are absent on
 # purpose -- see the module docstring.
-MAILED_STAGES = ("interview", "rejected")
+MAILED_STAGES = ("interview", "interview_2", "rejected")
 
 
 class CandidateMailError(RuntimeError):
@@ -189,6 +192,65 @@ def fmt_when(value) -> str:
 # -- a manager who writes "{salary}" should see "{salary}" in the preview and
 # notice, rather than have it silently vanish somewhere between here and an
 # inbox.
+
+
+def round_two_interviewer(role: dict, cal_link: str = "", interviewer: str = "",
+                          manager_email: str = "") -> tuple[str, dict | None]:
+    """
+    The booking link for a second interview, and who it is with.
+
+    NOTHING IS GUESSED HERE, unlike resolve_manager(). Round 2 exists because
+    somebody other than the first interviewer wants to meet the candidate, so
+    the fallbacks that serve round 1 -- the role's only manager, the name on
+    the first interview -- would each put the WRONG person's calendar in the
+    mail. Whoever sends it names the interviewer, or nobody is named.
+
+    The interviewer is looked up by address on this role first and then on any
+    other, because the second interviewer is often a manager on a different
+    seat. Somebody on no role at all is still fine: a typed name and a pasted
+    link are enough to send, and the mail is signed with that name.
+    """
+    wanted = _norm(manager_email)
+    manager = None
+    if wanted:
+        manager = next((m for m in (role.get("hiring_managers") or [])
+                        if _norm(m.get("email")) == wanted), None)
+        manager = manager or store.find_manager(wanted)
+    if manager is None and str(interviewer or "").strip():
+        manager = {"name": str(interviewer).strip()}
+        if "@" in wanted:
+            manager["email"] = wanted
+
+    link = store.clean_cal_link(cal_link)
+    if not link and manager:
+        link = store.clean_cal_link(manager.get("cal_link"))
+    return link, manager
+
+
+def default_round_two_subject(role_title: str = "") -> str:
+    return f"Second interview for the {role_title or 'the role'} role at Ajaia"
+
+
+def default_round_two_message(note: str = "") -> str:
+    """
+    The round 2 invitation. Same shape as default_interview_message(), and it
+    ends on "Grab a time here:" for the same reason: the booking button is
+    appended straight after it.
+    """
+    parts = [
+        "Hi {first_name},",
+        "Thank you for taking the time to speak with us about the {role} "
+        "role. We enjoyed the conversation and would like to invite you to a "
+        "second interview.",
+        "This time you'll meet with {interviewer}.",
+    ]
+    if str(note or "").strip():
+        parts.append(note.strip())
+    parts.append(
+        "Please book within the next few days. If none of the times work, "
+        "reply to this email and we'll find one that does.")
+    parts.append("Grab a time here:")
+    return "\n\n".join(parts)
 
 # `interviewer` and `manager` resolve to the same person. Both exist because
 # the default copy asks "who will I be meeting", where "interviewer" is the
@@ -559,6 +621,23 @@ def build_stage_email(submission: dict, role: dict, stage: str,
 
     name = submission.get("candidate_name") or ""
     title = submission.get("job_title") or role.get("title") or ""
+
+    if stage == "interview_2":
+        link, manager = round_two_interviewer(role, cal_link, interviewer,
+                                              manager_email)
+        if not link:
+            raise CandidateMailError(
+                "No booking link for the second interview. Choose who is "
+                "taking it, or paste their cal.com link."
+            )
+        email = build_interview_email(
+            name, title, link, manager,
+            message=str(message or "").strip() or default_round_two_message(note),
+            subject=str(subject or "").strip() or default_round_two_subject(title),
+        )
+        return {**email, "to": to, "to_name": name or to, "stage": stage,
+                "cal_link": link, "manager": manager}
+
     link, manager = booking_link(role, cal_link, interviewer, manager_email)
 
     if stage == "interview":
@@ -613,7 +692,7 @@ def already_sent(submission: dict, stage: str, cal_link: str = "") -> dict | Non
     previous = store.last_stage_email(submission, stage)
     if previous is None:
         return None
-    if stage == "interview":
+    if stage in store.INTERVIEW_STAGES:
         link = store.clean_cal_link(cal_link)
         if link and link != previous.get("cal_link"):
             return None
@@ -698,7 +777,8 @@ def send_stage_email(submission: dict, role: dict, stage: str,
     log.info("Stage mail (%s) sent to %s", stage, email["to"])
     return {"sent": True, "to": email["to"], "subject": email["subject"],
             "cal_link": email["cal_link"],
-            "manager": (email["manager"] or {}).get("email", "")}
+            "manager": (email["manager"] or {}).get("email", ""),
+            "manager_name": (email["manager"] or {}).get("name", "")}
 
 
 def _ledger(submission: dict, email: dict, status: str, error: str = "") -> None:

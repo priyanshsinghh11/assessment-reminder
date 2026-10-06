@@ -125,7 +125,7 @@ def _split_by_tier(role: dict, card: dict, tiers: dict) -> list[dict]:
                 "in_progress": tally.get("in_progress", 0),
             },
             "pipeline": (card["pipeline"] if tier == default_tier
-                         else {"interview": 0, "hired": 0, "rejected": 0}),
+                         else {stage: 0 for stage in store.PIPELINE_STAGES}),
         })
     return cards
 
@@ -191,9 +191,8 @@ def api_roles():
             # booked for an interview is still a scored submission, and a card
             # whose segments stopped summing to its total would read as a bug.
             "pipeline": {
-                "interview": stage_tally.get("interview", 0),
-                "hired": stage_tally.get("hired", 0),
-                "rejected": stage_tally.get("rejected", 0),
+                stage: stage_tally.get(stage, 0)
+                for stage in store.PIPELINE_STAGES
             },
         }
         roles.extend(_split_by_tier(role, card, tier_tallies.get(role["_id"], {})))
@@ -954,10 +953,10 @@ def api_set_tier():
 @app.route("/api/pipeline")
 def api_pipeline():
     """
-    The board: who is booked for an interview, who was hired, who was turned
-    down after being seen.
+    The board: who is booked for an interview, who went on to round 2, who was
+    hired, who was turned down after being seen.
 
-    `stage` narrows to one of those; omit it for all three. `job_id` narrows to
+    `stage` narrows to one of those; omit it for all of them. `job_id` narrows to
     a role. Counts always come back for every stage, so the tabs can show their
     totals without three more requests.
     """
@@ -1018,8 +1017,8 @@ def api_pipeline():
 
 
 # The board's own words for a stage, for a sheet heading that reads as English.
-STAGE_LABEL = {"interview": "interview", "hired": "hired",
-               "rejected": "rejected after interview"}
+STAGE_LABEL = {"interview": "interview", "interview_2": "round 2 interview",
+               "hired": "hired", "rejected": "rejected after interview"}
 
 
 def _pipeline_scores() -> bool:
@@ -1420,6 +1419,14 @@ def api_set_pipeline():
     on their review link -- see INTERVIEW_IS_THE_MANAGERS above. The other
     stages, and the pull back out, are unchanged.
 
+    `stage: "interview_2"` is round 2, and is only accepted for a candidate who
+    has had a first interview. The move never emails on its own, whatever the
+    automation switch says: the invitation carries the booking link of whoever
+    takes the second interview, and that person has to be named. Passing
+    `notify: true` with `manager_email` (or `interviewer` and `cal_link`) moves
+    the candidate and sends the invitation in one call -- and if the invitation
+    cannot be built, nothing is moved either.
+
     THE MOVE DOES NOT EMAIL ANYONE while PIPELINE_AUTO_EMAIL is off, which is
     how the system ships. The board records where somebody is; the candidate
     hears about it from a Send click in their drawer, after a person has read
@@ -1477,6 +1484,13 @@ def api_set_pipeline():
         value = body.get(name)
         return value.strip() if isinstance(value, str) and value.strip() else None
 
+    if stage == "interview_2" and not store.has_interviewed(submission):
+        return jsonify({
+            "error": "Round 2 is for candidates who have had a first "
+                     "interview. This candidate has not been invited to one "
+                     "yet.",
+        }), 409
+
     role = store.get_role(submission.get("job_id")) or {}
     cal_link = field("cal_link") or ""
     manager_email = field("manager_email") or ""
@@ -1486,17 +1500,29 @@ def api_set_pipeline():
     notify = body.get("notify")
     if notify is None:
         notify = (candidate_mail.PIPELINE_AUTO_EMAIL
-                  and candidate_mail.stage_is_mailed(stage))
+                  and candidate_mail.stage_is_mailed(stage)
+                  and stage != "interview_2")
     else:
         notify = bool(notify)
 
-    # No booking-link pre-check here any more: the only stage that needed one
-    # is refused above, and a dead check left behind reads like a live one.
+    # A round 2 invitation that could not be sent is refused BEFORE the move,
+    # so "move and invite" is one act: no candidate is left sitting in round 2
+    # because the form was missing the interviewer's booking link.
+    round_two = stage == "interview_2"
+    if round_two and notify and candidate_mail.PIPELINE_EMAILS_ENABLED:
+        try:
+            candidate_mail.build_stage_email(
+                submission, role, stage, cal_link=cal_link,
+                interviewer=field("interviewer") or "",
+                manager_email=manager_email)
+        except candidate_mail.CandidateMailError as exc:
+            return jsonify({"error": str(exc)}), 409
 
     # A link typed at the moment of booking is kept on the manager who owns it,
     # so the next candidate costs a click rather than a paste. Stored
     # account-wide -- one manager, one calendar, however many seats they own.
-    if cal_link and manager_email:
+    # Not for round 2, for the reason api_send_stage_email gives.
+    if cal_link and manager_email and not round_two:
         store.set_manager_cal_link(manager_email, cal_link)
 
     store.set_pipeline_stage(
@@ -1508,7 +1534,8 @@ def api_set_pipeline():
     )
 
     name = submission.get("candidate_name") or f"submission {submission_id}"
-    said = {"hired": "marked hired",
+    said = {"interview_2": "moved to round 2",
+            "hired": "marked hired",
             "rejected": "marked rejected"}.get(stage, "returned to the shortlist")
     message = f"{name} {said}."
 
@@ -1532,13 +1559,23 @@ def api_set_pipeline():
             log.exception("stage mail failed")
             mail = {"sent": False, "reason": f"{type(exc).__name__}: {exc}"}
 
+        if round_two and mail.get("sent"):
+            store.set_round_two_interviewer(
+                submission_id,
+                name=mail.get("manager_name") or field("interviewer") or "",
+                email=mail.get("manager") or manager_email,
+                cal_link=mail.get("cal_link") or "")
+
         message += (f" Emailed {mail['to']}." if mail.get("sent")
                     else f" Not emailed: {mail.get('reason', 'no reason given')}")
     elif candidate_mail.stage_is_mailed(stage):
         # Said out loud on every silent move. The board now records and the
         # sending is a separate click, and a manager who assumed otherwise
         # would leave a candidate waiting on an email nobody asked for.
-        message += " Nobody was emailed — open their card and click Send."
+        message += (" Nobody was emailed — use Send invitation on their "
+                    "row when you know who takes the second interview."
+                    if stage == "interview_2" else
+                    " Nobody was emailed — open their card and click Send.")
 
     return jsonify({
         "message": message,
@@ -1612,8 +1649,14 @@ def api_send_stage_email():
            already is, so the ordinary case is "send this person the thing
            their card says they are owed".
 
-    Rejections only. The interview invitation is the manager's to send, from
-    the composer on their review link -- see INTERVIEW_IS_THE_MANAGERS.
+    Rejections and round 2 invitations. The FIRST interview invitation is the
+    manager's to send, from the composer on their review link -- see
+    INTERVIEW_IS_THE_MANAGERS.
+
+    For round 2, `manager_email` names who is taking the second interview and
+    `cal_link` is their booking link. Either a known manager or a typed
+    `interviewer` name plus a link will do; the first interviewer is never
+    assumed. The candidate has to be in round 2 already.
 
     /api/pipeline moves people and stays quiet; this one sends and moves
     nobody. Splitting them is the whole point of the manual mode: the board can
@@ -1655,14 +1698,26 @@ def api_send_stage_email():
         value = body.get(name)
         return value.strip() if isinstance(value, str) and value.strip() else ""
 
+    round_two = stage == "interview_2"
+    if round_two and (submission.get("pipeline") or {}).get("stage") != stage:
+        return jsonify({
+            "error": "Move this candidate to round 2 before sending the "
+                     "round 2 invitation.",
+        }), 409
+
     role = store.get_role(submission.get("job_id")) or {}
     cal_link = field("cal_link")
     manager_email = field("manager_email")
-    interviewer = field("interviewer") or (submission.get("pipeline") or {}).get("interviewer") or ""
+    # Round 2 does not fall back to the first interviewer: see
+    # candidate_mail.round_two_interviewer().
+    interviewer = field("interviewer") or ("" if round_two else (
+        submission.get("pipeline") or {}).get("interviewer") or "")
 
     # Kept on the manager who owns it, same as the move route: a link typed
-    # once should cost the next candidate a click rather than a paste.
-    if cal_link and manager_email:
+    # once should cost the next candidate a click rather than a paste. Not for
+    # round 2: a link pasted there may be a second-interview page, and saving
+    # it would replace the one that manager's first interviews are booked on.
+    if cal_link and manager_email and not round_two:
         store.set_manager_cal_link(manager_email, cal_link)
 
     try:
@@ -1680,8 +1735,15 @@ def api_send_stage_email():
         log.exception("manual stage mail failed")
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
 
+    if round_two and mail.get("sent"):
+        store.set_round_two_interviewer(
+            submission_id, name=mail.get("manager_name") or interviewer,
+            email=mail.get("manager") or manager_email,
+            cal_link=mail.get("cal_link") or "")
+
     name = submission.get("candidate_name") or f"submission {submission_id}"
-    message = (f"Sent {name} the rejection at {mail['to']}." if mail.get("sent")
+    what = "the round 2 invitation" if round_two else "the rejection"
+    message = (f"Sent {name} {what} at {mail['to']}." if mail.get("sent")
                else f"Not sent: {mail.get('reason', 'no reason given')}")
 
     return jsonify({

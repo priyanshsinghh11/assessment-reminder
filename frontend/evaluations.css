@@ -224,10 +224,10 @@ body.manager-view #pipelinePanel.manager-stage-focus > #pipelineHint {
 }
 
 /* The funnel reads left to right -- submitted, scored, seen, hired -- so all
- * eight belong on one line. A wrapped ninth-of-eight sitting alone under the
+ * nine belong on one line. A wrapped tenth-of-nine sitting alone under the
  * row reads as a separate fact, which is exactly what it is not. */
 #stats {
-  grid-template-columns: repeat(auto-fit, minmax(124px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
   gap: 12px;
 }
 
@@ -626,6 +626,11 @@ body.manager-view #pipelinePanel.manager-stage-focus > #pipelineHint {
 .tab.is-active .tab-count { color: var(--sky); border-color: var(--line-2); }
 
 .badge-stage-interview { color: var(--sky); border-color: var(--sky); }
+.badge-stage-interview_2 {
+  color: var(--sky);
+  border-color: var(--sky);
+  background: var(--surface-hover);
+}
 .badge-stage-hired {
   color: var(--bg);
   background: var(--accent-bright);
@@ -654,7 +659,8 @@ body.manager-view #pipelinePanel.manager-stage-focus > #pipelineHint {
   border: 1px solid var(--line);
   color: var(--text-faint);
 }
-.stage-chip.stage-interview { color: var(--sky); border-color: var(--line-2); }
+.stage-chip.stage-interview,
+.stage-chip.stage-interview_2 { color: var(--sky); border-color: var(--line-2); }
 .stage-chip.stage-hired { color: var(--accent-bright); border-color: var(--line-2); }
 .stage-chip.stage-rejected { border-style: dashed; }
 
@@ -676,6 +682,39 @@ body.manager-view #pipelinePanel.manager-stage-focus > #pipelineHint {
   color: var(--text-faint);
 }
 .stage-form label.wide { grid-column: 1 / -1; }
+
+/* The round 2 dialog. The fields come from styles.css; these are the two
+ * things it does not have -- a select, and the preview under the form. */
+#round2 .field { margin-bottom: 12px; }
+#round2 .field select {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  padding: 9px 11px;
+}
+#round2 .field select:focus-visible { outline: none; border-color: var(--sky); }
+/* The open list is drawn by the browser on its own background, so the text
+ * colour inherited from the select is unreadable on it unless both are set. */
+#round2 .field select option {
+  color: var(--text);
+  background: var(--bg);
+  font-weight: 500;
+}
+.round2-preview {
+  width: 100%;
+  height: 320px;
+  margin-top: 4px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  background: #fff;
+}
+.round2-preview[hidden] { display: none; }
+.round2-actions { flex-wrap: wrap; }
+.round2-spacer { flex: 1 1 auto; }
 .stage-form input {
   font-family: inherit;
   font-size: 13px;

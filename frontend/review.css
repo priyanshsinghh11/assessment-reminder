@@ -110,7 +110,8 @@
 .cand-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 
 .stage-btn { font-size: var(--fs-body-sm); white-space: nowrap; }
-.stage-btn.stage-interview:hover { border-color: var(--sky); color: var(--sky); }
+.stage-btn.stage-interview:hover,
+.stage-btn.stage-interview_2:hover { border-color: var(--sky); color: var(--sky); }
 .stage-btn.stage-hired:hover { border-color: var(--accent-bright); color: var(--accent-bright); }
 .stage-btn.stage-rejected:hover { border-color: #e4708a; color: #e4708a; }
 
@@ -145,7 +146,8 @@
 }
 .cand-note { color: var(--text-dim); font-style: italic; }
 
-.badge-interview { color: var(--sky); border-color: var(--sky); }
+.badge-interview,
+.badge-interview_2 { color: var(--sky); border-color: var(--sky); }
 .badge-hired { color: var(--accent-bright); border-color: var(--accent-bright); }
 .badge-rejected { color: var(--text-faint); border-style: dashed; }
 

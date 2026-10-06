@@ -85,7 +85,7 @@ const state = {
   pipeline: {
     stage: 'interview',
     rows: [],
-    counts: { interview: 0, hired: 0, rejected: 0 },
+    counts: { interview: 0, interview_2: 0, hired: 0, rejected: 0 },
     // Past mail-outs of the open stage, newest first. See loadPipelineSends.
     sends: [],
   },
@@ -1103,7 +1103,7 @@ function renderStats() {
   // funnel is one story, and a candidate's whole journey — submitted, scored,
   // seen, hired — should be readable left to right without scrolling.
   const p = state.pipeline.counts;
-  // Labels are short enough that all eight sit on one line, because read as
+  // Labels are short enough that all nine sit on one line, because read as
   // one line they are the funnel. The long version is the tooltip.
   const cards = [
     ['Submitted', t.scored + t.pending + t.rejected, true, 'Assessments actually handed in'],
@@ -1112,6 +1112,7 @@ function renderStats() {
     ['Missing artefact', t.rejected, false, 'Rejected for arriving without a video or a resume'],
     ['Not submitted', t.in_progress, false, 'Started but never handed in'],
     ['Interview', p.interview || 0, false, 'Booked in for an interview'],
+    ['Round 2', p.interview_2 || 0, false, 'Through to a second interview'],
     ['Hired', p.hired || 0, true, 'Offers accepted'],
     ['Rejected', p.rejected || 0, false, 'Turned down after being seen'],
   ];
@@ -1179,7 +1180,8 @@ function renderRoles() {
     // rather than inside it: an interviewee is still a scored submission, and
     // a bar whose segments stopped summing to the total would read as a bug.
     const stages = role.pipeline || {};
-    const chips = [['interview', 'booked'], ['hired', 'hired'], ['rejected', 'rejected']]
+    const chips = [['interview', 'booked'], ['interview_2', 'round 2'],
+                   ['hired', 'hired'], ['rejected', 'rejected']]
       .filter(([key]) => stages[key] > 0)
       .map(([key, label]) =>
         `<span class="stage-chip stage-${key}">${stages[key]} ${label}</span>`)
@@ -1632,12 +1634,27 @@ function exportMailedCsv() {
 
 const STAGE_LABEL = {
   interview: 'Interview scheduled',
+  interview_2: 'Round 2 interview',
   hired: 'Hired',
   rejected: 'Rejected after review',
 };
 
+/* In process order. Anything that totals or lists the stages reads this, so a
+ * new one cannot be counted on the board and missed on a tab. */
+const STAGES = Object.keys(STAGE_LABEL);
+const stageTotal = (p) => STAGES.reduce((n, key) => n + ((p || {})[key] || 0), 0);
+
+/* Round 2 is for somebody who has had a round 1 -- the rule the server
+ * enforces, mirrored so the button is only drawn where it will work. */
+const hasInterviewed = (c) => {
+  const p = c?.pipeline || {};
+  const met = (stage) => stage === 'interview' || stage === 'interview_2';
+  return met(p.stage) || (p.history || []).some((h) => met(h.stage));
+};
+
 const STAGE_CLASS = {
   interview: 'badge-stage-interview',
+  interview_2: 'badge-stage-interview_2',
   hired: 'badge-stage-hired',
   rejected: 'badge-stage-rejected',
 };
@@ -1683,8 +1700,7 @@ function whenRelative(value) {
 function renderPipelineRoleOptions() {
   const select = $('pipelineRole');
   const current = select.value;
-  const withStages = state.roles.filter((r) => r.pipeline
-    && (r.pipeline.interview + r.pipeline.hired + r.pipeline.rejected) > 0);
+  const withStages = state.roles.filter((r) => stageTotal(r.pipeline) > 0);
   select.innerHTML = '<option value="">All roles</option>' + withStages
     .map((r) => `<option value="${r.id}">${esc(r.title)}</option>`).join('');
   select.value = current;
@@ -1768,6 +1784,7 @@ function downloadPipelineXlsx() {
 
 const PIPELINE_HEAD = {
   interview: ['Candidate', 'Role', 'Score', 'Interview', 'Interviewer', 'Note', ''],
+  interview_2: ['Candidate', 'Role', 'Score', 'Moved to round 2', 'Round 2 with', 'Note', ''],
   hired: ['Candidate', 'Role', 'Score', 'Hired', 'Interviewed', 'Note', ''],
   // The tick column and "Emailed" are the rejected stage's alone: it is the
   // only one you send from, and a checkbox on a list nothing acts on is a
@@ -1790,6 +1807,8 @@ const PIPELINE_HINT = {
   interview: 'Everyone a hiring manager has invited, soonest first. A row with '
     + 'no date is one the candidate has not booked into yet. Read-only as to '
     + 'who is here — mark the outcome from this row or from their card.',
+  interview_2: 'Through to a second interview. A row marked "not invited '
+    + 'yet" is a candidate still waiting to hear — use Send invitation on it.',
   hired: 'Offers accepted. The score and the grid that produced it stay on the '
     + 'record, so a hire can be read back against what the assessment predicted.',
   rejected: 'Turned down after being seen. Tick the ones to tell and press '
@@ -1802,13 +1821,15 @@ const PIPELINE_EMPTY = {
   interview: 'Nobody has been invited yet. Send a role\u2019s shortlist to its '
     + 'hiring manager from the Shortlist tab, and whoever they invite from '
     + 'their review link appears here.',
+  interview_2: 'Nobody is in round 2. Press Round 2 on a row under Interview.',
   hired: 'No hires recorded yet.',
   rejected: 'Nobody has been rejected after review.',
 };
 
 /* The move buttons on a row. What is worth offering depends on where the
- * candidate is: an interview needs an outcome, a closed stage needs a way back
- * if the outcome was recorded on the wrong person.
+ * candidate is: an interview needs an outcome or a second round, round 2 needs
+ * an outcome, a closed stage needs a way back if the outcome was recorded on
+ * the wrong person.
  *
  * "Back to interview" is gone with the rest of the interview stage. Undoing a
  * mis-recorded outcome is Remove, which puts them back on the shortlist where
@@ -1818,8 +1839,15 @@ function stageActions(c) {
   const stage = stageOf(c);
   const btn = (to, label, cls = 'btn-ghost') =>
     `<button class="btn ${cls} btn-sm" data-move="${to}" data-id="${c.id}">${label}</button>`;
+  const round2 = (label) =>
+    `<button class="btn btn-ghost btn-sm" data-round2="${c.id}">${label}</button>`;
   if (stage === 'interview') {
-    return btn('hired', 'Hired', 'btn-primary') + btn('rejected', 'Reject');
+    return round2('Round 2') + btn('hired', 'Hired', 'btn-primary')
+      + btn('rejected', 'Reject');
+  }
+  if (stage === 'interview_2') {
+    return (c.pipeline?.interviewer_2 ? '' : round2('Send invitation'))
+      + btn('hired', 'Hired', 'btn-primary') + btn('rejected', 'Reject');
   }
   return btn('', 'Remove');
 }
@@ -1881,6 +1909,10 @@ function renderPipeline() {
       : `${esc(shortDate(p.at))} <span class="dim">${esc(whenRelative(p.at))}</span>`;
     const second = stage === 'interview'
       ? esc(p.interviewer || '—')
+      : stage === 'interview_2'
+        ? (p.interviewer_2
+          ? esc(p.interviewer_2.name || p.interviewer_2.email || 'invited')
+          : '<span class="warn">not invited yet</span>')
       : stage === 'rejected'
         ? (c.already_told
           ? `<span class="told">${esc(shortDate(c.told_at))}</span>`
@@ -1937,6 +1969,13 @@ function renderPipeline() {
     });
   }
   refreshBoardSendBar();
+  for (const btn of $('pipelineBody').querySelectorAll('[data-round2]')) {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();                    // the row opens the card
+      const row = rows.find((r) => r.id === Number(btn.dataset.round2));
+      if (row) RoundTwo.open(row);
+    });
+  }
   for (const btn of $('pipelineBody').querySelectorAll('[data-move]')) {
     btn.addEventListener('click', (e) => {
       // The row opens the drawer; a button on it must not do both.
@@ -2129,8 +2168,9 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 /* Who can still be invited. Somebody hired or turned down cannot: inviting a
  * candidate who has been rejected is the one mis-click here that cannot be
  * walked back. Somebody already at interview can -- that is a reschedule, or a
- * resend to a candidate who says nothing arrived. */
-const invitable = (c) => c.stage !== 'hired' && c.stage !== 'rejected';
+ * resend to a candidate who says nothing arrived. Somebody in round 2 cannot:
+ * the invitation is to a first interview, and it would move them back to one. */
+const invitable = (c) => !['interview_2', 'hired', 'rejected'].includes(c.stage);
 
 const reviewApi = (suffix) =>
   `/api/review/${encodeURIComponent(state.top.token || '')}${suffix}`;
@@ -3555,6 +3595,7 @@ function renderRoleStats(role) {
       'Rejected for arriving without a video or a resume'],
     ['Not submitted', c.in_progress || 0, false, 'Started but never handed in'],
     ['Interview', p.interview || 0, false, 'Booked in for an interview'],
+    ['Round 2', p.interview_2 || 0, false, 'Through to a second interview'],
     ['Hired', p.hired || 0, true, 'Offers accepted'],
     ['Rejected', p.rejected || 0, false, 'Turned down after being seen'],
   ];
@@ -3566,8 +3607,7 @@ function renderRoleStats(role) {
     </div>`).join('');
 
   $('tabCountCandidates').textContent = (c.total || 0).toLocaleString();
-  $('tabCountPipeline').textContent =
-    ((p.interview || 0) + (p.hired || 0) + (p.rejected || 0)) || '';
+  $('tabCountPipeline').textContent = stageTotal(p) || '';
   const mgrs = (role?.managers || []).length;
   $('tabCountShortlist').textContent = mgrs || '';
 }
@@ -4367,6 +4407,9 @@ async function openDrawer(submissionId) {
       directInvite.addEventListener('click', () => inviteFromDrawer(c));
     }
 
+    $('drawerBody').querySelector('[data-round2]')
+      ?.addEventListener('click', () => RoundTwo.open(c));
+
     for (const btn of $('drawerBody').querySelectorAll('[data-stage]')) {
       btn.addEventListener('click', async () => {
         const stage = btn.dataset.stage || null;
@@ -4417,6 +4460,185 @@ function stageMailFields(c) {
   };
 }
 
+/* =======================================================================
+ * Round 2, in one dialog
+ ======================================================================= */
+
+/* Pick who takes the second interview, press Send. That is the whole job, so
+ * that is the whole dialog: the move to round 2 and the invitation are one
+ * click, the booking link is filled in from the person picked, and the last
+ * interviewer chosen is remembered for the next candidate.
+ *
+ * The link box only appears when there is something to type -- "Someone else",
+ * or a manager we hold no link for. Nothing is taken from the first interview:
+ * round 2 is with somebody else, and falling back to the first manager would
+ * send their calendar to a candidate who has already met them. */
+const RoundTwo = (() => {
+  const OTHER = '__other';
+  const LAST = 'round2.interviewer';
+  let cand = null;
+  let people = [];
+
+  const isOpen = () => !$('round2').hidden;
+  const inRound2 = () => stageOf(cand) === 'interview_2';
+  const person = () => people.find((m) => m.email === $('round2Manager').value);
+
+  /* This role's managers first, then everybody else's. The second list is
+   * empty on a hiring manager's own account, which is what "Someone else" is
+   * for. */
+  function peopleFor(c) {
+    const role = state.roles.find((r) => r.id === c.job_id);
+    const mine = (c.managers || role?.managers || []).filter((m) => m.email);
+    const seen = new Set(mine.map((m) => m.email));
+    return [...mine, ...(state.knownManagers || [])
+      .filter((m) => m.email && !seen.has(m.email))];
+  }
+
+  function remembered() {
+    try { return localStorage.getItem(LAST) || ''; } catch { return ''; }
+  }
+
+  function fields() {
+    const picked = $('round2Manager').value;
+    const other = picked === OTHER;
+    return {
+      manager_email: picked && !other ? picked : undefined,
+      interviewer: other ? ($('round2Name').value.trim() || undefined) : undefined,
+      cal_link: $('round2Cal').value.trim() || undefined,
+      email_note: $('round2Note').value.trim() || undefined,
+    };
+  }
+
+  function sync() {
+    const picked = $('round2Manager').value;
+    const other = picked === OTHER;
+    const known = person();
+    setHidden('round2NameWrap', !other);
+    // Asked for only when we do not already have it.
+    setHidden('round2CalWrap', !(other || (known && !known.cal_link)));
+    setHidden('round2Frame', true);
+    const ready = other
+      ? Boolean($('round2Name').value.trim() && $('round2Cal').value.trim())
+      : Boolean(known && (known.cal_link || $('round2Cal').value.trim()));
+    $('round2Send').disabled = !ready;
+    $('round2Preview').disabled = !ready;
+  }
+
+  function open(c) {
+    cand = c;
+    people = peopleFor(c);
+    const before = c.pipeline?.interviewer_2?.email || remembered();
+    const select = $('round2Manager');
+    select.innerHTML = '<option value="">Choose…</option>'
+      // The address rides along: two managers called Jordan are otherwise
+      // the same line twice, and the wrong one is the wrong calendar.
+      + people.map((m) => `<option value="${esc(m.email)}">${
+          esc(m.name ? `${m.name} — ${m.email}` : m.email)}</option>`).join('')
+      + `<option value="${OTHER}">Someone else…</option>`;
+    select.value = people.some((m) => m.email === before) ? before : '';
+    for (const id of ['round2Name', 'round2Cal', 'round2Note']) $(id).value = '';
+
+    const who = c.candidate_name || 'This candidate';
+    $('round2Lead').textContent = inRound2()
+      ? `${who} is in round 2. Choose who they meet and we email them the booking link.`
+      : `${who} moves to round 2. Choose who they meet and we email them the booking link.`;
+    $('round2Send').textContent = 'Send invitation';
+    // Already there: nothing left to move, so the quiet option goes away.
+    setHidden('round2Skip', inRound2());
+    sync();
+    $('round2').hidden = false;
+    select.focus();
+  }
+
+  function close() {
+    $('round2').hidden = true;
+    cand = null;
+  }
+
+  async function refresh(id) {
+    await loadPipeline();
+    await loadRoles();
+    if (state.activeRoleId) await openRole(state.activeRoleId, false);
+    if (!$('drawer').hidden) openDrawer(id);
+  }
+
+  async function send() {
+    if (!cand) return;
+    const btn = $('round2Send');
+    const id = cand.id;
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+    try {
+      // One call when they still have to be moved, the send alone when they
+      // are there already. The server refuses the first before moving anyone
+      // if the invitation cannot be built.
+      const result = inRound2()
+        ? await api('/api/pipeline/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ submission_id: id, stage: 'interview_2',
+                                   resend: true, ...fields() }),
+          })
+        : await api('/api/pipeline', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ submission_id: id, stage: 'interview_2',
+                                   notify: true, ...fields() }),
+          });
+      toast(result.message, !result.mail?.sent);
+      const picked = $('round2Manager').value;
+      if (result.mail?.sent && picked && picked !== OTHER) {
+        try { localStorage.setItem(LAST, picked); } catch { /* private mode */ }
+      }
+      close();
+      await refresh(id);
+    } catch (err) {
+      toast(err.message, true);
+      btn.textContent = 'Send invitation';
+      sync();
+    }
+  }
+
+  async function skip() {
+    if (!cand) return;
+    const id = cand.id;
+    close();
+    if (await moveStage(id, 'interview_2', { notify: false })
+        && !$('drawer').hidden) openDrawer(id);
+  }
+
+  async function preview() {
+    if (!cand) return;
+    const query = new URLSearchParams({ submission_id: String(cand.id),
+                                        stage: 'interview_2' });
+    for (const [key, value] of Object.entries(fields())) {
+      if (value) query.set(key, value);
+    }
+    try {
+      const data = await api(`/api/pipeline/preview?${query}`);
+      const frame = $('round2Frame');
+      frame.srcdoc = data.email.html;
+      frame.hidden = false;
+    } catch (err) {
+      toast(err.message, true);
+    }
+  }
+
+  $('round2Manager').addEventListener('change', () => {
+    $('round2Cal').value = '';
+    sync();
+  });
+  for (const id of ['round2Name', 'round2Cal']) $(id).addEventListener('input', sync);
+  $('round2Send').addEventListener('click', send);
+  $('round2Skip').addEventListener('click', skip);
+  $('round2Preview').addEventListener('click', preview);
+  for (const el of document.querySelectorAll('[data-round2-close]')) {
+    el.addEventListener('click', close);
+  }
+
+  return { open, close, isOpen };
+})();
+
 /* The send. One click, one candidate, one message -- the only thing on this
  * page that reaches somebody outside the company.
  *
@@ -4443,8 +4665,7 @@ async function sendStageEmail(c, stage, btn) {
       body: JSON.stringify({
         submission_id: c.id,
         stage,
-        manager_email: fields.manager_email,
-        email_note: fields.email_note,
+        ...fields,
       }),
     });
     toast(result.message, !result.mail?.sent);
@@ -5098,6 +5319,19 @@ function pipelineSection(c) {
           : '<b>not sent</b> — the candidate has no booking link yet'}</div>
       </div>` : '';
 
+  // Round 2 on the card is a status line and one button. Everything else --
+  // who, which calendar, the send -- is the dialog, the same one the board
+  // opens, so there is one way to do this and it is always two clicks.
+  const second = p.interviewer_2 || null;
+  const invite2 = (p.emails || []).filter((m) => m.stage === 'interview_2' && m.ok).pop();
+  const roundTwoBlock = stage === 'interview_2' ? `
+      <div class="stage-readout">
+        <div><span class="dim">Round 2 invitation</span> ${invite2
+          ? `sent ${esc(shortDate(invite2.at))}${
+              second?.name ? ` · with ${esc(second.name)}` : ''}`
+          : '<b>not sent yet</b>'}</div>
+      </div>` : '';
+
   return `
     <div class="drawer-section">
       <h3>Hiring pipeline ${label}</h3>
@@ -5108,6 +5342,7 @@ function pipelineSection(c) {
         what the assessment predicted.
       </p>
       ${inviteBlock}
+      ${roundTwoBlock}
       <div class="stage-form">
         ${managerField}
         <label class="wide">${stage === 'rejected' ? 'Reason' : 'Note'}
@@ -5133,6 +5368,10 @@ function pipelineSection(c) {
            which says where the invitation is actually written. -->
       <div class="drawer-actions">
         ${inManagerQueue ? '<button class="btn btn-primary" data-direct-invite>Invite to interview</button>' : ''}
+        ${stage === 'interview_2'
+          ? `<button class="btn${invite2 ? '' : ' btn-primary'}" data-round2>${
+              invite2 ? 'Send invitation again' : 'Send round 2 invitation'}</button>`
+          : (hasInterviewed(c) ? '<button class="btn" data-round2>Move to round 2</button>' : '')}
         <button class="btn btn-primary" data-stage="hired">Mark hired</button>
         <button class="btn" data-stage="rejected">Mark rejected</button>
         ${stage ? '<button class="btn btn-ghost" data-stage="">Remove from pipeline</button>' : ''}
@@ -5638,7 +5877,7 @@ for (const nav of $('roleTabs').querySelectorAll('[data-manager-nav]')) {
 // The drawer wins while it is up: one Escape should close one thing.
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (!$('mailPreview').hidden || !$('drawer').hidden
+  if (RoundTwo.isOpen() || !$('mailPreview').hidden || !$('drawer').hidden
       || $('accountsDrawer')?.hidden === false
       || $('spotlightDrawer')?.hidden === false
       || InviteComposer.isOpen() || RejectionComposer.isOpen()) return;
@@ -5653,7 +5892,8 @@ for (const el of document.querySelectorAll('[data-close]')) {
 }
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (!$('mailPreview').hidden) closeMailPreview();
+  if (RoundTwo.isOpen()) RoundTwo.close();
+  else if (!$('mailPreview').hidden) closeMailPreview();
   else if (InviteComposer.isOpen()) InviteComposer.close();
   else if (RejectionComposer.isOpen()) RejectionComposer.close();
   else if (!$('drawer').hidden) closeDrawer();

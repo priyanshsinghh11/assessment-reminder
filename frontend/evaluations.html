@@ -144,6 +144,8 @@
               hidden>Top candidates</button>
       <button class="viewtab manager-nav" type="button" data-manager-nav="interview"
               hidden>Interview</button>
+      <button class="viewtab manager-nav" type="button" data-manager-nav="interview_2"
+              hidden>Round 2</button>
       <button class="viewtab manager-nav" type="button" data-manager-nav="hired"
               hidden>Hired</button>
       <button class="viewtab manager-nav" type="button" data-manager-nav="rejected"
@@ -477,6 +479,9 @@
           <button class="tab is-active" type="button" data-stage="interview" role="tab"
                   aria-selected="true">
             Interview <span class="tab-count" data-count="interview">0</span>
+          </button>
+          <button class="tab" type="button" data-stage="interview_2" role="tab" aria-selected="false">
+            Round 2 <span class="tab-count" data-count="interview_2">0</span>
           </button>
           <button class="tab" type="button" data-stage="hired" role="tab" aria-selected="false">
             Hired <span class="tab-count" data-count="hired">0</span>
@@ -841,6 +846,43 @@
 <!-- The shortlist email exactly as the manager would receive it, rendered by
      the same function that sends it. A preview built from a different template
      is a preview of nothing. -->
+<!-- Round 2, in one dialog: who takes the second interview, and Send. The
+     move and the invitation are one click, because they are one decision.
+     Opened from a board row or a candidate's card. -->
+<div class="modal" id="round2" hidden>
+  <div class="modal-scrim" data-round2-close></div>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="round2Title">
+    <h2 id="round2Title">Round 2 interview</h2>
+    <p id="round2Lead"></p>
+
+    <label class="field">
+      <span>Second interview with</span>
+      <select id="round2Manager"></select>
+    </label>
+    <label class="field" id="round2NameWrap" hidden>
+      <span>Their name</span>
+      <input type="text" id="round2Name" placeholder="Ravi Rao">
+    </label>
+    <label class="field" id="round2CalWrap" hidden>
+      <span>Their cal.com link</span>
+      <input type="text" id="round2Cal" placeholder="cal.com/ravi">
+    </label>
+    <label class="field">
+      <span>Message to the candidate <span class="opt">optional</span></span>
+      <input type="text" id="round2Note" placeholder="Really enjoyed our conversation.">
+    </label>
+
+    <iframe id="round2Frame" class="round2-preview" title="Invitation preview" hidden></iframe>
+
+    <div class="modal-actions round2-actions">
+      <button class="btn btn-ghost" type="button" id="round2Skip">Move without emailing</button>
+      <span class="round2-spacer"></span>
+      <button class="btn btn-ghost" type="button" id="round2Preview">Preview</button>
+      <button class="btn btn-primary" type="button" id="round2Send">Send invitation</button>
+    </div>
+  </div>
+</div>
+
 <div class="drawer" id="mailPreview" hidden>
   <div class="drawer-scrim" data-mail-close></div>
   <aside class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="mailSubject">
