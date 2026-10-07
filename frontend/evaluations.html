@@ -56,6 +56,13 @@
             title="Candidates whose CV names a top employer or a top US school">
       Worth a look<span class="btn-count" id="spotlightCount"></span>
     </button>
+    <!-- Every role in one read: is there anybody good, who stands out, what
+         is in the way. For a hiring manager it is their own roles. The count
+         is how many of them need attention. -->
+    <button class="btn btn-ghost" id="summaryBtn" type="button"
+            title="A summary of every role: who is good, who stands out, what needs doing">
+      Summary<span class="btn-count" id="summaryCount"></span>
+    </button>
     <button class="btn" id="syncBtn" title="Re-download submissions from the portal">Sync portal</button>
     <button class="btn" id="refreshBtn">Refresh</button>
   </div>
@@ -81,6 +88,7 @@
             <option value="active">With submissions</option>
             <option value="all">All roles</option>
             <option value="published">Published only</option>
+            <option value="repost">Repost needed</option>
           </select>
         </div>
       </div>
@@ -731,6 +739,42 @@
   </aside>
 </div>
 
+<!-- The summary: one card per role, written by the role analyst. Under the
+     candidate drawer for the reason the spotlight is -- a name on a card opens
+     that candidate on top, and closing them puts the reader back here. -->
+<div class="drawer is-under" id="summaryDrawer" hidden>
+  <div class="drawer-scrim" data-summary-close></div>
+  <aside class="drawer-panel is-wide" role="dialog" aria-modal="true"
+         aria-labelledby="summaryTitle">
+    <div class="drawer-head">
+      <div>
+        <p class="eyebrow">Summary</p>
+        <h2 id="summaryTitle">How your roles are doing</h2>
+        <p class="subtitle" id="summarySub">Loading&hellip;</p>
+      </div>
+      <div class="drawer-head-actions">
+        <button class="btn btn-primary" id="summaryAnalyse" type="button" hidden>Run AI analysis</button>
+        <button class="btn btn-ghost" id="summaryRefresh" type="button">Refresh</button>
+        <button class="btn btn-ghost" data-summary-close
+                aria-label="Close summary">Close</button>
+      </div>
+    </div>
+
+    <div class="drawer-body">
+      <div class="controls spotlight-controls">
+        <input type="search" id="summarySearch" autocomplete="off"
+               placeholder="Search role or candidate">
+        <select id="summaryFilter">
+          <option value="">All roles</option>
+          <option value="warn">Needs attention</option>
+          <option value="good">Strong pipeline</option>
+        </select>
+      </div>
+      <div id="summaryBody"></div>
+    </div>
+  </aside>
+</div>
+
 <div class="drawer" id="drawer" hidden>
   <div class="drawer-scrim" data-close></div>
   <aside class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawerName">
@@ -846,42 +890,71 @@
 <!-- The shortlist email exactly as the manager would receive it, rendered by
      the same function that sends it. A preview built from a different template
      is a preview of nothing. -->
-<!-- Round 2, in one dialog: who takes the second interview, and Send. The
-     move and the invitation are one click, because they are one decision.
-     Opened from a board row or a candidate's card. -->
+<!-- Round 2, in one dialog: who takes the second interview, their booking
+     link, the invitation, and Send. The move and the invitation are one
+     click, because they are one decision, and the second interviewer is
+     copied on the mail. Opened from a board row or a candidate's card. -->
 <div class="modal" id="round2" hidden>
   <div class="modal-scrim" data-round2-close></div>
-  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="round2Title">
+  <div class="modal-box modal-wide" role="dialog" aria-modal="true" aria-labelledby="round2Title">
     <h2 id="round2Title">Round 2 interview</h2>
     <p id="round2Lead"></p>
 
-    <label class="field">
-      <span>Second interview with</span>
-      <select id="round2Manager"></select>
-    </label>
-    <label class="field" id="round2NameWrap" hidden>
-      <span>Their name</span>
-      <input type="text" id="round2Name" placeholder="Ravi Rao">
-    </label>
-    <label class="field" id="round2EmailWrap" hidden>
-      <span>Their email</span>
-      <input type="email" id="round2Email" placeholder="ravi@ajaia.ai">
-    </label>
-    <label class="field" id="round2CalWrap" hidden>
-      <span>Their cal.com link</span>
-      <input type="text" id="round2Cal" placeholder="cal.com/ravi">
-    </label>
-    <label class="field" id="round2NoteWrap">
-      <span>Message to the candidate <span class="opt">optional</span></span>
-      <input type="text" id="round2Note" placeholder="Really enjoyed our conversation.">
-    </label>
+    <div class="compose-grid">
+      <div class="compose-edit">
+        <label class="field">
+          <span>Second interview with</span>
+          <select id="round2Manager"></select>
+        </label>
+        <label class="field" id="round2NameWrap" hidden>
+          <span>Their name</span>
+          <input type="text" id="round2Name" placeholder="Ravi Rao">
+        </label>
+        <label class="field" id="round2EmailWrap" hidden>
+          <span>Their email</span>
+          <input type="email" id="round2Email" placeholder="ravi@ajaia.ai">
+        </label>
+        <label class="field">
+          <span>Their cal.com link</span>
+          <input type="text" id="round2Cal" placeholder="cal.com/ravi">
+        </label>
 
-    <iframe id="round2Frame" class="round2-preview" title="Invitation preview" hidden></iframe>
+        <label class="field">
+          <span>Subject</span>
+          <input type="text" id="round2Subject">
+        </label>
+        <label class="field">
+          <span>Message</span>
+          <textarea id="round2Message" rows="12" spellcheck="true"></textarea>
+        </label>
+
+        <p class="dim small chips-line">
+          <span>Fills in per candidate:</span>
+          <span class="chips" id="round2Chips"></span>
+        </p>
+
+        <p class="dim small locked-note" id="round2Locked"></p>
+
+        <p>
+          <button class="btn btn-ghost btn-sm" type="button" id="round2Reset">
+            Reset to our default wording
+          </button>
+        </p>
+      </div>
+
+      <div class="compose-preview">
+        <div class="preview-head">
+          <span class="small" id="round2For"></span>
+          <span class="dim small" id="round2State"></span>
+        </div>
+        <iframe id="round2Frame" class="preview-frame" title="What the candidate receives" sandbox=""></iframe>
+      </div>
+    </div>
 
     <div class="modal-actions round2-actions">
-      <button class="btn btn-ghost" type="button" id="round2Skip">Move without notifying</button>
+      <button class="btn btn-ghost" type="button" id="round2Skip">Move without emailing</button>
       <span class="round2-spacer"></span>
-      <button class="btn btn-ghost" type="button" id="round2Preview">Preview</button>
+      <button class="btn btn-ghost" type="button" data-round2-close>Cancel</button>
       <button class="btn btn-primary" type="button" id="round2Send">Send invitation</button>
     </div>
   </div>

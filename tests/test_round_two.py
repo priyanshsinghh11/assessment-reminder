@@ -135,6 +135,76 @@ class TestTheRoundTwoInvitation:
             sent, "interview_2", "https://cal.com/sam") is None
 
 
+class TestTheInvitationIsTheSendersToWrite:
+    def test_the_default_congratulates_them(self, directory):
+        email = candidate_mail.build_stage_email(
+            CANDIDATE, ROLE, "interview_2", manager_email=RAVI["email"])
+        assert "Congratulations" in email["text"]
+
+    def test_their_words_replace_the_default(self, directory):
+        email = candidate_mail.build_stage_email(
+            CANDIDATE, ROLE, "interview_2", manager_email=RAVI["email"],
+            subject="Round 2 for {role}",
+            message="Hi {first_name}, you are meeting {interviewer}.")
+        assert email["subject"] == "Round 2 for Developer"
+        assert "Hi Asha, you are meeting Ravi Rao." in email["text"]
+        assert "Congratulations" not in email["text"]
+        # The booking link is appended whatever was typed.
+        assert "https://cal.com/ravi" in email["text"]
+
+    def test_the_dialog_starts_from_the_wording_with_placeholders_in(self):
+        template = candidate_mail.round_two_template()
+        assert "{role}" in template["subject"]
+        assert "{first_name}" in template["message"]
+        assert "{interviewer}" in template["message"]
+        # No time is pencilled in for round 2, so {when} is not offered.
+        assert "when" not in template["placeholders"]
+
+
+class TestTheSecondInterviewerIsCopied:
+    def test_they_are_on_the_cc_line(self, directory):
+        email = candidate_mail.build_stage_email(
+            CANDIDATE, ROLE, "interview_2", manager_email=RAVI["email"])
+        assert email["cc"] == [{"email": "ravi@example.com",
+                                "name": "Ravi Rao"}]
+
+    def test_nobody_is_copied_without_an_address(self, directory):
+        email = candidate_mail.build_stage_email(
+            CANDIDATE, ROLE, "interview_2",
+            interviewer="Sam Lee", cal_link="cal.com/sam")
+        assert email["cc"] == []
+
+    def test_the_candidate_is_never_copied_on_their_own_invitation(
+            self, directory):
+        email = candidate_mail.build_stage_email(
+            CANDIDATE, ROLE, "interview_2", cal_link="cal.com/asha",
+            manager_email="Asha@example.com")
+        assert email["cc"] == []
+
+    def test_the_copy_goes_out_with_the_send(self, directory, monkeypatch):
+        sent = {}
+        monkeypatch.setattr(candidate_mail, "PIPELINE_EMAILS_ENABLED", True)
+        monkeypatch.setattr(candidate_mail.brevo_client, "send_email",
+                            lambda **kwargs: sent.update(kwargs))
+        monkeypatch.setattr(store, "record_stage_email",
+                            lambda *args, **kwargs: {})
+        result = candidate_mail.send_stage_email(
+            CANDIDATE, ROLE, "interview_2", manager_email=RAVI["email"],
+            force=True)
+        assert result["sent"] is True
+        assert result["cc"] == ["ravi@example.com"]
+        assert sent["to"] == [{"email": "asha@example.com",
+                               "name": "Asha Menon"}]
+        assert sent["cc"] == [{"email": "ravi@example.com",
+                               "name": "Ravi Rao"}]
+
+    def test_a_first_interview_copies_nobody(self):
+        email = candidate_mail.build_stage_email(
+            {**CANDIDATE, "pipeline": {"stage": "interview"}}, ROLE,
+            "interview")
+        assert email["cc"] == []
+
+
 # ---------------------------------------------------------------------------
 # The second interviewer: told the candidate is coming, and able to open them
 # ---------------------------------------------------------------------------
@@ -200,3 +270,85 @@ class TestTheHandOver:
                                         email="ravi@example.com")
         second = db.submissions.updates[0][1]["$set"]["pipeline.interviewer_2"]
         assert second["invited"] is True
+
+
+# ---------------------------------------------------------------------------
+# The dashboard: one click moves, invites and copies
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def board(monkeypatch, directory):
+    """The app with its guards stood down and the store held in memory."""
+    from backend.web import app as web_app, server, views_evaluations as views
+
+    calls = {"sent": [], "moved": [], "second": [], "notices": []}
+    first = {**CANDIDATE, "job_id": 38,
+             "pipeline": {"stage": "interview", "interviewer": "Anita Desai"}}
+
+    monkeypatch.setattr(web_app, "AUTH_ENABLED", False)
+    monkeypatch.setattr(views, "_mongo_guard", lambda: None)
+    monkeypatch.setattr(views, "_submission_guard", lambda sub, sid: None)
+    monkeypatch.setattr(views.store, "get_submission", lambda sid: first)
+    monkeypatch.setattr(views.store, "get_role", lambda job_id: ROLE)
+    monkeypatch.setattr(views.store, "pipeline_counts", lambda: {})
+    monkeypatch.setattr(views.store, "record_stage_email",
+                        lambda *args, **kwargs: {})
+    monkeypatch.setattr(views.store, "set_pipeline_stage",
+                        lambda sid, stage, **kw: calls["moved"].append(stage))
+    monkeypatch.setattr(views.store, "set_round_two_interviewer",
+                        lambda sid, **kw: calls["second"].append(kw))
+    monkeypatch.setattr(candidate_mail, "PIPELINE_EMAILS_ENABLED", True)
+    monkeypatch.setattr(candidate_mail.brevo_client, "send_email",
+                        lambda **kwargs: calls["sent"].append(kwargs))
+    monkeypatch.setattr(candidate_mail, "send_round_two_notice",
+                        lambda *a, **kw: calls["notices"].append(a) or {})
+    server.app.config["TESTING"] = True
+    server.app.config["REVIEW_ONLY"] = False
+    return server.app.test_client(), calls
+
+
+class TestAdvancingFromTheBoard:
+    def test_one_call_moves_invites_and_copies(self, board):
+        client, calls = board
+        reply = client.post("/api/pipeline", json={
+            "submission_id": 7, "stage": "interview_2", "notify": True,
+            "manager_email": RAVI["email"],
+            "subject": "Round 2 for {role}",
+            "message": "Hi {first_name}, well done."})
+        assert reply.status_code == 200
+        assert calls["moved"] == ["interview_2"]
+
+        (mail,) = calls["sent"]
+        assert mail["to"][0]["email"] == "asha@example.com"
+        assert mail["cc"] == [{"email": "ravi@example.com",
+                               "name": "Ravi Rao"}]
+        assert mail["subject"] == "Round 2 for Developer"
+        assert "Hi Asha, well done." in mail["text"]
+        assert "https://cal.com/ravi" in mail["text"]
+
+        # The copy is the notice: no second mail goes to the interviewer.
+        assert calls["notices"] == []
+        (second,) = calls["second"]
+        assert second["email"] == "ravi@example.com"
+        assert second["notified"] is True
+        assert "CC'd" in reply.get_json()["message"]
+
+    def test_nothing_moves_when_the_invitation_cannot_be_built(self, board):
+        client, calls = board
+        reply = client.post("/api/pipeline", json={
+            "submission_id": 7, "stage": "interview_2", "notify": True})
+        assert reply.status_code == 409
+        assert calls["moved"] == [] and calls["sent"] == []
+
+    def test_the_preview_renders_the_edit_and_sends_nothing(self, board):
+        client, calls = board
+        reply = client.post("/api/pipeline/preview", json={
+            "submission_id": 7, "stage": "interview_2",
+            "manager_email": RAVI["email"], "cal_link": "cal.com/ravi/second",
+            "message": "Hi {first_name}, see you soon."})
+        data = reply.get_json()
+        assert reply.status_code == 200
+        assert "Hi Asha, see you soon." in data["email"]["text"]
+        assert data["cal_link"] == "https://cal.com/ravi/second"
+        assert data["cc"][0]["email"] == "ravi@example.com"
+        assert calls["sent"] == []

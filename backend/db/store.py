@@ -1564,6 +1564,135 @@ def role_counts() -> dict[int, dict]:
     return counts
 
 
+def role_recruitment_stats(bands: list[tuple[str, float]],
+                           job_ids: Optional[set[int]] = None) -> dict[int, dict]:
+    """
+    What a role card says about its pipeline, in one aggregation:
+    {job_id: {tier: {last_at, graded, top, at_least: {band: n}}}}.
+
+    `bands` is [(key, minimum score), ...] from the rubric pack, passed in so
+    the bar is drawn in one place. `at_least[key]` counts the candidates at or
+    above that minimum, so the bands overlap and the caller subtracts.
+
+    `last_at` is the newest of `submitted_at` and `started_at`: somebody who
+    applied and has not handed the assessment in yet is still the most recent
+    applicant. Both are ISO strings off the portal, which sort as text.
+
+    Only a finished grid counts as graded, for the reason top_candidates()
+    gives: a partial grid is renormalised and can read as a 100.
+
+    Keyed by tier like role_tier_counts(), with "unresolved" for a submission
+    no resolver run has matched to a posting.
+    """
+    def text(field: str) -> dict:
+        return {"$cond": [{"$eq": [{"$type": field}, "string"]}, field, None]}
+
+    graded = {"$and": [
+        {"$isNumber": "$evaluation.score"},
+        {"$ne": ["$evaluation.grid_complete", False]},
+        {"$ne": ["$evaluation.score_provisional", True]},
+    ]}
+    group: dict = {
+        "_id": {"job_id": "$job_id", "tier": "$rubric_tier.tier"},
+        "submitted": {"$max": text("$submitted_at")},
+        "started": {"$max": text("$started_at")},
+        "graded": {"$sum": {"$cond": [graded, 1, 0]}},
+        "top": {"$max": {"$cond": [graded, "$evaluation.score", None]}},
+    }
+    for key, minimum in bands:
+        group[f"band_{key}"] = {"$sum": {"$cond": [
+            {"$and": [graded, {"$gte": ["$evaluation.score", minimum]}]}, 1, 0]}}
+
+    stages: list[dict] = []
+    if job_ids is not None:
+        stages.append({"$match": {"job_id": {"$in": sorted(job_ids)}}})
+    stages.append({"$group": group})
+
+    stats: dict[int, dict] = {}
+    for row in get_db().submissions.aggregate(stages):
+        tier = row["_id"].get("tier") or "unresolved"
+        stats.setdefault(row["_id"]["job_id"], {})[tier] = {
+            "last_at": max(row.get("submitted") or "", row.get("started") or ""),
+            "graded": row.get("graded", 0),
+            "top": row.get("top"),
+            "at_least": {key: row.get(f"band_{key}", 0) for key, _ in bands},
+        }
+    return stats
+
+
+def top_clearing(minimum: float, job_ids: Optional[set[int]] = None,
+                 per_role: int = 3) -> dict[int, dict]:
+    """
+    Each role's best candidates at or above `minimum`, for the role summary:
+    {job_id: {"count": n, "top": [{id, name, score, stage}, ...]}}.
+
+    A finished grid only, for the reason top_candidates() gives, and nobody
+    who has been turned down -- by the assessment or after an interview.
+    """
+    match: dict = {
+        "evaluation.score": {"$gte": minimum},
+        "decision.status": {"$ne": "rejected"},
+        "pipeline.stage": {"$ne": "rejected"},
+        **COMPLETE_GRID,
+    }
+    if job_ids is not None:
+        match["job_id"] = {"$in": sorted(job_ids)}
+    rows = get_db().submissions.aggregate([
+        {"$match": match},
+        {"$sort": {"evaluation.score": DESCENDING}},
+        {"$group": {
+            "_id": "$job_id",
+            "count": {"$sum": 1},
+            "top": {"$push": {"id": "$_id", "name": "$candidate_name",
+                              "score": "$evaluation.score",
+                              "stage": "$pipeline.stage"}},
+        }},
+        {"$project": {"count": 1, "top": {"$slice": ["$top", per_role]}}},
+    ])
+    return {row["_id"]: {"count": row["count"], "top": row["top"]}
+            for row in rows}
+
+
+def role_owners(job_ids: Optional[set[int]] = None) -> dict[int, dict]:
+    """
+    Who owns each seat and when its shortlist last went out, without the rest
+    of the role document: {job_id: {"managers": [names], "shortlist_at": dt}}.
+    See role_index() for why a whole role is not fetched for this.
+    """
+    query: dict = {} if job_ids is None else {"_id": {"$in": sorted(job_ids)}}
+    owners = {}
+    for role in get_db().roles.find(
+            query, {"hiring_managers.name": 1, "hiring_managers.email": 1,
+                    "shortlist_last.at": 1}):
+        owners[role["_id"]] = {
+            "managers": [m.get("name") or m.get("email")
+                         for m in role.get("hiring_managers") or []
+                         if m.get("name") or m.get("email")],
+            "shortlist_at": (role.get("shortlist_last") or {}).get("at"),
+        }
+    return owners
+
+
+# The analyst's written summary of a role, one document per role in
+# `role_summaries`: {_id: job_id, hash, text, model, at}. `hash` is of the
+# facts it was written from, so a summary is rewritten when the role changes
+# and not otherwise.
+
+def role_summaries(job_ids: Optional[set[int]] = None) -> dict[int, dict]:
+    query: dict = {} if job_ids is None else {"_id": {"$in": sorted(job_ids)}}
+    return {row["_id"]: row for row in get_db().role_summaries.find(query)}
+
+
+def save_role_summary(job_id: int, facts_hash: str, text: str,
+                      model: str) -> None:
+    get_db().role_summaries.replace_one(
+        {"_id": job_id},
+        {"_id": job_id, "hash": facts_hash, "text": text, "model": model,
+         "at": now()},
+        upsert=True,
+    )
+
+
 def purge_auto_rejected() -> int:
     """Remove auto-rejected candidate documents, retaining role counts only."""
     db = get_db()

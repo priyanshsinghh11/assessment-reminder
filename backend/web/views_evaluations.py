@@ -23,7 +23,7 @@ from backend.db import store
 from backend.grading import (evaluator, pedigree, rubric_pack,
                              tier_resolver, grader)
 from backend.mail import candidate_mail, shortlist
-from backend.pipeline import ingest
+from backend.pipeline import ingest, role_analyst
 from backend.scraping import resume_reader
 
 from backend.web.app import (INTERVIEW_IS_THE_MANAGERS,
@@ -75,7 +75,90 @@ def _rubric_source(role: dict, stored: set[str]) -> str | None:
     return None
 
 
-def _split_by_tier(role: dict, card: dict, tiers: dict) -> list[dict]:
+# How many candidates clearing the bar make a pipeline "strong" rather than
+# "thin". Three, because a manager who interviews two and likes neither has
+# nowhere left to go.
+STRONG_PIPELINE = 3
+
+
+def _recruitment(parts: list[dict], counts: dict, pipeline: dict,
+                 scores: bool) -> dict:
+    """
+    The recruitment line on a role card: how many applied, when the last one
+    did, and what the graded work says about the pipeline as a whole.
+
+    `parts` are store.role_recruitment_stats() entries -- one for a plain role,
+    the tier's own plus the unresolved for half of a tiered one.
+
+    THE QUALITY READ IS A COUNT, NOT A JUDGEMENT OF ITS OWN. It says how many
+    finished verdicts clear the bar the rubric pack already draws
+    (ADVANCE_MIN), and nothing else goes into it:
+
+        strong   three or more clear it
+        thin     one or two do
+        weak     none do
+        none     nothing has been graded yet
+
+    `repost` is the weak pipeline with nothing left to wait for: every
+    submission graded, nobody clearing the bar, and nobody booked, in round 2
+    or hired. With submissions still ungraded it stays "weak so far", because
+    the strong candidate may be one of them.
+
+    Left out for an account that may not read scores -- "nobody here scored
+    above 75" is a score.
+    """
+    stats: dict = {
+        "applicants": counts.get("total", 0),
+        "last_application": max((p.get("last_at") or "" for p in parts),
+                                default="") or None,
+        "quality": None,
+    }
+    if not scores:
+        return stats
+
+    graded = sum(p.get("graded", 0) for p in parts)
+    tops = [p["top"] for p in parts if p.get("top") is not None]
+    # `at_least` overlaps -- everyone at 85 is also at 75 -- so each band is
+    # what its own minimum caught less what the band above already had.
+    bands, above = {}, 0
+    for band in rubric_pack.BANDS:
+        reached = sum((p.get("at_least") or {}).get(band["key"], 0)
+                      for p in parts)
+        bands[band["key"]] = reached - above
+        above = reached
+    clear = sum(bands[band["key"]] for band in rubric_pack.BANDS
+                if band["advances"])
+    pending = counts.get("pending", 0)
+    moving = sum(pipeline.get(stage, 0)
+                 for stage in ("interview", "interview_2", "hired"))
+
+    if not graded:
+        key, label = "none", "Not assessed yet"
+        detail = (f"{pending} waiting on grading" if pending
+                  else "Nothing graded")
+    else:
+        key = ("strong" if clear >= STRONG_PIPELINE
+               else "thin" if clear else "weak")
+        # "Weak" on three graded out of a hundred and thirty would be read as
+        # a verdict on the hundred and thirty.
+        label = "Weak so far" if key == "weak" and pending else key.capitalize()
+        detail = (f"{clear} of {graded} graded clear the bar" if clear
+                  else f"none of {graded} graded clear the bar")
+        if pending:
+            detail += f" · {pending} not graded yet"
+    repost = key == "weak" and not pending and not moving
+    stats["quality"] = {
+        "key": key, "label": label, "detail": detail,
+        "graded": graded, "clear": clear, "bands": bands,
+        "top": round(max(tops), 1) if tops else None,
+        "bar": rubric_pack.ADVANCE_MIN,
+        "repost": repost,
+    }
+    return stats
+
+
+def _split_by_tier(role: dict, card: dict, tiers: dict, recruit: dict,
+                   scores: bool) -> list[dict]:
     """
     One card per posting where a role is marked at two tiers, else the card.
 
@@ -95,7 +178,8 @@ def _split_by_tier(role: dict, card: dict, tiers: dict) -> list[dict]:
     """
     available, default_tier = _tier_options(role)
     if not available:
-        return [card]
+        return [{**card, "recruitment": _recruitment(
+            list(recruit.values()), card["counts"], card["pipeline"], scores)}]
 
     labels = tier_resolver.posting_labels(role.get("slug"))
     unresolved = tiers.get("unresolved", {})
@@ -110,6 +194,18 @@ def _split_by_tier(role: dict, card: dict, tiers: dict) -> list[dict]:
         if tier == default_tier:
             for key, n in unresolved.items():
                 tally[key] = tally.get(key, 0) + n
+        counts = {
+            "total": tally.get("total", 0),
+            "pending": tally.get("pending", 0),
+            "scored": tally.get("scored", 0),
+            "rejected": tally.get("rejected", 0),
+            "in_progress": tally.get("in_progress", 0),
+        }
+        # This posting's own people, and the unmatched with them on the
+        # default card -- the same split the tallies above make.
+        parts = [recruit[key] for key in
+                 ((tier, "unresolved") if tier == default_tier else (tier,))
+                 if key in recruit]
         cards.append({
             **card,
             "tier": tier,
@@ -117,13 +213,11 @@ def _split_by_tier(role: dict, card: dict, tiers: dict) -> list[dict]:
             "title": labels.get(tier) or f"{card['title']} ({tier})",
             "assignment_title": card["title"],
             "unresolved": unresolved.get("total", 0) if tier == default_tier else 0,
-            "counts": {
-                "total": tally.get("total", 0),
-                "pending": tally.get("pending", 0),
-                "scored": tally.get("scored", 0),
-                "rejected": tally.get("rejected", 0),
-                "in_progress": tally.get("in_progress", 0),
-            },
+            "counts": counts,
+            # Against the role's whole board, not this card's zeroed chips:
+            # an interview booked on the other card is still a reason not to
+            # call this seat a repost.
+            "recruitment": _recruitment(parts, counts, card["pipeline"], scores),
             "pipeline": (card["pipeline"] if tier == default_tier
                          else {stage: 0 for stage in store.PIPELINE_STAGES}),
         })
@@ -154,6 +248,10 @@ def api_roles():
     if scope is not None:
         stages = _scoped_stage_counts(stages, scope)
     stored_grids = store.derived_grid_slugs()
+    scores = _is_admin() or MANAGER_DASHBOARD_SCORES
+    recruit = store.role_recruitment_stats(
+        [(band["key"], band["min"]) for band in rubric_pack.BANDS],
+        job_ids=scope)
     roles = []
     for role in store.get_roles(job_ids=scope):
         tally = counts.get(role["_id"], {})
@@ -195,7 +293,8 @@ def api_roles():
                 for stage in store.PIPELINE_STAGES
             },
         }
-        roles.extend(_split_by_tier(role, card, tier_tallies.get(role["_id"], {})))
+        roles.extend(_split_by_tier(role, card, tier_tallies.get(role["_id"], {}),
+                                    recruit.get(role["_id"], {}), scores))
     user = _current_user()
     return jsonify({
         "roles": roles,
@@ -217,7 +316,7 @@ def api_roles():
         # from whether the rows it happens to be holding carry an `evaluation`.
         # That test reads "not graded yet" as "not allowed" and would blank the
         # column on a role whose grading has not run.
-        "scores_visible": _is_admin() or MANAGER_DASHBOARD_SCORES,
+        "scores_visible": scores,
         "auth_enabled": AUTH_ENABLED,
         "shortlist_size": SHORTLIST_SIZE,
         "shortlist_max": SHORTLIST_MAX,
@@ -250,6 +349,9 @@ def api_roles():
             "interview_locked_reason": (INTERVIEW_IS_THE_MANAGERS
                                         if _is_admin()
                                         else MANAGER_INVITES_FROM_COMPOSER),
+            # The round 2 invitation's default wording, placeholders still in,
+            # so the dialog's boxes are filled the moment it opens.
+            "round_two": candidate_mail.round_two_template(),
         },
     })
 
@@ -467,6 +569,175 @@ def api_spotlight():
         "pending_scan": pending,
         "pack_version": pedigree.VERSION,
     })
+
+
+# ---------------------------------------------------------------------------
+# The summary -- every role in one read
+# ---------------------------------------------------------------------------
+#
+# One drawer off the header that answers "how are my roles doing" without
+# opening any of them: for each role a headline, the findings behind it, the
+# candidates worth naming, and a few sentences written by the model from those
+# same findings. backend/pipeline/role_analyst.py is where the findings are
+# made and explains what is rule and what is model.
+#
+# Scoped like everything else here: a hiring manager gets their own roles. An
+# account that may not read scores gets the facts that are not scores --
+# applicants, dates, the board, who worked where -- and no written summary,
+# because that one is written from the scores.
+
+# How many roles one analyse request hands to the model. A request has a
+# ceiling on most hosts, and the page asks again until nothing is due.
+SUMMARY_BATCH = 6
+
+_TONE_ORDER = {role_analyst.WARN: 0, role_analyst.INFO: 1, role_analyst.GOOD: 2}
+
+
+def _role_summaries(scope, scores: bool) -> list[dict]:
+    """
+    role_analyst.read() for every role in scope that has had an applicant,
+    the ones that need attention first.
+    """
+    counts = store.role_counts()
+    stages = store.pipeline_counts()["by_role"]
+    recruit = store.role_recruitment_stats(
+        [(band["key"], band["min"]) for band in rubric_pack.BANDS],
+        job_ids=scope)
+    clearing = (store.top_clearing(rubric_pack.ADVANCE_MIN, job_ids=scope)
+                if scores else {})
+    owners = store.role_owners(job_ids=scope)
+    people: dict[int, list] = {}
+    for row in store.pedigree_pool(pedigree.VERSION, job_ids=scope):
+        people.setdefault(row.get("job_id"), []).append(row)
+
+    summaries = []
+    for role in store.role_index(job_ids=scope):
+        job_id = role["_id"]
+        tally = counts.get(job_id, {})
+        if not tally.get("total"):
+            continue
+        board = stages.get(job_id, {})
+        summaries.append(role_analyst.read(
+            role, tally, board,
+            _recruitment(list(recruit.get(job_id, {}).values()), tally, board,
+                         scores),
+            clearing=clearing.get(job_id),
+            people=role_analyst.notable(people.get(job_id, [])),
+            owners=owners.get(job_id),
+        ))
+    summaries.sort(key=lambda s: (_TONE_ORDER.get(s["tone"], 1),
+                                  s["title"].lower()))
+    return summaries
+
+
+@app.route("/api/evaluations/summary")
+def api_summary():
+    """
+    Every role this account may see, summarised.
+
+    Each role carries `ai`: the model's written summary where one is on file,
+    with `stale` set when the role has changed since it was written. Nothing
+    here calls the model -- /api/evaluations/summary/analyse does, and `due`
+    says how many roles are waiting on it.
+    """
+    error = _mongo_guard()
+    if error:
+        return error
+
+    scope = _scope()
+    scores = _is_admin() or MANAGER_DASHBOARD_SCORES
+    summaries = _role_summaries(scope, scores)
+    written = store.role_summaries(job_ids=scope) if scores else {}
+
+    due = 0
+    tones = {tone: 0 for tone in _TONE_ORDER}
+    for summary in summaries:
+        tones[summary["tone"]] = tones.get(summary["tone"], 0) + 1
+        row = written.get(summary["id"])
+        stale = bool(row) and row.get("hash") != role_analyst.facts_hash(summary)
+        summary["ai"] = ({"text": row.get("text") or "",
+                          "at": row["at"].isoformat()
+                                if isinstance(row.get("at"), datetime) else None,
+                          "stale": stale} if row else None)
+        if scores and (row is None or stale):
+            due += 1
+
+    return jsonify({
+        "roles": summaries,
+        "tones": tones,
+        "scores_visible": scores,
+        # Whether the Analyse button is worth drawing, and how much it has to do.
+        "ai_configured": scores and evaluator.is_configured(),
+        "due": due,
+    })
+
+
+@app.route("/api/evaluations/summary/analyse", methods=["POST"])
+def api_summary_analyse():
+    """
+    Have the model write the summary for roles that have changed since their
+    last one -- or have never had one.
+
+    At most SUMMARY_BATCH roles a call; `remaining` says how many are still
+    due, and the page calls again until it is zero. `force` rewrites roles
+    whose facts have not changed too.
+
+    A role's summary is written from its scores, so an account that may not
+    read them cannot ask for one.
+    """
+    error = _mongo_guard()
+    if error:
+        return error
+    if not (_is_admin() or MANAGER_DASHBOARD_SCORES):
+        return jsonify({"error": "Summaries are written from the scores, "
+                                 "which this account does not see."}), 403
+    if not evaluator.is_configured():
+        return jsonify({
+            "error": "AI evaluation is not configured. Set LLM_API_KEY in .env."
+        }), 503
+
+    body = request.get_json(silent=True) or {}
+    scope = _scope()
+    summaries = _role_summaries(scope, True)
+    written = store.role_summaries(job_ids=scope)
+    hashes = {s["id"]: role_analyst.facts_hash(s) for s in summaries}
+    due = [s for s in summaries
+           if body.get("force")
+           or (written.get(s["id"]) or {}).get("hash") != hashes[s["id"]]]
+    batch = due[:SUMMARY_BATCH]
+
+    if not _run_lock.acquire(blocking=False):
+        return jsonify({"error": "A run is already in progress."}), 409
+    done, failed = [], []
+    try:
+        with ThreadPoolExecutor(max_workers=max(1, LLM_CONCURRENCY)) as pool:
+            futures = {pool.submit(role_analyst.narrate, s): s for s in batch}
+            for future in as_completed(futures):
+                summary = futures[future]
+                try:
+                    text = future.result()
+                except (evaluator.EvaluationFailed,
+                        evaluator.EvaluatorNotConfigured) as exc:
+                    failed.append({"id": summary["id"],
+                                   "title": summary["title"],
+                                   "error": str(exc)})
+                    continue
+                store.save_role_summary(summary["id"], hashes[summary["id"]],
+                                        text, role_analyst.model_name())
+                done.append(summary["id"])
+    except Exception as exc:
+        log.exception("role summaries failed")
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+    finally:
+        _run_lock.release()
+
+    # A forced run has no "due" list to shrink, so it is one batch and done.
+    remaining = 0 if body.get("force") else len(due) - len(batch)
+    message = f"Wrote {len(done)} role summar{'y' if len(done) == 1 else 'ies'}."
+    if failed:
+        message += f" {len(failed)} failed: {failed[0]['error']}"
+    return jsonify({"message": message, "written": done, "failed": failed,
+                    "remaining": remaining})
 
 
 @app.route("/api/evaluations/role/<int:job_id>")
@@ -1406,35 +1677,24 @@ def api_ingest():
 # there and nowhere else in backend.web.
 # --------------------------------------------------------------------------
 
-def _round_two_invited(submission: dict, role: dict, mail: dict,
-                       interviewer: str, manager_email: str) -> str:
+def _round_two_invited(submission: dict, mail: dict, interviewer: str,
+                       manager_email: str) -> str:
     """
     What follows a round 2 invitation that reached the candidate: the second
-    interviewer is told, and is recorded on the candidate -- which is also what
-    lets them open the candidate to mark the outcome. Returns the sentence to
-    add to the reply.
+    interviewer is recorded on the candidate -- which is also what lets them
+    open the candidate to mark the outcome. They were copied on the invitation
+    itself, so no separate note goes to them. Returns the sentence to add to
+    the reply.
     """
     address = mail.get("manager") or manager_email
     name = mail.get("manager_name") or interviewer
-    manager = {"name": name, "email": address}
-    # Handed this candidate on the move and told so then: they are very likely
-    # the person who just pressed Send, and need no second note saying a
-    # candidate they invited is coming.
-    before = (submission.get("pipeline") or {}).get("interviewer_2") or {}
-    if (before.get("notified") and address
-            and before.get("email") == str(address).strip().lower()):
-        store.set_round_two_interviewer(
-            submission["_id"], name=name, email=address,
-            cal_link=mail.get("cal_link") or "", notified=True)
-        return ""
-    notice = candidate_mail.send_round_two_notice(
-        submission, role, manager, mail.get("cal_link") or "")
+    copied = bool(mail.get("cc"))
     store.set_round_two_interviewer(
         submission["_id"], name=name, email=address,
-        cal_link=mail.get("cal_link") or "", notified=bool(notice.get("sent")))
+        cal_link=mail.get("cal_link") or "", notified=copied)
     who = name or address or "The second interviewer"
-    return (f" {who} has been told they are coming." if notice.get("sent")
-            else f" {who} was NOT notified: {notice.get('reason')}.")
+    return (f" {who} was CC'd." if copied
+            else f" {who} was NOT copied: no email address for them.")
 
 
 def _round_two_handed_over(submission: dict, role: dict, interviewer: str,
@@ -1480,8 +1740,10 @@ def api_set_pipeline():
     automation switch says: the invitation carries the booking link of whoever
     takes the second interview, and that person has to be named. Passing
     `notify: true` with `manager_email` (or `interviewer` and `cal_link`) moves
-    the candidate and sends the invitation in one call -- and if the invitation
-    cannot be built, nothing is moved either.
+    the candidate and sends the invitation in one call, with the second
+    interviewer copied on it -- and if the invitation cannot be built, nothing
+    is moved either. `message` and `subject` are the sender's edits to that
+    invitation; blank means the default wording.
 
     THE MOVE DOES NOT EMAIL ANYONE while PIPELINE_AUTO_EMAIL is off, which is
     how the system ships. The board records where somebody is; the candidate
@@ -1570,7 +1832,9 @@ def api_set_pipeline():
             candidate_mail.build_stage_email(
                 submission, role, stage, cal_link=cal_link,
                 interviewer=field("interviewer") or "",
-                manager_email=manager_email)
+                manager_email=manager_email,
+                message=field("message") or "",
+                subject=field("subject") or "")
         except candidate_mail.CandidateMailError as exc:
             return jsonify({"error": str(exc)}), 409
 
@@ -1608,6 +1872,10 @@ def api_set_pipeline():
                 interviewer=field("interviewer") or "",
                 manager_email=manager_email,
                 note=field("email_note") or "",
+                # Round 2 only: the rejection's wording is fixed, and
+                # build_stage_email ignores both for it.
+                message=(field("message") or "") if round_two else "",
+                subject=(field("subject") or "") if round_two else "",
                 force=bool(body.get("resend")),
             )
         except candidate_mail.CandidateMailError as exc:
@@ -1619,7 +1887,7 @@ def api_set_pipeline():
         message += (f" Emailed {mail['to']}." if mail.get("sent")
                     else f" Not emailed: {mail.get('reason', 'no reason given')}")
         if round_two and mail.get("sent"):
-            message += _round_two_invited(moved, role, mail,
+            message += _round_two_invited(moved, mail,
                                           field("interviewer") or "",
                                           manager_email)
     elif round_two and (manager_email or field("interviewer")):
@@ -1632,7 +1900,7 @@ def api_set_pipeline():
         # sending is a separate click, and a manager who assumed otherwise
         # would leave a candidate waiting on an email nobody asked for.
         message += (" Nobody was emailed — use Send invitation on their "
-                    "row when you know who takes the second interview."
+                    "row to invite them."
                     if stage == "interview_2" else
                     " Nobody was emailed — open their card and click Send.")
 
@@ -1645,7 +1913,7 @@ def api_set_pipeline():
     })
 
 
-@app.route("/api/pipeline/preview")
+@app.route("/api/pipeline/preview", methods=["GET", "POST"])
 def api_pipeline_preview():
     """
     The candidate email for a stage move, exactly as it would be sent.
@@ -1654,6 +1922,10 @@ def api_pipeline_preview():
     `interviewer` and `email_note` mirror the POST body, so a manager reads the
     real message with their own link in it before anyone clicks send.
 
+    POST takes the same fields as JSON, plus `message` and `subject` -- the
+    edited round 2 invitation, which is too long for a query string. It sends
+    nothing either way.
+
     Rendered by the same builder the send uses -- a preview from a second
     template is a preview of nothing.
     """
@@ -1661,8 +1933,16 @@ def api_pipeline_preview():
     if error:
         return error
 
-    submission_id = request.args.get("submission_id", type=int)
-    stage = request.args.get("stage") or ""
+    body = request.get_json(silent=True) or {}
+
+    def arg(name: str) -> str:
+        value = body.get(name) if name in body else request.args.get(name)
+        return str(value).strip() if value is not None else ""
+
+    submission_id = body.get("submission_id")
+    if not isinstance(submission_id, int):
+        submission_id = request.args.get("submission_id", type=int)
+    stage = arg("stage")
     if submission_id is None:
         return jsonify({"error": "submission_id is required."}), 400
     if not candidate_mail.stage_is_mailed(stage):
@@ -1679,21 +1959,23 @@ def api_pipeline_preview():
     try:
         email = candidate_mail.build_stage_email(
             submission, role, stage,
-            cal_link=request.args.get("cal_link") or "",
-            interviewer=request.args.get("interviewer") or "",
-            manager_email=request.args.get("manager_email") or "",
-            note=request.args.get("email_note") or "",
+            cal_link=arg("cal_link"),
+            interviewer=arg("interviewer"),
+            manager_email=arg("manager_email"),
+            note=arg("email_note"),
+            message=arg("message"),
+            subject=arg("subject"),
         )
     except candidate_mail.CandidateMailError as exc:
         return jsonify({"error": str(exc)}), 409
 
-    already = candidate_mail.already_sent(
-        submission, stage, request.args.get("cal_link") or "")
+    already = candidate_mail.already_sent(submission, stage, arg("cal_link"))
     return jsonify({
         "email": {key: email[key] for key in ("subject", "html", "text")},
         "to": email["to"],
         "to_name": email["to_name"],
         "cal_link": email["cal_link"],
+        "cc": email["cc"],
         "manager": email["manager"],
         "already_sent": _json_safe(already) if already else None,
     })
@@ -1705,9 +1987,9 @@ def api_send_stage_email():
     Send one candidate their stage email, because somebody clicked Send.
 
     Body: {submission_id, stage?, cal_link?, manager_email?, interviewer?,
-           email_note?, resend?}. `stage` defaults to where the candidate
-           already is, so the ordinary case is "send this person the thing
-           their card says they are owed".
+           email_note?, message?, subject?, resend?}. `stage` defaults to where
+           the candidate already is, so the ordinary case is "send this person
+           the thing their card says they are owed".
 
     Rejections and round 2 invitations. The FIRST interview invitation is the
     manager's to send, from the composer on their review link -- see
@@ -1716,7 +1998,8 @@ def api_send_stage_email():
     For round 2, `manager_email` names who is taking the second interview and
     `cal_link` is their booking link. Either a known manager or a typed
     `interviewer` name plus a link will do; the first interviewer is never
-    assumed. The candidate has to be in round 2 already.
+    assumed. That person is copied on the invitation. `message` and `subject`
+    are the sender's edits to it. The candidate has to be in round 2 already.
 
     /api/pipeline moves people and stays quiet; this one sends and moves
     nobody. Splitting them is the whole point of the manual mode: the board can
@@ -1787,6 +2070,8 @@ def api_send_stage_email():
             interviewer=interviewer,
             manager_email=manager_email,
             note=field("email_note"),
+            message=field("message") if round_two else "",
+            subject=field("subject") if round_two else "",
             force=bool(body.get("resend")),
         )
     except candidate_mail.CandidateMailError as exc:
@@ -1800,7 +2085,7 @@ def api_send_stage_email():
     message = (f"Sent {name} {what} at {mail['to']}." if mail.get("sent")
                else f"Not sent: {mail.get('reason', 'no reason given')}")
     if round_two and mail.get("sent"):
-        message += _round_two_invited(submission, role, mail, interviewer,
+        message += _round_two_invited(submission, mail, interviewer,
                                       manager_email)
 
     return jsonify({

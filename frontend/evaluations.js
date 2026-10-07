@@ -513,6 +513,9 @@ async function loadRoles() {
     // CVs, and the roles grid -- which is what the reader came for -- must not
     // sit blank behind it. It draws itself in when it answers.
     loadSpotlight();
+    // Likewise, and only the first time: it is there to put a count on the
+    // Summary button, and the drawer re-reads when it is asked to.
+    Summary.load();
     const totals = state.roles.reduce((n, r) => n + r.counts.total, 0);
     // A hiring manager is looking at 2 roles out of 26 and has no way to know
     // that from a grid of 2. Say it in the line that is already there rather
@@ -1153,6 +1156,7 @@ function visibleRoles() {
   return state.roles.filter((role) => {
     if (filter === 'active' && role.counts.total === 0) return false;
     if (filter === 'published' && !role.published) return false;
+    if (filter === 'repost' && !role.recruitment?.quality?.repost) return false;
     if (term && !`${role.title} ${role.slug}`.toLowerCase().includes(term)) return false;
     return true;
   });
@@ -1207,6 +1211,28 @@ function renderRoles() {
       : '';
     const ownerRow = owner + sent;
 
+    // The recruitment line: how many applied, when the last one did, and what
+    // the graded work says about the pipeline. The quality read is the
+    // server's -- a count of who clears the bar -- and is absent for an
+    // account that may not read scores, so nothing is drawn for it here.
+    const rec = role.recruitment || {};
+    const q = rec.quality;
+    const facts = total ? `<div class="role-facts">
+          <span><b>${(rec.applicants ?? total).toLocaleString()}</b> applicant${
+            (rec.applicants ?? total) === 1 ? '' : 's'}</span>
+          <span>${rec.last_application
+            ? `last applied <b>${esc(shortDate(rec.last_application))}</b> · ${
+                esc(whenRelative(rec.last_application))}`
+            : 'no application date'}</span>
+        </div>` : '';
+    const quality = total && q ? `<div class="role-quality">
+          <span class="quality-chip quality-${esc(q.key)}"
+                title="${esc(`${q.detail}${q.top != null ? ` · top score ${q.top}` : ''
+                  } · bar is ${q.bar}`)}">${esc(q.label)}</span>
+          <span>${esc(q.detail)}${q.top != null && !q.clear ? ` · top ${q.top}` : ''}</span>
+          ${q.repost ? '<span class="quality-chip quality-repost" title="Everything is graded, nobody clears the bar and nobody is in interviews">Repost needed</span>' : ''}
+        </div>` : '';
+
     // A tiered card names the posting, so the slug line has to say which
     // assignment it belongs to or two cards read as two unrelated seats. The
     // unresolved count sits here rather than inside the role, because it is
@@ -1238,6 +1264,7 @@ function renderRoles() {
         </div>
         <div class="role-legend">${legend}</div>`
         : '<div class="role-legend"><span>No submissions yet</span></div>'}
+        ${facts}${quality}
         ${chips ? `<div class="role-stages">${chips}</div>` : ''}
         ${ownerRow ? `<div class="role-stages">${ownerRow}</div>` : ''}
       </button>`;
@@ -1812,12 +1839,13 @@ const boardChosen = () => boardRejectRows().filter((c) => boardPicked.has(c.id))
 const PIPELINE_HINT = {
   interview: 'Everyone invited to a first interview, soonest first. After '
     + 'the interview, advance them to round 2 or reject them — a rejection '
-    + 'emails the candidate, an advance emails only the second interviewer, '
-    + 'who sends the invitation from Round 2.',
-  interview_2: 'Through to a second interview. The second interviewer is '
-    + 'told on the move and marks Hire or Reject here after they meet. A row '
-    + 'marked "not invited yet" is a candidate still waiting to hear — use '
-    + 'Send invitation on it.',
+    + 'emails the candidate, and an advance emails them the round 2 '
+    + 'invitation with the second interviewer’s booking link, that '
+    + 'interviewer CC’d.',
+  interview_2: 'Through to a second interview. The second interviewer was '
+    + 'CC’d on the invitation and marks Hire or Reject here after they '
+    + 'meet. A row marked "not invited yet" is a candidate still waiting to '
+    + 'hear — use Send invitation on it.',
   hired: 'Offers accepted. The score and the grid that produced it stay on the '
     + 'record, so a hire can be read back against what the assessment predicted.',
   rejected: 'Turned down after being seen. Tick the ones to tell and press '
@@ -1844,10 +1872,11 @@ const PIPELINE_EMPTY = {
  * mis-recorded outcome is Remove, which puts them back on the shortlist where
  * the manager can invite them again -- and the manager finds out, which a
  * silent re-book on this page would not tell them. */
-/* Handed to a second interviewer is not the same as invited: the move names
- * who takes round 2 and emails only them, and the candidate hears nothing
- * until that person sends the invitation. `invited` is absent on records
- * written before the hand-over existed, all of which were invited. */
+/* In round 2 is not the same as invited: somebody moved without an email, or
+ * from a manager's review link, has heard nothing until the invitation is
+ * sent from their row. `invited` is false on a candidate handed to a second
+ * interviewer without one, and absent on older records, all of which were
+ * invited. */
 function roundTwoInvited(c) {
   const second = c.pipeline?.interviewer_2;
   return Boolean(second) && second.invited !== false;
@@ -2792,6 +2821,210 @@ function renderSpotlight() {
     });
   }
 }
+
+
+/* =======================================================================
+ * The summary -- every role in one read
+ ======================================================================= */
+
+/* One card per role, from the role analyst on the server: a headline, the
+ * findings behind it, the people worth naming, and -- where it has been run --
+ * a few sentences the model wrote from those same findings.
+ *
+ * Nothing on a card is worked out here. The headline, the tone and every
+ * finding come back as text, so this drawer and anything else that ever shows
+ * a role summary say the same thing about the same role.
+ *
+ * Read once per visit and again when asked: it is five aggregations over
+ * every submission, and re-reading it after each board move would be paying
+ * for a drawer nobody has open. */
+const Summary = (() => {
+  const data = { roles: [], tones: {}, due: 0, aiConfigured: false,
+                 loaded: false, loading: false, analysing: false };
+
+  const hasMarkup = () => Boolean($('summaryDrawer') && $('summaryBody'));
+  const isOpen = () => $('summaryDrawer')?.hidden === false;
+
+  async function load(force = false) {
+    if (!hasMarkup() || data.loading) return;
+    if (!force && data.loaded) { render(); return; }
+    data.loading = true;
+    try {
+      const reply = await api('/api/evaluations/summary');
+      data.roles = reply.roles || [];
+      data.tones = reply.tones || {};
+      data.due = reply.due || 0;
+      data.aiConfigured = Boolean(reply.ai_configured);
+      data.loaded = true;
+    } catch (err) {
+      // A summary that will not load is not a reason to lose the dashboard
+      // under it.
+      data.loaded = false;
+      if (isOpen()) toast(err.message, true);
+    } finally {
+      data.loading = false;
+    }
+    render();
+  }
+
+  function visible() {
+    const term = $('summarySearch').value.trim().toLowerCase();
+    const tone = $('summaryFilter').value;
+    return data.roles.filter((role) => {
+      if (tone && role.tone !== tone) return false;
+      if (!term) return true;
+      const people = [...role.top, ...role.notable].map((p) => p.name).join(' ');
+      return `${role.title} ${role.headline} ${people}`.toLowerCase().includes(term);
+    });
+  }
+
+  /* The people a card names, once each: whoever tops the queue with their
+   * score, then whoever's record names an employer or a school. A click opens
+   * their card over this drawer. */
+  function peopleChips(role) {
+    const seen = new Set();
+    const chips = [];
+    for (const c of role.top) {
+      seen.add(c.id);
+      chips.push([c.id, c.name, String(c.score)]);
+    }
+    for (const p of role.notable) {
+      const where = [...p.employers, ...p.schools].join(', ');
+      if (seen.has(p.id)) {
+        const chip = chips.find((entry) => entry[0] === p.id);
+        chip[2] += ` · ${where}`;
+        continue;
+      }
+      seen.add(p.id);
+      chips.push([p.id, p.name, where]);
+    }
+    return chips.slice(0, 12).map(([id, name, why]) =>
+      `<button class="sum-person" type="button" data-sum-cand="${id}">${
+        esc(name)} <span>${esc(why)}</span></button>`).join('');
+  }
+
+  function card(role) {
+    const facts = [
+      `${role.applicants.toLocaleString()} applicant${role.applicants === 1 ? '' : 's'}`,
+      role.last_application
+        ? `last applied ${shortDate(role.last_application)} · ${whenRelative(role.last_application)}`
+        : '',
+      role.published ? '' : 'unpublished',
+    ].filter(Boolean).join(' · ');
+    const ai = role.ai?.text ? `
+        <p class="sum-ai"><span class="sum-ai-tag">AI summary</span>${esc(role.ai.text)}${
+          role.ai.stale
+            ? ' <span class="dim">(the role has changed since this was written)</span>'
+            : ''}</p>` : '';
+    const people = peopleChips(role);
+    return `
+      <article class="sum-card sum-${esc(role.tone)}">
+        <header class="sum-head">
+          <div>
+            <h3>${esc(role.title)}</h3>
+            <p class="sum-facts">${esc(facts)}</p>
+          </div>
+          <span class="sum-headline">${esc(role.headline)}</span>
+        </header>
+        ${ai}
+        ${role.findings.length ? `<ul class="sum-findings">${role.findings
+          .map((f) => `<li class="sum-${esc(f.tone)}">${esc(f.text)}</li>`).join('')}</ul>` : ''}
+        ${people ? `<div class="sum-people">${people}</div>` : ''}
+        <p><button class="btn btn-ghost btn-sm" type="button"
+                   data-sum-role="${role.id}">Open role</button></p>
+      </article>`;
+  }
+
+  function render() {
+    if (!hasMarkup()) return;
+    const badge = $('summaryCount');
+    if (badge) badge.textContent = data.tones.warn ? String(data.tones.warn) : '';
+    if (!isOpen()) return;
+
+    const n = data.roles.length;
+    $('summarySub').textContent = !data.loaded
+      ? (data.loading ? 'Reading every role…' : 'Could not load the summary.')
+      : `${n} role${n === 1 ? '' : 's'} · ${data.tones.warn || 0} need attention · ${
+          data.tones.good || 0} strong`;
+
+    const run = $('summaryAnalyse');
+    run.hidden = !data.aiConfigured || (!data.due && !data.analysing);
+    run.disabled = data.analysing;
+    run.textContent = data.analysing ? 'Analysing…'
+      : `Run AI analysis (${data.due})`;
+
+    const rows = visible();
+    $('summaryBody').innerHTML = !data.loaded ? ''
+      : rows.length ? rows.map(card).join('')
+      : `<p class="empty">${n ? 'No role matches that search.'
+          : 'No role here has had an applicant yet.'}</p>`;
+
+    for (const btn of $('summaryBody').querySelectorAll('[data-sum-cand]')) {
+      btn.addEventListener('click', () => openDrawer(Number(btn.dataset.sumCand)));
+    }
+    for (const btn of $('summaryBody').querySelectorAll('[data-sum-role]')) {
+      btn.addEventListener('click', () => {
+        const id = Number(btn.dataset.sumRole);
+        // A tiered role has no card without a tier; open its first.
+        const first = state.roles.find((r) => r.id === id);
+        close();
+        openRole(id, true, null, first?.tier || null);
+      });
+    }
+  }
+
+  /* The model writes a few roles per request, because a request has a
+   * ceiling. Asked again until nothing is due -- and stopped the moment a
+   * batch writes nothing, so a provider that is down is one error rather
+   * than a loop. */
+  async function analyse() {
+    if (data.analysing) return;
+    data.analysing = true;
+    render();
+    try {
+      for (let round = 0; round < 20; round += 1) {
+        const reply = await api('/api/evaluations/summary/analyse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        await load(true);
+        if (reply.failed?.length) toast(reply.message, true);
+        if (!reply.remaining || !reply.written?.length) break;
+      }
+    } catch (err) {
+      toast(err.message, true);
+    } finally {
+      data.analysing = false;
+      render();
+    }
+  }
+
+  function open() {
+    if (!hasMarkup()) return;
+    $('summaryDrawer').hidden = false;
+    render();
+    load();
+    $('summarySearch')?.focus();
+  }
+
+  function close() {
+    if (!hasMarkup()) return;
+    $('summaryDrawer').hidden = true;
+    $('summaryBtn')?.focus();
+  }
+
+  $('summaryBtn')?.addEventListener('click', open);
+  $('summaryRefresh')?.addEventListener('click', () => load(true));
+  $('summaryAnalyse')?.addEventListener('click', analyse);
+  $('summarySearch')?.addEventListener('input', render);
+  $('summaryFilter')?.addEventListener('change', render);
+  for (const el of document.querySelectorAll('[data-summary-close]')) {
+    el.addEventListener('click', close);
+  }
+
+  return { load, open, close, isOpen };
+})();
 
 
 async function loadRubric(jobId) {
@@ -4505,28 +4738,35 @@ function stageMailFields(c) {
  * Round 2, in one dialog
  ======================================================================= */
 
-/* Two jobs, one dialog, told apart by where the candidate is.
+/* One job: pick who takes the second interview, check their booking link,
+ * read the invitation, send. A candidate who is not in round 2 yet is moved
+ * by the same click, so advancing somebody and telling them are one act.
  *
- * Not in round 2 yet: pick who takes the second interview and press Move. The
- * candidate is moved and NOT emailed; the person picked is, and is asked to
- * send the invitation from their Round 2 list.
+ * The second interviewer is CC'd on the invitation, which is how they find
+ * out -- there is no separate note to them, and nothing for them to send.
  *
- * Already in round 2: this is that invitation. The booking link is filled in
- * from the person picked, who is whoever was handed the candidate.
+ * The link is filled in from the person picked and can be typed over, for a
+ * manager we hold no link for or one who books second interviews on a
+ * different page. Nothing is taken from the first interview: round 2 is with
+ * somebody else, and falling back to the first manager would send their
+ * calendar to a candidate who has already met them.
  *
- * The link box only appears when there is something to type -- "Someone else",
- * or a manager we hold no link for. Nothing is taken from the first interview:
- * round 2 is with somebody else, and falling back to the first manager would
- * send their calendar to a candidate who has already met them. */
+ * The subject and message are the sender's to rewrite, as on the first
+ * invitation; the booking button and the signature are added below them by
+ * the server and cannot be edited away. The preview is the server's render,
+ * through the builder that sends. */
 const RoundTwo = (() => {
   const OTHER = '__other';
   const LAST = 'round2.interviewer';
   let cand = null;
   let people = [];
+  let timer = null;
+  let seq = 0;
 
   const isOpen = () => !$('round2').hidden;
   const inRound2 = () => stageOf(cand) === 'interview_2';
   const person = () => people.find((m) => m.email === $('round2Manager').value);
+  const template = () => state.mail.round_two || {};
 
   /* This role's managers first, then everybody else's. The second list is
    * empty on a hiring manager's own account, which is what "Someone else" is
@@ -4555,43 +4795,97 @@ const RoundTwo = (() => {
   function fields() {
     const picked = $('round2Manager').value;
     const other = picked === OTHER;
-    const who = {
+    return {
       manager_email: other ? ($('round2Email').value.trim() || undefined)
         : (picked || undefined),
       interviewer: other ? ($('round2Name').value.trim() || undefined) : undefined,
-    };
-    // The move writes to nobody but the interviewer, so it carries nothing
-    // meant for the candidate.
-    if (!inRound2()) return who;
-    return {
-      ...who,
       cal_link: $('round2Cal').value.trim() || undefined,
-      email_note: $('round2Note').value.trim() || undefined,
+      subject: $('round2Subject').value.trim() || undefined,
+      message: $('round2Message').value.trim() || undefined,
     };
   }
 
-  function sync() {
-    const picked = $('round2Manager').value;
-    const other = picked === OTHER;
-    const known = person();
-    setHidden('round2NameWrap', !other);
-    setHidden('round2EmailWrap', !other);
-    const moving = !inRound2();
-    // Asked for only when we do not already have it -- and never on the move,
-    // which sends the candidate nothing to put a link in.
-    setHidden('round2CalWrap',
-      moving || !(other || (known && !known.cal_link)));
-    setHidden('round2NoteWrap', moving);
-    setHidden('round2Preview', moving);
-    setHidden('round2Frame', true);
+  /* Somebody to meet and a link to book them on. Without both there is no
+   * invitation to preview, let alone send. */
+  function ready() {
+    const other = $('round2Manager').value === OTHER;
     const named = other
       ? Boolean($('round2Name').value.trim()
                 && $('round2Email').value.includes('@'))
-      : Boolean(known);
-    const ready = named && (moving || Boolean(
-      $('round2Cal').value.trim() || (!other && known.cal_link)));
-    $('round2Send').disabled = !ready;
-    $('round2Preview').disabled = !ready;
+      : Boolean(person());
+    return named && Boolean($('round2Cal').value.trim());
+  }
+
+  function sync() {
+    const other = $('round2Manager').value === OTHER;
+    setHidden('round2NameWrap', !other);
+    setHidden('round2EmailWrap', !other);
+
+    const who = other ? $('round2Name').value.trim()
+      : (person()?.name || person()?.email || '');
+    const address = other ? $('round2Email').value.trim() : (person()?.email || '');
+    $('round2Locked').textContent = who
+      ? `Below your message we always add the button that books ${who}`
+        + ` and their name. ${address || who} is CC’d on the email.`
+      : 'Below your message we always add the booking button and the '
+        + 'interviewer’s name. The interviewer is CC’d on the email.';
+
+    $('round2Send').disabled = !ready();
+    if (!ready()) {
+      $('round2Frame').srcdoc = '';
+      $('round2For').textContent = '';
+      $('round2State').textContent = 'Choose who they meet, and their booking link.';
+    }
+  }
+
+  function schedulePreview() {
+    clearTimeout(timer);
+    sync();
+    if (!ready()) return;
+    $('round2State').textContent = 'Rendering…';
+    timer = setTimeout(preview, 500);
+  }
+
+  /* Replies are sequenced: typing fires a render every half second and they
+   * can land out of order, and a slow render of an older draft must not paint
+   * over a newer one. */
+  async function preview() {
+    if (!cand || !ready()) return;
+    const mine = ++seq;
+    try {
+      const data = await api('/api/pipeline/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submission_id: cand.id, stage: 'interview_2',
+                               ...fields() }),
+      });
+      if (mine !== seq || !isOpen()) return;
+      $('round2Frame').srcdoc = data.email.html;
+      $('round2For').textContent = `As ${data.to_name || data.to} will read it`;
+      $('round2State').textContent = data.cc?.length
+        ? `CC ${data.cc.map((p) => p.email).join(', ')}` : 'Nobody is CC’d';
+    } catch (err) {
+      if (mine !== seq || !isOpen()) return;
+      $('round2Frame').srcdoc = '';
+      $('round2For').textContent = '';
+      $('round2State').textContent = err.message;
+    }
+  }
+
+  function resetWording() {
+    $('round2Subject').value = template().subject || '';
+    $('round2Message').value = template().message || '';
+  }
+
+  /* Put a placeholder where the cursor is, rather than at the end. */
+  function insertToken(token) {
+    const box = $('round2Message');
+    const at = box.selectionStart ?? box.value.length;
+    const to = box.selectionEnd ?? at;
+    box.value = box.value.slice(0, at) + token + box.value.slice(to);
+    box.selectionStart = box.selectionEnd = at + token.length;
+    box.focus();
+    schedulePreview();
   }
 
   function open(c) {
@@ -4606,31 +4900,40 @@ const RoundTwo = (() => {
           esc(m.name ? `${m.name} — ${m.email}` : m.email)}</option>`).join('')
       + `<option value="${OTHER}">Someone else…</option>`;
     select.value = people.some((m) => m.email === before) ? before : '';
-    for (const id of ['round2Name', 'round2Email', 'round2Cal', 'round2Note']) {
-      $(id).value = '';
+    $('round2Name').value = '';
+    $('round2Email').value = '';
+    $('round2Cal').value = person()?.cal_link || '';
+    resetWording();
+
+    $('round2Chips').innerHTML = (template().placeholders || [])
+      .map((p) => `<button class="chip" type="button" data-insert="{${esc(p)}}">{${esc(p)}}</button>`)
+      .join('');
+    for (const chip of $('round2Chips').querySelectorAll('[data-insert]')) {
+      chip.addEventListener('click', () => insertToken(chip.dataset.insert));
     }
 
     const who = c.candidate_name || 'This candidate';
-    $('round2Lead').textContent = inRound2()
-      ? `${who} is in round 2. Choose who they meet: the candidate gets that `
-        + 'person\u2019s booking link, and that person is told they are coming.'
-      : `${who} moves to round 2. Choose who they meet: that person is emailed `
-        + 'to check their Round 2 list and send the invitation from there. '
-        + 'The candidate is not emailed by this move.';
+    $('round2Lead').textContent = `${who} ${
+      inRound2() ? 'is in round 2' : 'moves to round 2'}. Choose who they `
+      + 'meet: the candidate is emailed this invitation with that person’s '
+      + 'booking link, and that person is CC’d.';
     $('round2Send').textContent = sendLabel();
     // Already there: nothing left to move, so the quiet option goes away.
     setHidden('round2Skip', inRound2());
-    sync();
     $('round2').hidden = false;
+    schedulePreview();
     select.focus();
   }
 
   function close() {
+    clearTimeout(timer);
+    seq += 1;                              // a render in flight is now stale
     $('round2').hidden = true;
     cand = null;
   }
 
-  const sendLabel = () => (inRound2() ? 'Send invitation' : 'Move and notify');
+  const sendLabel = () => (inRound2() ? 'Send invitation'
+    : 'Move and send invitation');
 
   async function refresh(id) {
     await loadPipeline();
@@ -4640,31 +4943,26 @@ const RoundTwo = (() => {
   }
 
   async function send() {
-    if (!cand) return;
+    if (!cand || !ready()) return;
     const btn = $('round2Send');
     const id = cand.id;
     const moving = !inRound2();
     btn.disabled = true;
     btn.textContent = moving ? 'Moving…' : 'Sending…';
     try {
-      // The invitation when they are in round 2 already. Otherwise the move,
-      // with `notify: false` said outright: the candidate is not emailed
-      // whatever the automation switch says, and naming the interviewer is
-      // what gets that person their note.
-      const result = !moving
-        ? await api('/api/pipeline/send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ submission_id: id, stage: 'interview_2',
-                                   resend: true, ...fields() }),
-          })
-        : await api('/api/pipeline', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ submission_id: id, stage: 'interview_2',
-                                   notify: false, ...fields() }),
-          });
-      const went = moving ? result.notice?.sent : result.mail?.sent;
+      // One call either way. Somebody not in round 2 yet is moved and invited
+      // together -- `notify: true` said outright, because the automation
+      // switch never sends a round 2 invitation by itself -- and the server
+      // refuses the move if the invitation cannot be built. `resend` because
+      // this is a deliberate Send on a message that was just read.
+      const result = await api(moving ? '/api/pipeline' : '/api/pipeline/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submission_id: id, stage: 'interview_2',
+                               resend: true, ...(moving ? { notify: true } : {}),
+                               ...fields() }),
+      });
+      const went = result.mail?.sent;
       toast(result.message, !went);
       const picked = $('round2Manager').value;
       if (went && picked && picked !== OTHER) {
@@ -4687,33 +4985,21 @@ const RoundTwo = (() => {
         && !$('drawer').hidden) openDrawer(id);
   }
 
-  async function preview() {
-    if (!cand) return;
-    const query = new URLSearchParams({ submission_id: String(cand.id),
-                                        stage: 'interview_2' });
-    for (const [key, value] of Object.entries(fields())) {
-      if (value) query.set(key, value);
-    }
-    try {
-      const data = await api(`/api/pipeline/preview?${query}`);
-      const frame = $('round2Frame');
-      frame.srcdoc = data.email.html;
-      frame.hidden = false;
-    } catch (err) {
-      toast(err.message, true);
-    }
-  }
-
   $('round2Manager').addEventListener('change', () => {
-    $('round2Cal').value = '';
-    sync();
+    $('round2Cal').value = person()?.cal_link || '';
+    schedulePreview();
   });
-  for (const id of ['round2Name', 'round2Email', 'round2Cal']) {
-    $(id).addEventListener('input', sync);
+  for (const id of ['round2Name', 'round2Email', 'round2Cal',
+                    'round2Subject', 'round2Message']) {
+    $(id).addEventListener('input', schedulePreview);
   }
+  $('round2Reset').addEventListener('click', () => {
+    resetWording();
+    schedulePreview();
+    $('round2Message').focus();
+  });
   $('round2Send').addEventListener('click', send);
   $('round2Skip').addEventListener('click', skip);
-  $('round2Preview').addEventListener('click', preview);
   for (const el of document.querySelectorAll('[data-round2-close]')) {
     el.addEventListener('click', close);
   }
@@ -5965,7 +6251,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (RoundTwo.isOpen() || !$('mailPreview').hidden || !$('drawer').hidden
       || $('accountsDrawer')?.hidden === false
-      || $('spotlightDrawer')?.hidden === false
+      || $('spotlightDrawer')?.hidden === false || Summary.isOpen()
       || InviteComposer.isOpen() || RejectionComposer.isOpen()) return;
   if (state.activeRoleId !== null) backToRoles();
 });
@@ -5993,6 +6279,7 @@ document.addEventListener('keydown', (e) => {
   // this list sits on top of the list, so the first Escape closes the card and
   // puts the reader back on the twenty they were working through.
   else if ($('spotlightDrawer')?.hidden === false) closeSpotlight();
+  else if (Summary.isOpen()) Summary.close();
 });
 
 /* The composer, told how this page talks and what to do afterwards.

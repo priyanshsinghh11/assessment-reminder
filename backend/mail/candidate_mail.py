@@ -9,7 +9,7 @@ messages, and only three:
                  starting a thread about times.
     interview_2  the invitation to a second interview, carrying the booking
                  link of whoever is taking THAT one -- usually a different
-                 manager from the first.
+                 manager from the first -- with that person copied on it.
     rejected     the turn-down after a human has read them.
 
 Nothing is sent for `hired`, or for a removal from the board. An offer is a
@@ -241,9 +241,8 @@ def default_round_two_message(note: str = "") -> str:
     """
     parts = [
         "Hi {first_name},",
-        "Thank you for taking the time to speak with us about the {role} "
-        "role. We enjoyed the conversation and would like to invite you to a "
-        "second interview.",
+        "Congratulations! We enjoyed speaking with you about the {role} "
+        "role, and you're through to the second round of interviews.",
         "This time you'll meet with {interviewer}.",
     ]
     if str(note or "").strip():
@@ -253,6 +252,32 @@ def default_round_two_message(note: str = "") -> str:
         "reply to this email and we'll find one that does.")
     parts.append("Grab a time here:")
     return "\n\n".join(parts)
+
+
+def round_two_template() -> dict:
+    """
+    The round 2 invitation as the dashboard's dialog starts from it: subject
+    and message with their placeholders still in, so the boxes are filled
+    before anybody has been picked to take the interview.
+    """
+    return {"subject": default_round_two_subject("{role}"),
+            "message": default_round_two_message(),
+            "placeholders": [p for p in PLACEHOLDERS if p != "when"]}
+
+
+def round_two_cc(manager: dict | None, to: str = "") -> list[dict]:
+    """
+    Who is copied on a round 2 invitation: the second interviewer.
+
+    The copy is how they find out. They see the candidate was put through, and
+    the booking that follows lands on the calendar the mail links to. Nobody
+    is copied when we hold no address for them, or when the address is the
+    candidate's own.
+    """
+    address = _norm((manager or {}).get("email"))
+    if "@" not in address or address == _norm(to):
+        return []
+    return [{"email": address, "name": (manager or {}).get("name") or address}]
 
 # `interviewer` and `manager` resolve to the same person. Both exist because
 # the default copy asks "who will I be meeting", where "interviewer" is the
@@ -638,7 +663,8 @@ def build_stage_email(submission: dict, role: dict, stage: str,
             subject=str(subject or "").strip() or default_round_two_subject(title),
         )
         return {**email, "to": to, "to_name": name or to, "stage": stage,
-                "cal_link": link, "manager": manager}
+                "cal_link": link, "manager": manager,
+                "cc": round_two_cc(manager, to)}
 
     link, manager = booking_link(role, cal_link, interviewer, manager_email)
 
@@ -659,7 +685,7 @@ def build_stage_email(submission: dict, role: dict, stage: str,
         link = ""
 
     return {**email, "to": to, "to_name": name or to, "stage": stage,
-            "cal_link": link, "manager": manager}
+            "cal_link": link, "manager": manager, "cc": []}
 
 
 # ---------------------------------------------------------------------------
@@ -762,6 +788,8 @@ def send_stage_email(submission: dict, role: dict, stage: str,
             text=email["text"],
             reply_to=reply_to,
             headers=headers or None,
+            # The second interviewer, on a round 2 invitation. Nobody otherwise.
+            cc=email["cc"] or None,
         )
     except brevo_client.BrevoError as exc:
         log.error("Stage mail (%s) to %s failed: %s", stage, email["to"], exc)
@@ -779,6 +807,7 @@ def send_stage_email(submission: dict, role: dict, stage: str,
     log.info("Stage mail (%s) sent to %s", stage, email["to"])
     return {"sent": True, "to": email["to"], "subject": email["subject"],
             "cal_link": email["cal_link"],
+            "cc": [person["email"] for person in email["cc"]],
             "manager": (email["manager"] or {}).get("email", ""),
             "manager_name": (email["manager"] or {}).get("name", "")}
 

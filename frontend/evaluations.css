@@ -435,6 +435,38 @@ body.manager-view #pipelinePanel.manager-stage-focus > #pipelineHint {
   flex: none;
 }
 
+/* The recruitment line on a card: applicants, the last application, and the
+ * read on the pipeline. Mono like the legend above it, so the card's numbers
+ * are one column of figures rather than two type styles. */
+.role-facts,
+.role-quality {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.role-facts b { color: var(--text); font-weight: 600; }
+
+.quality-chip {
+  padding: 2px 7px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-2);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.quality-chip.quality-strong { color: var(--accent-bright); border-color: var(--accent-bright); }
+.quality-chip.quality-thin { color: var(--sky); }
+.quality-chip.quality-weak { color: var(--text-dim); border-style: dashed; }
+.quality-chip.quality-repost {
+  color: var(--bg);
+  background: var(--accent-bright);
+  border-color: var(--accent-bright);
+  font-weight: 600;
+}
+
 /* --- Candidate table -------------------------------------------------- */
 
 .score-cell {
@@ -686,8 +718,8 @@ body.manager-view #pipelinePanel.manager-stage-focus > #pipelineHint {
 }
 .stage-form label.wide { grid-column: 1 / -1; }
 
-/* The round 2 dialog. The fields come from styles.css; these are the two
- * things it does not have -- a select, and the preview under the form. */
+/* The round 2 dialog. The fields and the two-column composer layout come
+ * from styles.css; this is the one thing it does not have -- a select. */
 #round2 .field { margin-bottom: 12px; }
 #round2 .field select {
   font-family: inherit;
@@ -707,15 +739,6 @@ body.manager-view #pipelinePanel.manager-stage-focus > #pipelineHint {
   background: var(--bg);
   font-weight: 500;
 }
-.round2-preview {
-  width: 100%;
-  height: 320px;
-  margin-top: 4px;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r);
-  background: #fff;
-}
-.round2-preview[hidden] { display: none; }
 .round2-actions { flex-wrap: wrap; }
 .round2-spacer { flex: 1 1 auto; }
 .stage-form input {
@@ -1826,6 +1849,107 @@ tr.is-picked > td { background: var(--surface-hover); }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* --- the summary drawer ------------------------------------------------
+ *
+ * One card per role. The left edge carries the tone, so a column of cards can
+ * be scanned for the ones that need attention without reading a headline. */
+.sum-card {
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-2);
+  border-radius: var(--r);
+}
+.sum-card.sum-warn { border-left-color: var(--warn, #e0a03c); }
+.sum-card.sum-good { border-left-color: var(--accent-bright); }
+.sum-card > p { margin: 10px 0 0; }
+
+.sum-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.sum-head h3 { margin: 0; font-size: var(--fs-body); font-weight: 600; }
+.sum-facts {
+  margin: 3px 0 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.sum-headline {
+  flex: none;
+  padding: 3px 9px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.sum-warn > .sum-head .sum-headline { color: var(--warn, #e0a03c); border-color: currentColor; }
+.sum-good > .sum-head .sum-headline { color: var(--accent-bright); border-color: currentColor; }
+
+/* What the model wrote. Set apart from the findings under it, which are
+ * counts off the record: a reader should always be able to tell which is
+ * which. */
+.sum-ai {
+  padding: 10px 12px;
+  background: var(--surface-hover);
+  border-radius: var(--r);
+  line-height: var(--lh-body);
+  font-size: var(--fs-body-sm);
+}
+.sum-ai-tag {
+  margin-right: 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: var(--tr-eyebrow);
+  color: var(--sky);
+}
+
+.sum-findings {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-body-sm);
+  line-height: var(--lh-body);
+}
+.sum-findings li {
+  position: relative;
+  padding-left: 16px;
+  margin-bottom: 4px;
+  color: var(--text-dim);
+}
+.sum-findings li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: .62em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--line-2);
+}
+.sum-findings li.sum-warn { color: var(--text); }
+.sum-findings li.sum-warn::before { background: var(--warn, #e0a03c); }
+.sum-findings li.sum-good::before { background: var(--accent-bright); }
+
+.sum-people { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.sum-person {
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 9px;
+  color: var(--text);
+  background: none;
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.sum-person span { color: var(--sky); margin-left: 4px; }
+.sum-person:hover { border-color: var(--sky); background: var(--surface-hover); }
 
 /* An email can be one long unbroken token; let it wrap rather than push the
  * table sideways. */

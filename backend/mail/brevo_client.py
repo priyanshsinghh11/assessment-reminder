@@ -62,9 +62,11 @@ def send_email(
     attachments: list[tuple[str, bytes]] | None = None,
     reply_to: str | None = None,
     headers: dict | None = None,
+    cc: list[dict] | None = None,
 ) -> dict:
     """
-    Send one message. `to` is [{"email": ..., "name": ...}, ...].
+    Send one message. `to` is [{"email": ..., "name": ...}, ...], and so is
+    `cc`.
 
     Raises BrevoError rather than returning False, which is the difference
     between this and send_reminder_email() below: a reminder that fails is one
@@ -88,6 +90,8 @@ def send_email(
     }
     if text:
         payload["textContent"] = text
+    if cc:
+        payload["cc"] = cc
     if reply_to:
         payload["replyTo"] = {"email": reply_to}
     if headers:
