@@ -7,7 +7,8 @@ Two halves, and the split is the design.
     read()     PURE. Takes the numbers the dashboard already holds for a role
                -- applicants, the pipeline quality read, who clears the bar,
                whose CV names a notable employer or school, where people are
-               on the board -- and returns a headline and a list of findings.
+               on the board -- and returns a headline, a list of findings, the
+               row the summary table draws and the one recommended action.
                Every sentence is a count or a name off the record, so it is
                instant, free, and the same every time it is asked.
 
@@ -96,9 +97,90 @@ def notable(rows: list[dict]) -> list[dict]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# The recommended action
+# ---------------------------------------------------------------------------
+#
+# One per role, and the first rule that fits wins, so the order below is the
+# order of urgency the dashboard sorts by. Each is a count off the record like
+# every finding here -- "repost" is not an opinion about the role, it is "all
+# graded, nobody above the bar, nobody in interviews".
+#
+#   repost     graded work, nobody above the bar who has not been turned
+#              down, nothing left to grade and nobody booked, in round 2 or
+#              hired
+#   invite     somebody is above the bar and nobody has been invited
+#   grade      submissions are waiting on grading
+#   close      somebody has been hired
+#   interview  interviews are under way
+#   source     no applicant yet, or none in STALE_DAYS
+#   chase      people started the assessment and nobody has handed it in
+#   none       nothing to do
+#
+# `needs` is what the "roles needing action" count is a count of: the ones a
+# hiring lead has to do something about, as against the ones that are moving.
+ACTIONS = {
+    "repost": ("Repost role", "bad", True),
+    "invite": ("Invite to interview", "warn", True),
+    "grade": ("Grade submissions", "warn", True),
+    "source": ("Boost sourcing", "warn", True),
+    "chase": ("Chase submissions", "info", True),
+    "interview": ("Keep interviewing", "info", False),
+    "close": ("Hired · close role", "good", False),
+    "none": ("No action", "muted", False),
+}
+URGENCY = {key: rank for rank, key in enumerate(ACTIONS)}
+
+
+def action(applicants: int, counts: dict, pipeline: dict,
+           quality: dict | None, above: int | None,
+           days_since_last: int | None) -> dict:
+    """
+    What to do about one role, and the count that says so.
+
+    `quality` and `above` are None for an account that may not read scores,
+    and then the two actions that are read off a score -- repost and invite --
+    are never recommended.
+    """
+    pending = counts.get("pending", 0)
+    unsubmitted = counts.get("in_progress", 0)
+    hired = pipeline.get("hired", 0)
+    interviewing = pipeline.get("interview", 0) + pipeline.get("interview_2", 0)
+    graded = (quality or {}).get("graded", 0)
+
+    if (quality is not None and graded and not above and not pending
+            and not hired and not interviewing):
+        key, why = "repost", (f"Nobody of {graded} graded is above the bar and "
+                              "still in the running, nothing is left to grade "
+                              "and nobody is in interviews.")
+    elif above and not hired and not interviewing:
+        key, why = "invite", (f"{_plural(above, 'candidate')} above the bar "
+                              "and nobody invited to interview yet.")
+    elif pending:
+        key, why = "grade", f"{_plural(pending, 'submission')} waiting on grading."
+    elif hired:
+        key, why = "close", f"{_plural(hired, 'candidate')} hired."
+    elif interviewing:
+        key, why = "interview", f"{_plural(interviewing, 'candidate')} in interviews."
+    elif not applicants:
+        key, why = "source", "Nobody has applied yet."
+    elif days_since_last is not None and days_since_last >= STALE_DAYS:
+        key, why = "source", f"No new applicant in {days_since_last} days."
+    elif unsubmitted and not graded:
+        key, why = "chase", (f"{_plural(unsubmitted, 'applicant')} started the "
+                             "assessment and nobody has handed it in.")
+    else:
+        key, why = "none", "Nothing waiting on you."
+
+    label, tone, needs = ACTIONS[key]
+    return {"key": key, "label": label, "tone": tone, "needs": needs,
+            "urgency": URGENCY[key], "why": why}
+
+
 def read(role: dict, counts: dict, pipeline: dict, recruitment: dict,
          clearing: dict | None = None, people: list[dict] | None = None,
-         owners: dict | None = None, today: date | None = None) -> dict:
+         owners: dict | None = None, today: date | None = None,
+         recent: list[int] | None = None) -> dict:
     """
     One role's summary: a headline, its tone, and the findings behind it.
 
@@ -207,7 +289,26 @@ def read(role: dict, counts: dict, pipeline: dict, recruitment: dict,
     if applicants and "managers" in owners and not owners["managers"]:
         say(WARN, "No hiring manager is assigned to this role.")
 
+    # --- the dashboard row -------------------------------------------------
+    # Nobody turned down counts as above the bar: it is the number of people
+    # there is still something to do about.
+    above = clearing.get("count", 0) if quality is not None else None
+    days_since_last = (today - last).days if last else None
+    recent = recent or []
+
     return {
+        "counts": {
+            "submitted": max(0, applicants - unsubmitted),
+            "not_submitted": unsubmitted,
+            "graded": max(0, applicants - unsubmitted - pending),
+            "pending": pending,
+        },
+        "above_bar": above,
+        "days_since_last": days_since_last,
+        "stale": days_since_last is None or days_since_last >= STALE_DAYS,
+        "recent": {"total": sum(recent), "days": recent},
+        "action": action(applicants, counts, pipeline, quality, above,
+                         days_since_last),
         "id": role["_id"],
         "title": role.get("title") or f"Role {role['_id']}",
         "published": bool(role.get("published")),

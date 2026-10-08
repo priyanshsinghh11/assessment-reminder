@@ -12,7 +12,7 @@ section banners.
 """
 
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from flask import Response, jsonify, request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -575,11 +575,12 @@ def api_spotlight():
 # The summary -- every role in one read
 # ---------------------------------------------------------------------------
 #
-# One drawer off the header that answers "how are my roles doing" without
-# opening any of them: for each role a headline, the findings behind it, the
-# candidates worth naming, and a few sentences written by the model from those
-# same findings. backend/pipeline/role_analyst.py is where the findings are
-# made and explains what is rule and what is model.
+# One screen off the header that answers "how are my roles doing" without
+# opening any of them: a row per role -- is anyone applying, is anyone good,
+# what to do about it -- and behind each row the findings, the candidates
+# worth naming, and a few sentences written by the model from those same
+# findings. backend/pipeline/role_analyst.py is where the findings and the
+# recommended action are made and explains what is rule and what is model.
 #
 # Scoped like everything else here: a hiring manager gets their own roles. An
 # account that may not read scores gets the facts that are not scores --
@@ -592,12 +593,26 @@ SUMMARY_BATCH = 6
 
 _TONE_ORDER = {role_analyst.WARN: 0, role_analyst.INFO: 1, role_analyst.GOOD: 2}
 
+# How far back the "applicants in the last 30 days" column looks, and how many
+# weeks of applicants a role's own timeline draws.
+RECENT_DAYS = 30
+TIMELINE_WEEKS = 12
+
+
+def _today():
+    """Today in UTC, which is the clock the portal stamps applications on."""
+    return datetime.now(timezone.utc).date()
+
 
 def _role_summaries(scope, scores: bool) -> list[dict]:
     """
-    role_analyst.read() for every role in scope that has had an applicant,
-    the ones that need attention first.
+    role_analyst.read() for every open role in scope, and every closed one
+    that has had an applicant -- the most urgent action first, and within an
+    action the role that has gone longest without an applicant.
     """
+    today = _today()
+    window = [today - timedelta(days=n) for n in range(RECENT_DAYS - 1, -1, -1)]
+    applied = store.role_applicant_days(window[0].isoformat(), job_ids=scope)
     counts = store.role_counts()
     stages = store.pipeline_counts()["by_role"]
     recruit = store.role_recruitment_stats(
@@ -614,9 +629,11 @@ def _role_summaries(scope, scores: bool) -> list[dict]:
     for role in store.role_index(job_ids=scope):
         job_id = role["_id"]
         tally = counts.get(job_id, {})
-        if not tally.get("total"):
+        # An open role nobody has applied to is the row most worth seeing.
+        if not tally.get("total") and not role.get("published"):
             continue
         board = stages.get(job_id, {})
+        days = applied.get(job_id, {})
         summaries.append(role_analyst.read(
             role, tally, board,
             _recruitment(list(recruit.get(job_id, {}).values()), tally, board,
@@ -624,8 +641,15 @@ def _role_summaries(scope, scores: bool) -> list[dict]:
             clearing=clearing.get(job_id),
             people=role_analyst.notable(people.get(job_id, [])),
             owners=owners.get(job_id),
+            today=today,
+            recent=[days.get(day.isoformat(), 0) for day in window],
         ))
-    summaries.sort(key=lambda s: (_TONE_ORDER.get(s["tone"], 1),
+
+    def never_first(summary):
+        since = summary["days_since_last"]
+        return -(since if since is not None else 10 ** 6)
+
+    summaries.sort(key=lambda s: (s["action"]["urgency"], never_first(s),
                                   s["title"].lower()))
     return summaries
 
@@ -659,12 +683,16 @@ def api_summary():
                           "at": row["at"].isoformat()
                                 if isinstance(row.get("at"), datetime) else None,
                           "stale": stale} if row else None)
-        if scores and (row is None or stale):
+        # Nothing to write about a role nobody has applied to.
+        if scores and summary["applicants"] and (row is None or stale):
             due += 1
 
     return jsonify({
         "roles": summaries,
         "tones": tones,
+        "needs_action": sum(1 for s in summaries if s["action"]["needs"]),
+        "bar": rubric_pack.ADVANCE_MIN,
+        "stale_days": role_analyst.STALE_DAYS,
         "scores_visible": scores,
         # Whether the Analyse button is worth drawing, and how much it has to do.
         "ai_configured": scores and evaluator.is_configured(),
@@ -702,8 +730,9 @@ def api_summary_analyse():
     written = store.role_summaries(job_ids=scope)
     hashes = {s["id"]: role_analyst.facts_hash(s) for s in summaries}
     due = [s for s in summaries
-           if body.get("force")
-           or (written.get(s["id"]) or {}).get("hash") != hashes[s["id"]]]
+           if s["applicants"]
+           and (body.get("force")
+                or (written.get(s["id"]) or {}).get("hash") != hashes[s["id"]])]
     batch = due[:SUMMARY_BATCH]
 
     if not _run_lock.acquire(blocking=False):
@@ -738,6 +767,62 @@ def api_summary_analyse():
         message += f" {len(failed)} failed: {failed[0]['error']}"
     return jsonify({"message": message, "written": done, "failed": failed,
                     "remaining": remaining})
+
+
+@app.route("/api/evaluations/summary/role/<int:job_id>")
+def api_summary_role(job_id: int):
+    """
+    What the summary's side drawer draws for one role and the table does not
+    carry: the score distribution, the top five candidates with their links,
+    and applicants per week.
+
+    The distribution and the top five are scores, so an account that may not
+    read them gets the timeline alone.
+    """
+    error = _mongo_guard()
+    if error:
+        return error
+    error = _role_guard(job_id)
+    if error:
+        return error
+
+    scores = _is_admin() or MANAGER_DASHBOARD_SCORES
+    distribution = top = None
+    if scores:
+        # Ten-point buckets; a 100 sits in the last one rather than alone.
+        buckets = [0] * 10
+        for score in store.role_scores(job_id):
+            buckets[min(9, max(0, int(score // 10)))] += 1
+        distribution = {"buckets": buckets, "graded": sum(buckets),
+                        "bar": rubric_pack.ADVANCE_MIN}
+        top = [{
+            "id": sub["_id"],
+            "name": sub.get("candidate_name") or sub.get("candidate_email") or "",
+            "score": round(sub["evaluation"]["score"], 1),
+            "clears": sub["evaluation"]["score"] >= rubric_pack.ADVANCE_MIN,
+            "stage": (sub.get("pipeline") or {}).get("stage") or None,
+            # The share/view URL, as _spotlight_row sends it.
+            "resume_open_link": sub.get("resume_link") or "",
+            "video_link": sub.get("video_link") or "",
+        } for sub in store.role_top(job_id)]
+
+    # Weeks that end today, oldest first, so the last bar is "this week".
+    today = _today()
+    start = today - timedelta(days=TIMELINE_WEEKS * 7 - 1)
+    days = store.role_applicant_days(start.isoformat(),
+                                     job_ids={job_id}).get(job_id, {})
+    timeline = []
+    for week in range(TIMELINE_WEEKS):
+        first = start + timedelta(days=week * 7)
+        timeline.append({
+            "from": first.isoformat(),
+            "to": (first + timedelta(days=6)).isoformat(),
+            "applicants": sum(days.get((first + timedelta(days=n)).isoformat(), 0)
+                              for n in range(7)),
+        })
+
+    return jsonify({"id": job_id, "distribution": distribution, "top": top,
+                    "timeline": timeline, "scores_visible": scores})
 
 
 @app.route("/api/evaluations/role/<int:job_id>")

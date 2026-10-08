@@ -56,11 +56,11 @@
             title="Candidates whose CV names a top employer or a top US school">
       Worth a look<span class="btn-count" id="spotlightCount"></span>
     </button>
-    <!-- Every role in one read: is there anybody good, who stands out, what
-         is in the way. For a hiring manager it is their own roles. The count
-         is how many of them need attention. -->
+    <!-- Every role on one screen: is anyone applying, is anyone good, what
+         to do about it. For a hiring manager it is their own roles. The count
+         is how many of them need action. -->
     <button class="btn btn-ghost" id="summaryBtn" type="button"
-            title="A summary of every role: who is good, who stands out, what needs doing">
+            title="Every role on one screen: who is applying, who is good, what needs doing">
       Summary<span class="btn-count" id="summaryCount"></span>
     </button>
     <button class="btn" id="syncBtn" title="Re-download submissions from the portal">Sync portal</button>
@@ -739,12 +739,16 @@
   </aside>
 </div>
 
-<!-- The summary: one card per role, written by the role analyst. Under the
-     candidate drawer for the reason the spotlight is -- a name on a card opens
-     that candidate on top, and closing them puts the reader back here. -->
+<!-- The summary: every role on one screen. A strip of totals, then one row
+     per role -- is anyone applying, is anyone good, what to do about it. The
+     panel is the whole viewport and only the table body scrolls, so the
+     totals and the column heads never leave the screen.
+
+     Under the candidate drawer for the reason the spotlight is -- a name
+     opens that candidate on top, and closing them puts the reader back here. -->
 <div class="drawer is-under" id="summaryDrawer" hidden>
   <div class="drawer-scrim" data-summary-close></div>
-  <aside class="drawer-panel is-wide" role="dialog" aria-modal="true"
+  <aside class="drawer-panel is-full" role="dialog" aria-modal="true"
          aria-labelledby="summaryTitle">
     <div class="drawer-head">
       <div>
@@ -753,6 +757,10 @@
         <p class="subtitle" id="summarySub">Loading&hellip;</p>
       </div>
       <div class="drawer-head-actions">
+        <div class="controls">
+          <input type="search" id="summarySearch" autocomplete="off"
+                 placeholder="Search role" aria-label="Search role">
+        </div>
         <button class="btn btn-primary" id="summaryAnalyse" type="button" hidden>Run AI analysis</button>
         <button class="btn btn-ghost" id="summaryRefresh" type="button">Refresh</button>
         <button class="btn btn-ghost" data-summary-close
@@ -760,18 +768,36 @@
       </div>
     </div>
 
-    <div class="drawer-body">
-      <div class="controls spotlight-controls">
-        <input type="search" id="summarySearch" autocomplete="off"
-               placeholder="Search role or candidate">
-        <select id="summaryFilter">
-          <option value="">All roles</option>
-          <option value="warn">Needs attention</option>
-          <option value="good">Strong pipeline</option>
-        </select>
-      </div>
-      <div id="summaryBody"></div>
+    <div class="board-kpis" id="summaryKpis"></div>
+
+    <div class="board-wrap">
+      <table class="board-table">
+        <thead id="summaryHead"></thead>
+        <tbody id="summaryRows"></tbody>
+      </table>
     </div>
+  </aside>
+</div>
+
+<!-- One role out of the summary: the reasoning behind its row. Over the
+     table and still under a candidate's card. -->
+<div class="drawer is-under is-role" id="summaryRoleDrawer" hidden>
+  <div class="drawer-scrim" data-summary-role-close></div>
+  <aside class="drawer-panel" role="dialog" aria-modal="true"
+         aria-labelledby="summaryRoleTitle">
+    <div class="drawer-head">
+      <div>
+        <p class="eyebrow" id="summaryRoleEyebrow"></p>
+        <h2 id="summaryRoleTitle"></h2>
+        <p class="subtitle" id="summaryRoleSub"></p>
+      </div>
+      <div class="drawer-head-actions">
+        <button class="btn btn-ghost" id="summaryRoleOpen" type="button">Open role</button>
+        <button class="btn btn-ghost" data-summary-role-close
+                aria-label="Close role summary">Close</button>
+      </div>
+    </div>
+    <div class="drawer-body" id="summaryRoleBody"></div>
   </aside>
 </div>
 

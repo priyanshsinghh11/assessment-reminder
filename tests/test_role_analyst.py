@@ -123,6 +123,101 @@ class TestWhatIsInTheWay:
         assert "No hiring manager is assigned" in texts(summary)
 
 
+class TestTheRecommendedAction:
+    """One action a role, the most urgent that fits."""
+
+    def act(self, q, **kwargs):
+        return read(q, **kwargs)["action"]
+
+    def test_repost_when_nobody_is_good_and_nothing_is_left(self):
+        action = self.act(quality("weak", repost=True))
+        assert (action["key"], action["needs"]) == ("repost", True)
+        assert "Nobody of 40 graded is above the bar" in action["why"]
+
+    def test_not_repost_while_submissions_are_ungraded(self):
+        action = self.act(quality("weak"), counts={"total": 120, "pending": 30})
+        assert action["key"] == "grade"
+        assert action["why"] == "30 submissions waiting on grading."
+
+    def test_invite_comes_before_grading(self):
+        action = self.act(quality("strong", clear=5),
+                          counts={"total": 120, "pending": 30},
+                          clearing={"count": 5, "top": []})
+        assert action["key"] == "invite"
+
+    def test_interviews_under_way_need_nothing_from_the_lead(self):
+        action = self.act(quality("strong", clear=5),
+                          clearing={"count": 5, "top": []},
+                          pipeline={"interview": 2})
+        assert (action["key"], action["needs"]) == ("interview", False)
+
+    def test_a_hire_closes_the_role(self):
+        action = self.act(quality("strong", clear=5),
+                          clearing={"count": 5, "top": []},
+                          pipeline={"hired": 1})
+        assert action["key"] == "close"
+
+    def test_a_role_gone_quiet_needs_sourcing(self):
+        action = self.act(quality("none", graded=0),
+                          last="2026-08-01T10:00:00.000Z")
+        assert action["key"] == "source"
+        assert action["why"] == "No new applicant in 67 days."
+
+    def test_the_only_good_ones_turned_down_is_a_repost(self):
+        # Two cleared the bar and neither is still in the running.
+        action = self.act(quality("thin", clear=2),
+                          clearing={"count": 0, "top": []})
+        assert action["key"] == "repost"
+
+    def test_a_role_nobody_applied_to_needs_sourcing(self):
+        action = self.act(quality("none", graded=0), applicants=0, last=None)
+        assert action["key"] == "source"
+
+    def test_started_and_never_handed_in(self):
+        action = self.act(quality("none", graded=0), applicants=6,
+                          counts={"total": 6, "in_progress": 6})
+        assert action["key"] == "chase"
+
+    def test_nothing_read_off_a_score_without_scores(self):
+        action = self.act(None, clearing={"count": 5, "top": []})
+        assert action["key"] == "none"
+
+    def test_the_urgency_is_the_order_the_dashboard_sorts_by(self):
+        order = sorted(role_analyst.ACTIONS, key=role_analyst.URGENCY.get)
+        assert order[:3] == ["repost", "invite", "grade"]
+        assert order[-1] == "none"
+
+
+class TestTheDashboardRow:
+    def test_the_counts_split_the_applicants(self):
+        row = read(quality("thin", clear=1), applicants=100,
+                   counts={"total": 100, "in_progress": 30, "pending": 20})
+        assert row["counts"] == {"submitted": 70, "not_submitted": 30,
+                                 "graded": 50, "pending": 20}
+
+    def test_above_the_bar_is_who_is_still_in_the_running(self):
+        row = read(quality("thin", clear=2), clearing={"count": 1, "top": []})
+        assert row["above_bar"] == 1
+        assert read(None, clearing={"count": 1, "top": []})["above_bar"] is None
+
+    def test_days_since_the_last_applicant(self):
+        fresh = read(quality("thin", clear=1))
+        assert (fresh["days_since_last"], fresh["stale"]) == (1, False)
+        quiet = read(quality("thin", clear=1), last="2026-08-01T10:00:00.000Z")
+        assert (quiet["days_since_last"], quiet["stale"]) == (67, True)
+        never = read(quality("none", graded=0), applicants=0, last=None)
+        assert (never["days_since_last"], never["stale"]) == (None, True)
+
+    def test_the_last_thirty_days_are_added_up(self):
+        row = read(quality("thin", clear=1), recent=[0, 2, 0, 5])
+        assert row["recent"] == {"total": 7, "days": [0, 2, 0, 5]}
+
+    def test_none_of_it_reaches_the_model_or_the_cache_key(self):
+        before = read(quality("thin", clear=1), recent=[1])
+        after = read(quality("thin", clear=1), recent=[9])
+        assert role_analyst.facts_hash(before) == role_analyst.facts_hash(after)
+
+
 class TestWithoutScores:
     def test_nothing_derived_from_a_score_is_said(self):
         summary = read(None, clearing=TestWhoStandsOut.CLEARING,

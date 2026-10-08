@@ -1850,51 +1850,326 @@ tr.is-picked > td { background: var(--surface-hover); }
   text-overflow: ellipsis;
 }
 
-/* --- the summary drawer ------------------------------------------------
+/* --- the summary -------------------------------------------------------
  *
- * One card per role. The left edge carries the tone, so a column of cards can
- * be scanned for the ones that need attention without reading a headline. */
-.sum-card {
-  padding: 14px 16px;
-  margin-bottom: 12px;
+ * Every role on one screen. The panel is the whole viewport and a flex
+ * column: the head, the strip of totals, and the table, which is the only
+ * part that scrolls. So at any height the totals and the column heads stay
+ * where they are and the page under them never moves. */
+
+/* Good, warning and critical. Used for a dot, an edge or a fill and always
+ * beside a label -- never as the colour of the text itself. */
+#summaryDrawer, #summaryRoleDrawer {
+  --st-good: #0ca30c;
+  --st-warn: #fab219;
+  --st-bad: #d03b3b;
+}
+
+.drawer-panel.is-full { width: 100%; border-left: 0; }
+
+/* The dashboard under the panel is taller than the screen. While the summary
+ * is up it is held still, so the only thing that scrolls is the table. */
+html.summary-open { overflow: hidden; }
+
+#summaryDrawer .drawer-head {
+  flex: none;
+  align-items: center;
+  padding: 14px 22px 12px;
+}
+#summaryDrawer .drawer-head-actions { align-items: center; }
+
+.board-kpis {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px 22px;
+}
+.board-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 12px 10px;
+  font: inherit;
+  text-align: left;
+  color: var(--text);
   background: var(--surface);
   border: 1px solid var(--line);
   border-left: 3px solid var(--line-2);
   border-radius: var(--r);
+  cursor: pointer;
 }
-.sum-card.sum-warn { border-left-color: var(--warn, #e0a03c); }
-.sum-card.sum-good { border-left-color: var(--accent-bright); }
-.sum-card > p { margin: 10px 0 0; }
+.board-kpi:hover:not(:disabled) { background: var(--surface-hover); }
+.board-kpi:disabled { cursor: default; }
+.board-kpi:focus-visible { outline: none; box-shadow: var(--glow); }
+.board-kpi[aria-pressed="true"] {
+  background: var(--surface-hover);
+  border-color: var(--sky);
+}
+.board-kpi.is-good { border-left-color: var(--st-good); }
+.board-kpi.is-warn { border-left-color: var(--st-warn); }
+.board-kpi.is-bad { border-left-color: var(--st-bad); }
+.board-kpi-value {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.board-kpi-label {
+  font-size: 12px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
-.sum-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+/* `min-height: 0` is what lets the table scroll inside the panel instead of
+ * pushing the panel past the viewport -- see #spotlightDrawer .drawer-body. */
+.board-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  margin: 0 22px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
 }
-.sum-head h3 { margin: 0; font-size: var(--fs-body); font-weight: 600; }
-.sum-facts {
-  margin: 3px 0 0;
+
+.board-table { font-variant-numeric: tabular-nums; }
+.board-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 9px 10px;
+  font-size: 11px;
+  letter-spacing: .06em;
+  white-space: nowrap;
+  background: var(--bg-top);
+  /* A collapsed border does not travel with a sticky cell; a shadow does. */
+  border-bottom: 0;
+  box-shadow: inset 0 -1px 0 var(--line-2);
+}
+.board-table td,
+.board-table tbody th {
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--line);
+}
+.board-table td.num { text-align: right; }
+.board-table td.empty { padding: 40px 18px; text-align: center; }
+.board-table tbody th.board-role {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+  cursor: inherit;
+}
+.board-table tbody tr[data-sum-role] { cursor: pointer; }
+.board-table tbody tr[data-sum-role]:hover,
+.board-table tbody tr.is-active { background: var(--surface-hover); }
+.board-table tbody tr:focus-visible {
+  outline: 1px solid var(--sky);
+  outline-offset: -1px;
+}
+
+.board-closed {
+  margin-left: 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+/* A number that is waiting on somebody: awaiting grading, or a last applicant
+ * too long ago. Bold in the text colour, with the warning as a rule under it. */
+.board-flag {
+  font-weight: 600;
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--st-warn);
+}
+
+/* The best score against the bar. */
+.board-meter {
+  position: relative;
+  display: inline-block;
+  width: 84px;
+  height: 6px;
+  margin-right: 8px;
+  vertical-align: middle;
+  background: var(--line);
+  border-radius: 3px;
+}
+.board-meter i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--text-faint);
+  border-radius: 3px;
+}
+.board-meter.is-clear i { background: var(--st-good); }
+.board-meter b {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--text);
+}
+.board-meter-n { font-family: var(--font-mono); font-size: 12px; }
+
+.board-spark { display: inline-flex; align-items: center; gap: 8px; }
+.board-spark svg { flex: none; }
+.board-spark rect { fill: var(--accent-bright); }
+.board-spark line { stroke: var(--line-2); stroke-width: 1; }
+.board-spark-n { min-width: 3ch; }
+
+/* The recommended action. The dot and the edge carry the urgency; the words
+ * say what it is. */
+.board-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--text);
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+}
+.board-chip::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line-2);
+}
+.board-chip.is-bad { border-color: var(--st-bad); background: color-mix(in srgb, var(--st-bad) 16%, transparent); }
+.board-chip.is-bad::before { background: var(--st-bad); }
+.board-chip.is-warn { border-color: var(--st-warn); background: color-mix(in srgb, var(--st-warn) 12%, transparent); }
+.board-chip.is-warn::before { background: var(--st-warn); }
+.board-chip.is-good { border-color: var(--st-good); background: color-mix(in srgb, var(--st-good) 12%, transparent); }
+.board-chip.is-good::before { background: var(--st-good); }
+.board-chip.is-info::before { background: var(--accent-bright); }
+.board-chip.is-muted { color: var(--text-faint); border-style: dashed; }
+
+/* --- one role, in the side drawer --- */
+
+/* Over the table (55) and under a candidate's card (60). */
+.drawer.is-under.is-role { z-index: 57; }
+
+.board-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  font-size: var(--fs-body-sm);
+  color: var(--text-dim);
+}
+
+/* Columns on one baseline: the score distribution and the applicants a week. */
+.board-cols {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 96px;
+  margin-top: 22px;
+  border-bottom: 1px solid var(--line-2);
+}
+.board-col {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+}
+.board-col i {
+  display: block;
+  width: 100%;
+  background: var(--accent-bright);
+  border-radius: 4px 4px 0 0;
+  opacity: .8;
+}
+.board-col:hover i { opacity: 1; }
+.board-cols-mark {
+  position: absolute;
+  top: -18px;
+  bottom: 0;
+  border-left: 2px dashed var(--text);
+}
+.board-cols-mark span {
+  position: absolute;
+  top: -2px;
+  left: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+.board-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-faint);
 }
-.sum-headline {
-  flex: none;
-  padding: 3px 9px;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-sm);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-dim);
+.board-note { margin: 8px 0 0; font-size: 13px; color: var(--text-dim); }
+
+.board-top { margin: 0; padding: 0; list-style: none; }
+.board-top li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
 }
-.sum-warn > .sum-head .sum-headline { color: var(--warn, #e0a03c); border-color: currentColor; }
-.sum-good > .sum-head .sum-headline { color: var(--accent-bright); border-color: currentColor; }
+.board-top-name {
+  padding: 0;
+  font: inherit;
+  font-size: var(--fs-body-sm);
+  font-weight: 500;
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.board-top-name:hover { text-decoration: underline; }
+.board-top-links { display: flex; gap: 10px; margin-left: auto; font-size: 12px; }
+.board-top-links a { color: var(--accent-bright); }
+.board-top-score {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 56px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.board-top-score.is-clear::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--st-good);
+}
+
+@media (max-width: 900px) {
+  .board-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #summaryDrawer .drawer-head { flex-wrap: wrap; }
+}
 
 /* What the model wrote. Set apart from the findings under it, which are
  * counts off the record: a reader should always be able to tell which is
  * which. */
 .sum-ai {
+  margin: 0;
   padding: 10px 12px;
   background: var(--surface-hover);
   border-radius: var(--r);

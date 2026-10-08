@@ -1653,6 +1653,66 @@ def top_clearing(minimum: float, job_ids: Optional[set[int]] = None,
             for row in rows}
 
 
+def role_applicant_days(since: str,
+                        job_ids: Optional[set[int]] = None) -> dict[int, dict]:
+    """
+    How many people applied to each role on each day from `since`
+    ("YYYY-MM-DD") on: {job_id: {"YYYY-MM-DD": n}}.
+
+    The day somebody applied is the day they started the assessment, and the
+    day they handed it in where the portal kept no start (a Workable row).
+    Both are ISO strings, so the first ten characters are the day.
+
+    Auto-rejected candidates are purged (see purge_auto_rejected) and take
+    their dates with them, so this counts the applicants still on file.
+    """
+    def text(field: str) -> dict:
+        return {"$cond": [{"$eq": [{"$type": field}, "string"]}, field, ""]}
+
+    stages: list[dict] = []
+    if job_ids is not None:
+        stages.append({"$match": {"job_id": {"$in": sorted(job_ids)}}})
+    stages += [
+        {"$project": {"job_id": 1, "day": {"$substrCP": [
+            {"$cond": [{"$ne": [text("$started_at"), ""]},
+                       text("$started_at"), text("$submitted_at")]}, 0, 10]}}},
+        {"$match": {"day": {"$gte": since}}},
+        {"$group": {"_id": {"job_id": "$job_id", "day": "$day"},
+                    "n": {"$sum": 1}}},
+    ]
+    days: dict[int, dict] = {}
+    for row in get_db().submissions.aggregate(stages):
+        days.setdefault(row["_id"]["job_id"], {})[row["_id"]["day"]] = row["n"]
+    return days
+
+
+def role_scores(job_id: int) -> list[float]:
+    """Every finished score on a role, for its distribution. See
+    top_candidates() for why a partial grid is not one of them."""
+    rows = get_db().submissions.find(
+        {"job_id": job_id, "evaluation.score": {"$type": "number"},
+         **COMPLETE_GRID},
+        {"evaluation.score": 1})
+    return [row["evaluation"]["score"] for row in rows]
+
+
+def role_top(job_id: int, limit: int = 5) -> list[dict]:
+    """
+    A role's best finished scores, highest first, with the links to open them.
+    Nobody who has been turned down -- by the assessment or after an interview.
+    """
+    return list(get_db().submissions.find(
+        {"job_id": job_id, "evaluation.score": {"$type": "number"},
+         "decision.status": {"$ne": "rejected"},
+         "pipeline.stage": {"$ne": "rejected"},
+         **COMPLETE_GRID},
+        {"candidate_name": 1, "candidate_email": 1, "evaluation.score": 1,
+         "pipeline.stage": 1, "resume_link": 1, "video_link": 1,
+         "submitted_at": 1},
+    ).sort([("evaluation.score", DESCENDING),
+            ("submitted_at", ASCENDING)]).limit(limit))
+
+
 def role_owners(job_ids: Optional[set[int]] = None) -> dict[int, dict]:
     """
     Who owns each seat and when its shortlist last went out, without the rest

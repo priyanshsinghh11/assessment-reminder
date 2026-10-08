@@ -2827,23 +2827,36 @@ function renderSpotlight() {
  * The summary -- every role in one read
  ======================================================================= */
 
-/* One card per role, from the role analyst on the server: a headline, the
- * findings behind it, the people worth naming, and -- where it has been run --
- * a few sentences the model wrote from those same findings.
+/* Every role on one screen, from the role analyst on the server: a strip of
+ * totals, then a row per role that answers three questions -- is anyone
+ * applying, is anyone good, what should I do about it. A row opens a side
+ * drawer with the reasoning: the findings, the score distribution, the top
+ * five and the applicants per week.
  *
- * Nothing on a card is worked out here. The headline, the tone and every
- * finding come back as text, so this drawer and anything else that ever shows
- * a role summary say the same thing about the same role.
+ * Nothing about a role is worked out here. The counts, the recommended action
+ * and every finding come back from the server, so this screen and anything
+ * else that ever shows a role summary say the same thing about the same role.
+ * What IS worked out here is the strip of totals, because it is a sum of the
+ * rows under it and must never disagree with them.
  *
- * Read once per visit and again when asked: it is five aggregations over
+ * Read once per visit and again when asked: it is six aggregations over
  * every submission, and re-reading it after each board move would be paying
- * for a drawer nobody has open. */
+ * for a screen nobody has open. */
 const Summary = (() => {
-  const data = { roles: [], tones: {}, due: 0, aiConfigured: false,
-                 loaded: false, loading: false, analysing: false };
+  const data = { roles: [], due: 0, bar: 75, staleDays: 30, scores: true,
+                 aiConfigured: false, loaded: false, loading: false,
+                 analysing: false };
+  // `sort` is null for the order the server sends: the most urgent action
+  // first, then the role that has gone longest without an applicant.
+  const view = { tile: '', sort: null, desc: true, roleId: null };
+  const details = new Map();
 
-  const hasMarkup = () => Boolean($('summaryDrawer') && $('summaryBody'));
+  const hasMarkup = () => Boolean($('summaryDrawer') && $('summaryRows')
+                                  && $('summaryRoleDrawer'));
   const isOpen = () => $('summaryDrawer')?.hidden === false;
+  const roleIsOpen = () => $('summaryRoleDrawer')?.hidden === false;
+  const count = (n) => Number(n || 0).toLocaleString();
+  const sum = (rows, pick) => rows.reduce((total, r) => total + (pick(r) || 0), 0);
 
   async function load(force = false) {
     if (!hasMarkup() || data.loading) return;
@@ -2852,10 +2865,13 @@ const Summary = (() => {
     try {
       const reply = await api('/api/evaluations/summary');
       data.roles = reply.roles || [];
-      data.tones = reply.tones || {};
       data.due = reply.due || 0;
+      data.bar = reply.bar ?? 75;
+      data.staleDays = reply.stale_days ?? 30;
+      data.scores = reply.scores_visible !== false;
       data.aiConfigured = Boolean(reply.ai_configured);
       data.loaded = true;
+      details.clear();
     } catch (err) {
       // A summary that will not load is not a reason to lose the dashboard
       // under it.
@@ -2865,87 +2881,169 @@ const Summary = (() => {
       data.loading = false;
     }
     render();
+    if (roleIsOpen()) openRoleSummary(view.roleId);
+  }
+
+  /* The strip of totals. Each is a count of the rows and a filter on them:
+   * `match` is both what the tile adds up and what a click keeps. */
+  const TILES = [
+    { key: 'open', label: 'Open roles', match: (r) => r.published,
+      value: (rows) => rows.length },
+    { key: 'action', label: 'Roles needing action', match: (r) => r.action.needs,
+      value: (rows) => rows.length, tone: 'warn' },
+    { key: 'applicants', label: 'Total applicants', match: (r) => r.applicants > 0,
+      value: (rows) => sum(rows, (r) => r.applicants) },
+    { key: 'above', label: 'Candidates above the bar', scored: true,
+      match: (r) => r.above_bar > 0, value: (rows) => sum(rows, (r) => r.above_bar),
+      tone: 'good' },
+    { key: 'pending', label: 'Submissions awaiting grading', match: (r) => r.counts.pending > 0,
+      value: (rows) => sum(rows, (r) => r.counts.pending), tone: 'warn' },
+    { key: 'stale', label: () => `No applicant in ${data.staleDays}+ days`,
+      match: (r) => r.stale, value: (rows) => rows.length, tone: 'bad' },
+  ];
+
+  function tiles() {
+    return TILES.map((tile) => {
+      const label = typeof tile.label === 'function' ? tile.label() : tile.label;
+      const hidden = tile.scored && !data.scores;
+      const value = hidden ? '—' : count(tile.value(data.roles.filter(tile.match)));
+      // The colour says "this one is not zero", so a quiet strip stays quiet.
+      const tone = !hidden && tile.tone && value !== '0' ? ` is-${tile.tone}` : '';
+      return `<button class="board-kpi${tone}" type="button" data-sum-tile="${tile.key}"
+                aria-pressed="${view.tile === tile.key}"${hidden ? ' disabled' : ''}
+                title="${hidden ? 'This account does not see scores'
+                  : 'Show only these roles'}">
+          <span class="board-kpi-value">${value}</span>
+          <span class="board-kpi-label">${esc(label)}</span>
+        </button>`;
+    }).join('');
+  }
+
+  /* --- the table --------------------------------------------------------- */
+
+  const COLUMNS = [
+    { key: 'title', label: 'Role', text: true, by: (r) => r.title.toLowerCase() },
+    { key: 'applicants', label: 'Applicants', num: true, by: (r) => r.applicants },
+    { key: 'submitted', label: 'Submitted / not', num: true,
+      title: 'Handed the assessment in / started it and did not',
+      by: (r) => r.counts.submitted },
+    { key: 'graded', label: 'Graded / awaiting', num: true,
+      title: 'Submissions graded / still waiting on grading',
+      by: (r) => r.counts.pending },
+    { key: 'above', label: 'Above bar', num: true, by: (r) => r.above_bar ?? -1 },
+    { key: 'best', label: 'Best score vs bar', by: (r) => r.quality?.top ?? -1 },
+    { key: 'last', label: 'Last applicant',
+      by: (r) => r.days_since_last ?? Infinity },
+    { key: 'recent', label: 'Last 30 days', by: (r) => r.recent.total },
+    { key: 'action', label: 'Recommended action', by: (r) => -r.action.urgency },
+  ];
+
+  function head() {
+    return `<tr>${COLUMNS.map((col) => {
+      const sorted = view.sort === col.key
+        ? ` aria-sort="${view.desc ? 'descending' : 'ascending'}"` : '';
+      return `<th scope="col" tabindex="0" data-sum-sort="${col.key}"${sorted}${
+        col.num ? ' class="num"' : ''}${col.title ? ` title="${esc(col.title)}"` : ''}>${
+        esc(col.label)}</th>`;
+    }).join('')}</tr>`;
   }
 
   function visible() {
     const term = $('summarySearch').value.trim().toLowerCase();
-    const tone = $('summaryFilter').value;
-    return data.roles.filter((role) => {
-      if (tone && role.tone !== tone) return false;
-      if (!term) return true;
-      const people = [...role.top, ...role.notable].map((p) => p.name).join(' ');
-      return `${role.title} ${role.headline} ${people}`.toLowerCase().includes(term);
+    const tile = TILES.find((t) => t.key === view.tile);
+    const rows = data.roles.filter((role) =>
+      (!tile || tile.match(role))
+      && (!term || role.title.toLowerCase().includes(term)));
+    const col = COLUMNS.find((c) => c.key === view.sort);
+    if (!col) return rows;
+    // Array.sort is stable, so ties keep the server's order under them.
+    const dir = view.desc ? -1 : 1;
+    return [...rows].sort((a, b) => {
+      const x = col.by(a);
+      const y = col.by(b);
+      return (x < y ? -1 : x > y ? 1 : 0) * dir;
     });
   }
 
-  /* The people a card names, once each: whoever tops the queue with their
-   * score, then whoever's record names an employer or a school. A click opens
-   * their card over this drawer. */
-  function peopleChips(role) {
-    const seen = new Set();
-    const chips = [];
-    for (const c of role.top) {
-      seen.add(c.id);
-      chips.push([c.id, c.name, String(c.score)]);
-    }
-    for (const p of role.notable) {
-      const where = [...p.employers, ...p.schools].join(', ');
-      if (seen.has(p.id)) {
-        const chip = chips.find((entry) => entry[0] === p.id);
-        chip[2] += ` · ${where}`;
-        continue;
-      }
-      seen.add(p.id);
-      chips.push([p.id, p.name, where]);
-    }
-    return chips.slice(0, 12).map(([id, name, why]) =>
-      `<button class="sum-person" type="button" data-sum-cand="${id}">${
-        esc(name)} <span>${esc(why)}</span></button>`).join('');
+  /* The best score against the bar: a track from 0 to 100, filled to the
+   * score, with the bar drawn as a line across it. */
+  function meter(role) {
+    const top = role.quality?.top;
+    if (top === null || top === undefined) return '<span class="dim">—</span>';
+    const clears = top >= data.bar;
+    return `<span class="board-meter${clears ? ' is-clear' : ''}"
+                  title="Best score ${top} · bar ${data.bar}${clears ? '' : ' · below the bar'}">
+        <i style="width:${Math.max(0, Math.min(100, top))}%"></i>
+        <b style="left:${data.bar}%"></b>
+      </span><span class="board-meter-n">${top}</span>`;
   }
 
-  function card(role) {
-    const facts = [
-      `${role.applicants.toLocaleString()} applicant${role.applicants === 1 ? '' : 's'}`,
-      role.last_application
-        ? `last applied ${shortDate(role.last_application)} · ${whenRelative(role.last_application)}`
-        : '',
-      role.published ? '' : 'unpublished',
-    ].filter(Boolean).join(' · ');
-    const ai = role.ai?.text ? `
-        <p class="sum-ai"><span class="sum-ai-tag">AI summary</span>${esc(role.ai.text)}${
-          role.ai.stale
-            ? ' <span class="dim">(the role has changed since this was written)</span>'
-            : ''}</p>` : '';
-    const people = peopleChips(role);
+  /* Applicants a day over the last thirty, oldest on the left. */
+  function spark(role) {
+    const days = role.recent.days;
+    const peak = Math.max(1, ...days);
+    const bars = days.map((n, i) => {
+      const h = n ? Math.max(2, Math.round((n / peak) * 16)) : 0;
+      return h ? `<rect x="${i * 2.5}" y="${17 - h}" width="1.5" height="${h}" rx=".5"/>` : '';
+    }).join('');
+    return `<span class="board-spark" title="${count(role.recent.total)} applicant${
+        role.recent.total === 1 ? '' : 's'} in the last 30 days · busiest day ${
+        count(Math.max(0, ...days))}">
+        <svg viewBox="0 0 75 18" width="75" height="18" aria-hidden="true">
+          <line x1="0" y1="17.5" x2="75" y2="17.5"/>${bars}</svg>
+        <span class="board-spark-n">${count(role.recent.total)}</span></span>`;
+  }
+
+  function lastApplied(role) {
+    if (role.days_since_last === null) return '<span class="dim">Never</span>';
+    const ago = role.days_since_last === 0 ? 'today' : `${role.days_since_last}d ago`;
+    return `${esc(shortDate(role.last_application))} <span class="${
+      role.stale ? 'board-flag' : 'dim'}">· ${ago}</span>`;
+  }
+
+  const chip = (action) =>
+    `<span class="board-chip is-${esc(action.tone)}" title="${esc(action.why)}">${
+      esc(action.label)}</span>`;
+
+  const pair = (a, b, flag = false) =>
+    `${count(a)} <span class="dim">/</span> <span class="${
+      flag && b ? 'board-flag' : 'dim'}">${count(b)}</span>`;
+
+  function row(role) {
+    const c = role.counts;
     return `
-      <article class="sum-card sum-${esc(role.tone)}">
-        <header class="sum-head">
-          <div>
-            <h3>${esc(role.title)}</h3>
-            <p class="sum-facts">${esc(facts)}</p>
-          </div>
-          <span class="sum-headline">${esc(role.headline)}</span>
-        </header>
-        ${ai}
-        ${role.findings.length ? `<ul class="sum-findings">${role.findings
-          .map((f) => `<li class="sum-${esc(f.tone)}">${esc(f.text)}</li>`).join('')}</ul>` : ''}
-        ${people ? `<div class="sum-people">${people}</div>` : ''}
-        <p><button class="btn btn-ghost btn-sm" type="button"
-                   data-sum-role="${role.id}">Open role</button></p>
-      </article>`;
+      <tr tabindex="0" data-sum-role="${role.id}"${
+        role.id === view.roleId ? ' class="is-active"' : ''}>
+        <th scope="row" class="board-role" title="${esc(role.title)}">${esc(role.title)}${
+          role.published ? '' : ' <span class="board-closed">closed</span>'}</th>
+        <td class="num">${count(role.applicants)}</td>
+        <td class="num">${pair(c.submitted, c.not_submitted)}</td>
+        <td class="num">${pair(c.graded, c.pending, true)}</td>
+        <td class="num">${role.above_bar === null ? '<span class="dim">—</span>'
+          : role.above_bar ? `<strong>${count(role.above_bar)}</strong>`
+          : '<span class="dim">0</span>'}</td>
+        <td>${meter(role)}</td>
+        <td>${lastApplied(role)}</td>
+        <td>${spark(role)}</td>
+        <td>${chip(role.action)}</td>
+      </tr>`;
   }
 
   function render() {
     if (!hasMarkup()) return;
+    const needs = data.roles.filter((r) => r.action.needs).length;
     const badge = $('summaryCount');
-    if (badge) badge.textContent = data.tones.warn ? String(data.tones.warn) : '';
+    if (badge) badge.textContent = needs ? String(needs) : '';
     if (!isOpen()) return;
 
     const n = data.roles.length;
+    const rows = data.loaded ? visible() : [];
+    const tile = TILES.find((t) => t.key === view.tile);
     $('summarySub').textContent = !data.loaded
       ? (data.loading ? 'Reading every role…' : 'Could not load the summary.')
-      : `${n} role${n === 1 ? '' : 's'} · ${data.tones.warn || 0} need attention · ${
-          data.tones.good || 0} strong`;
+      : rows.length === n ? `${n} role${n === 1 ? '' : 's'} · ${
+          view.sort ? 'click a row for the detail' : 'most urgent first'}`
+      : `${rows.length} of ${n} roles${tile ? ' · click the tile again to show all' : ''}`;
 
     const run = $('summaryAnalyse');
     run.hidden = !data.aiConfigured || (!data.due && !data.analysing);
@@ -2953,24 +3051,161 @@ const Summary = (() => {
     run.textContent = data.analysing ? 'Analysing…'
       : `Run AI analysis (${data.due})`;
 
-    const rows = visible();
-    $('summaryBody').innerHTML = !data.loaded ? ''
-      : rows.length ? rows.map(card).join('')
-      : `<p class="empty">${n ? 'No role matches that search.'
-          : 'No role here has had an applicant yet.'}</p>`;
+    $('summaryKpis').innerHTML = data.loaded ? tiles() : '';
+    $('summaryHead').innerHTML = head();
+    $('summaryRows').innerHTML = rows.length ? rows.map(row).join('')
+      : `<tr><td class="empty" colspan="${COLUMNS.length}">${
+          !data.loaded ? (data.loading ? 'Loading…' : 'Could not load the summary.')
+          : n ? 'No role matches.' : 'No role here yet.'}</td></tr>`;
+  }
 
-    for (const btn of $('summaryBody').querySelectorAll('[data-sum-cand]')) {
-      btn.addEventListener('click', () => openDrawer(Number(btn.dataset.sumCand)));
+  /* Numbers biggest first, names A to Z; a second click turns the column
+   * over and a third puts the server's order back. */
+  function sortBy(key) {
+    const first = !COLUMNS.find((c) => c.key === key).text;
+    if (view.sort !== key) {
+      view.sort = key;
+      view.desc = first;
+    } else if (view.desc === first) {
+      view.desc = !first;
+    } else {
+      view.sort = null;
     }
-    for (const btn of $('summaryBody').querySelectorAll('[data-sum-role]')) {
-      btn.addEventListener('click', () => {
-        const id = Number(btn.dataset.sumRole);
-        // A tiered role has no card without a tier; open its first.
-        const first = state.roles.find((r) => r.id === id);
-        close();
-        openRole(id, true, null, first?.tier || null);
-      });
+    render();
+    $('summaryHead').querySelector(`[data-sum-sort="${key}"]`)?.focus();
+  }
+
+  /* --- one role, in the side drawer -------------------------------------- */
+
+  /* Whoever's record names an employer or a school. A click opens their card
+   * over this drawer. */
+  function peopleChips(role) {
+    return role.notable.slice(0, 12).map((p) =>
+      `<button class="sum-person" type="button" data-sum-cand="${p.id}">${
+        esc(p.name)} <span>${esc([...p.employers, ...p.schools].join(', '))}</span></button>`)
+      .join('');
+  }
+
+  const section = (title, body) =>
+    `<div class="drawer-section"><h3>${esc(title)}</h3>${body}</div>`;
+
+  /* Columns on a shared baseline, each with its own tooltip. `mark` is a
+   * position along the axis, in percent, to draw a labelled line at. */
+  function columns(values, titles, mark) {
+    const peak = Math.max(1, ...values);
+    return `<div class="board-cols">${values.map((n, i) => `
+        <span class="board-col" title="${esc(titles[i])}"><i style="height:${
+          n ? Math.max(3, (n / peak) * 100) : 0}%"></i></span>`).join('')}${
+        mark ? `<b class="board-cols-mark" style="left:${mark.at}%"><span>${
+          esc(mark.label)}</span></b>` : ''}</div>`;
+  }
+
+  function distribution(role, detail) {
+    const dist = detail.distribution;
+    if (!dist) return '';
+    if (!dist.graded) {
+      return section('Score distribution', '<p class="dim">Nothing graded yet.</p>');
     }
+    const titles = dist.buckets.map((n, i) =>
+      `${i * 10}–${i === 9 ? 100 : i * 10 + 9}: ${count(n)} candidate${n === 1 ? '' : 's'}`);
+    const best = role.quality?.top;
+    return section('Score distribution', `
+      ${columns(dist.buckets, titles, { at: dist.bar, label: `bar ${dist.bar}` })}
+      <div class="board-axis"><span>0</span><span>50</span><span>100</span></div>
+      <p class="board-note">${count(dist.graded)} scores on file${
+        best === null || best === undefined ? '' : ` · best ${best}`} · ${
+        count(role.quality?.clear)} at or above ${dist.bar}</p>`);
+  }
+
+  function topFive(detail) {
+    if (!detail.top) return '';
+    if (!detail.top.length) {
+      return section('Top candidates',
+        '<p class="dim">Nobody graded and still in the running.</p>');
+    }
+    return section('Top candidates', `<ol class="board-top">${detail.top.map((c) => `
+      <li>
+        <button class="board-top-name" type="button" data-sum-cand="${c.id}">${
+          esc(c.name || 'Unnamed')}</button>
+        ${c.stage ? `<span class="stage-chip stage-${esc(c.stage)}">${
+          esc(c.stage.replace('_', ' '))}</span>` : ''}
+        <span class="board-top-links">
+          ${c.resume_open_link ? `<a href="${esc(c.resume_open_link)}" target="_blank" rel="noopener">CV</a>` : ''}
+          ${c.video_link ? `<a href="${esc(c.video_link)}" target="_blank" rel="noopener">Video</a>` : ''}
+        </span>
+        <span class="board-top-score${c.clears ? ' is-clear' : ''}"
+              title="${c.clears ? 'Above the bar' : 'Below the bar'}">${c.score}</span>
+      </li>`).join('')}</ol>`);
+  }
+
+  function timeline(detail) {
+    const weeks = detail.timeline || [];
+    const total = sum(weeks, (w) => w.applicants);
+    const titles = weeks.map((w) => `${shortDate(w.from)} – ${shortDate(w.to)}: ${
+      count(w.applicants)} applicant${w.applicants === 1 ? '' : 's'}`);
+    return section('Applicant timeline', `
+      ${columns(weeks.map((w) => w.applicants), titles)}
+      <div class="board-axis"><span>week of ${
+        esc(shortDate(weeks[0]?.from))}</span><span>this week</span></div>
+      <p class="board-note">${count(total)} applicant${total === 1 ? '' : 's'} in the last ${
+        weeks.length} weeks, by week</p>`);
+  }
+
+  function renderRole() {
+    const role = data.roles.find((r) => r.id === view.roleId);
+    if (!role) { closeRole(); return; }
+    const detail = details.get(role.id);
+    $('summaryRoleEyebrow').textContent = role.published ? 'Open role' : 'Closed role';
+    $('summaryRoleTitle').textContent = role.title;
+    $('summaryRoleSub').textContent = [
+      `${count(role.applicants)} applicant${role.applicants === 1 ? '' : 's'}`,
+      role.last_application
+        ? `last applied ${shortDate(role.last_application)} · ${whenRelative(role.last_application)}`
+        : '',
+    ].filter(Boolean).join(' · ');
+
+    const ai = role.ai?.text ? `
+        <p class="sum-ai"><span class="sum-ai-tag">AI summary</span>${esc(role.ai.text)}${
+          role.ai.stale
+            ? ' <span class="dim">(the role has changed since this was written)</span>'
+            : ''}</p>` : '';
+    const people = peopleChips(role);
+    $('summaryRoleBody').innerHTML = `
+      <div class="drawer-section">
+        <p class="board-action">${chip(role.action)}<span>${esc(role.action.why)}</span></p>
+        ${ai}
+        ${role.findings.length ? `<ul class="sum-findings">${role.findings
+          .map((f) => `<li class="sum-${esc(f.tone)}">${esc(f.text)}</li>`).join('')}</ul>` : ''}
+      </div>
+      ${detail === undefined ? '<p class="empty">Loading…</p>'
+        : detail === null ? '<p class="empty">Could not load the detail for this role.</p>'
+        : distribution(role, detail) + topFive(detail) + timeline(detail)}
+      ${people ? section('Notable backgrounds', `<div class="sum-people">${people}</div>`) : ''}`;
+  }
+
+  async function openRoleSummary(id) {
+    view.roleId = id;
+    $('summaryRoleDrawer').hidden = false;
+    render();
+    renderRole();
+    if (details.get(id)) return;
+    details.delete(id);
+    let detail = null;
+    try {
+      detail = await api(`/api/evaluations/summary/role/${id}`);
+    } catch (err) {
+      toast(err.message, true);
+    }
+    details.set(id, detail);
+    if (view.roleId === id && roleIsOpen()) renderRole();
+  }
+
+  function closeRole() {
+    const id = view.roleId;
+    $('summaryRoleDrawer').hidden = true;
+    view.roleId = null;
+    render();
+    $('summaryRows').querySelector(`[data-sum-role="${id}"]`)?.focus();
   }
 
   /* The model writes a few roles per request, because a request has a
@@ -3003,14 +3238,17 @@ const Summary = (() => {
   function open() {
     if (!hasMarkup()) return;
     $('summaryDrawer').hidden = false;
+    document.documentElement.classList.add('summary-open');
     render();
     load();
-    $('summarySearch')?.focus();
   }
 
+  /* Closes whichever of the two is on top, so one Escape closes one thing. */
   function close() {
     if (!hasMarkup()) return;
+    if (roleIsOpen()) { closeRole(); return; }
     $('summaryDrawer').hidden = true;
+    document.documentElement.classList.remove('summary-open');
     $('summaryBtn')?.focus();
   }
 
@@ -3018,10 +3256,48 @@ const Summary = (() => {
   $('summaryRefresh')?.addEventListener('click', () => load(true));
   $('summaryAnalyse')?.addEventListener('click', analyse);
   $('summarySearch')?.addEventListener('input', render);
-  $('summaryFilter')?.addEventListener('change', render);
   for (const el of document.querySelectorAll('[data-summary-close]')) {
     el.addEventListener('click', close);
   }
+  for (const el of document.querySelectorAll('[data-summary-role-close]')) {
+    el.addEventListener('click', closeRole);
+  }
+
+  // The strip, the head and the rows are redrawn on every render, so their
+  // clicks are heard on the elements that stay put.
+  $('summaryKpis')?.addEventListener('click', (e) => {
+    const key = e.target.closest('[data-sum-tile]')?.dataset.sumTile;
+    if (!key) return;
+    view.tile = view.tile === key ? '' : key;
+    render();
+    $('summaryKpis').querySelector(`[data-sum-tile="${key}"]`)?.focus();
+  });
+  const onActivate = (el, pick, act) => {
+    el?.addEventListener('click', (e) => {
+      const hit = e.target.closest(pick);
+      if (hit) act(hit);
+    });
+    el?.addEventListener('keydown', (e) => {
+      if ((e.key !== 'Enter' && e.key !== ' ') || !e.target.matches(pick)) return;
+      e.preventDefault();
+      act(e.target);
+    });
+  };
+  onActivate($('summaryHead'), '[data-sum-sort]', (th) => sortBy(th.dataset.sumSort));
+  onActivate($('summaryRows'), '[data-sum-role]',
+             (tr) => openRoleSummary(Number(tr.dataset.sumRole)));
+  $('summaryRoleBody')?.addEventListener('click', (e) => {
+    const cand = e.target.closest('[data-sum-cand]');
+    if (cand) openDrawer(Number(cand.dataset.sumCand));
+  });
+  $('summaryRoleOpen')?.addEventListener('click', () => {
+    const id = view.roleId;
+    // A tiered role has no card without a tier; open its first.
+    const first = state.roles.find((r) => r.id === id);
+    closeRole();
+    close();
+    openRole(id, true, null, first?.tier || null);
+  });
 
   return { load, open, close, isOpen };
 })();
