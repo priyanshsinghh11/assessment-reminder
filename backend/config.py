@@ -1286,6 +1286,12 @@ INVITES_START_AT = {
     "55D093D336": "2026-08-06",   # IT Operations & Infrastructure Lead
     "056AFC5F93": "2026-08-06",   # IT & Compliance Auditor
     "A17EA2076A": "2026-08-06",   # Systems & Security Administrator
+    # Entrepreneur in Residence: 0/4 sampled invited on 2026-10-20, 2/4 on the
+    # 21st (switched on that day), 3/3 and 4/4 on the 22nd. The 22nd rather
+    # than the 21st, because a missed reminder costs less than a reminder for
+    # an invite that never arrived.
+    "12D3F7B4DF": "2026-10-22",   # Entrepreneur in Residence
+    "7F88AB2ECB": "2026-10-22",   # Entrepreneur in Residence (Remote)
 }
 
 # Jobs to monitor: workable_shortcode -> (label, portal_job_id, apply_slug)
@@ -1506,6 +1512,17 @@ JOB_ASSESSMENTS = {
     "370B787999": ("Design Lead", "44", "design-lead"),
     "782440C1B6": ("Product Manager", "45", "product-manager"),
     "2CF95851A3": ("Client Delivery Lead", "46", "client-delivery-lead"),
+
+    # portal 47 -- Entrepreneur Assessment (new 2026-10)
+    #
+    # Two postings, on-site and remote, both created 2026-10-09 and the only
+    # postings in the account with "Entrepreneur" in the title. Portal 47 is
+    # the only assignment with that slug. No submissions yet. Invite automation
+    # was switched on 2026-10-21, after the postings had applicants -- see
+    # INVITES_START_AT above; everyone sampled from the 22nd on carries the
+    # invite link.
+    "12D3F7B4DF": ("Entrepreneur in Residence", "47", "entrepreneur"),
+    "7F88AB2ECB": ("Entrepreneur in Residence (Remote)", "47", "entrepreneur"),
 
     # portal 34 -- Operations Associate (no submissions yet, so overlap could
     # never have found these -- every one came from the invite link)

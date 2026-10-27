@@ -17,7 +17,8 @@ from flask import Response, jsonify, request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from backend import auth
-from backend.config import (AUTH_ENABLED, MANAGER_DASHBOARD_SCORES,
+from backend.config import (AUTH_ENABLED, ASSESSMENT_JOBS,
+                            MANAGER_DASHBOARD_SCORES,
                             SHORTLIST_MAX, SHORTLIST_SIZE, LLM_CONCURRENCY)
 from backend.db import store
 from backend.grading import (evaluator, pedigree, rubric_pack,
@@ -252,6 +253,7 @@ def api_roles():
     recruit = store.role_recruitment_stats(
         [(band["key"], band["min"]) for band in rubric_pack.BANDS],
         job_ids=scope)
+    recruiting = {job["portal_job_id"] for job in ASSESSMENT_JOBS.values()}
     roles = []
     for role in store.get_roles(job_ids=scope):
         tally = counts.get(role["_id"], {})
@@ -266,6 +268,10 @@ def api_roles():
             "admin_url": role.get("admin_url"),
             "assessment_name": assessment.get("name"),
             "has_assessment": bool(assessment.get("markdown")),
+            # Wired to a live Workable posting, so candidates are being invited
+            # to it. Keeps a newly added role on the default "active" view
+            # before its first submission lands, instead of hiding it there.
+            "recruiting": str(role["_id"]) in recruiting,
             # Who this role's shortlist goes to, and when it last went. Both
             # ride along with the roles rather than sitting behind a click:
             # "which of my roles has nobody to send to" is a question about the
