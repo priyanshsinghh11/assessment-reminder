@@ -1154,7 +1154,9 @@ function visibleRoles() {
   const term = $('roleSearch').value.trim().toLowerCase();
   const filter = $('roleFilter').value;
   return state.roles.filter((role) => {
-    if (filter === 'active' && role.counts.total === 0) return false;
+    // Active: has submissions, or is open for them -- a role added today is
+    // on screen before its first candidate submits.
+    if (filter === 'active' && role.counts.total === 0 && !role.recruiting) return false;
     if (filter === 'published' && !role.published) return false;
     if (filter === 'repost' && !role.recruitment?.quality?.repost) return false;
     if (term && !`${role.title} ${role.slug}`.toLowerCase().includes(term)) return false;
@@ -2388,16 +2390,21 @@ function renderTop() {
           art(c.assessment_url, 'Answers')}${art(c.video_link, 'Video')}</div></td>
         <td class="nowrap dim">${esc(c.submitted_at || '')}</td>
         <td>${where}</td>
+        <td class="nowrap stage-actions">${topActions(c)}</td>
       </tr>`;
   }).join('');
 
   for (const tr of $('topBody').querySelectorAll('tr')) {
     tr.addEventListener('click', (e) => {
-      // The row opens the card. The tickbox and the artefact links on it are
-      // their own actions and must not do both.
-      if (e.target.closest('a, input, label')) return;
+      // The row opens the card. The tickbox, the artefact links and the move
+      // buttons on it are their own actions and must not do both.
+      if (e.target.closest('a, input, label, button')) return;
       openDrawer(Number(tr.dataset.id));
     });
+  }
+  for (const btn of $('topBody').querySelectorAll('[data-top-move]')) {
+    btn.addEventListener('click', () =>
+      topMove(Number(btn.dataset.id), btn.dataset.topMove));
   }
   for (const box of $('topBody').querySelectorAll('[data-pick]')) {
     box.addEventListener('change', () => {
@@ -2408,6 +2415,50 @@ function renderTop() {
   }
 
   renderTopBar(rows);
+}
+
+/* The manual moves on a top-N row: interview, for a meeting the manager has
+ * already arranged themselves, and reject. Both go through the workspace's own
+ * /decision route, the same one the emailed review page uses, so the server
+ * scopes them to this manager's list and records who did it. Interview by
+ * hand sends nothing; the invitation is still Invite to interview. */
+function topActions(c) {
+  const btn = (stage, label) =>
+    `<button class="btn btn-ghost btn-sm" data-top-move="${stage}"
+             data-id="${c.submission_id}">${label}</button>`;
+  if (['interview_2', 'hired', 'rejected'].includes(c.stage)) return '';
+  return (c.stage === 'interview' ? '' : btn('interview', 'Move to interview'))
+    + btn('rejected', 'Reject');
+}
+
+async function topMove(submissionId, stage) {
+  const row = state.top.rows.find((c) => c.submission_id === submissionId);
+  const who = row?.name || 'this candidate';
+  const mails = state.mail.enabled !== false && state.mail.auto;
+  const ask = stage === 'interview'
+    ? `Move ${who} to Interview?\n\nNo invitation is emailed — use this when `
+      + 'you have already arranged the meeting. To send one, tick them and use '
+      + 'Invite to interview instead.'
+    : `Reject ${who}?\n\n${mails
+      ? 'They will be emailed that we are not taking their application further.'
+      : 'Nobody is emailed now — the recruiting team sends the rejection after '
+        + 'reading it.'}`;
+  if (!window.confirm(ask)) return false;
+  try {
+    const result = await postJson(reviewApi('/decision'),
+                                  { submission_id: submissionId, stage });
+    toast(result.message);
+    state.top.picked.delete(submissionId);
+    // Re-read rather than patched, for the reason onSent gives below.
+    await loadTopCandidates(true);
+    await loadPipeline();
+    if (state.activeRoleId !== null) await openRole(state.activeRoleId, false);
+    await loadRoles();
+    return true;
+  } catch (err) {
+    toast(err.message, true);
+    return false;
+  }
 }
 
 /* The send bar. Selections survive filtering rather than being cleared by it:
@@ -4949,6 +5000,10 @@ async function openDrawer(submissionId) {
     if (directInvite) {
       directInvite.addEventListener('click', () => inviteFromDrawer(c));
     }
+    $('drawerBody').querySelector('[data-direct-move]')
+      ?.addEventListener('click', async () => {
+        if (await topMove(c.id, 'interview')) openDrawer(c.id);
+      });
 
     $('drawerBody').querySelector('[data-round2]')
       ?.addEventListener('click', () => RoundTwo.open(c));
@@ -6013,6 +6068,9 @@ function pipelineSection(c) {
            which says where the invitation is actually written. -->
       <div class="drawer-actions">
         ${inManagerQueue ? '<button class="btn btn-primary" data-direct-invite>Invite to interview</button>' : ''}
+        ${inManagerQueue && stage !== 'interview'
+          ? '<button class="btn" data-direct-move title="Already arranged the meeting? Records it without emailing the candidate.">Move to interview</button>'
+          : ''}
         ${stage === 'interview_2'
           ? `<button class="btn${invite2 ? '' : ' btn-primary'}" data-round2>${
               invite2 ? 'Send invitation again' : 'Send round 2 invitation'}</button>`

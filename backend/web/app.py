@@ -888,7 +888,8 @@ MANAGER_INVITES_FROM_COMPOSER = (
     "Tick whoever you want to meet and use Invite to interview. The "
     "invitation goes out in your name, over your calendar, in words you "
     "write — so it is written first and sent from there, rather than by "
-    "moving somebody across the board."
+    "moving somebody across the board. Already arranged the meeting yourself? "
+    "Move to interview records it without emailing the candidate."
 )
 
 

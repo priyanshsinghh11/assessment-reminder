@@ -43,12 +43,14 @@ from backend.web.app import (FRONTEND_DIR, _mongo_guard, app, log)
 # to a person rather than silently rewind a board other people are reading.
 MANAGER_STAGES = ("interview", "interview_2", "hired", "rejected")
 
-# ...and which of them /decision handles. Not `interview`: an invitation is a
-# message the manager writes, so it goes through the composer and its own route
-# below, where there is a subject, a body and a preview. A one-click interview
-# button would send copy nobody read -- which is the thing this whole surface
-# was built to stop.
-MANAGER_DECISION_STAGES = ("interview_2", "hired", "rejected")
+# ...and which of them /decision handles. `interview` only as a MANUAL move:
+# the manager has already arranged the meeting themselves (a call, their own
+# calendar invite) and wants the board to say so. Nothing is emailed for it --
+# an invitation is a message the manager writes, so it still goes through the
+# composer and its own route below, where there is a subject, a body and a
+# preview. A one-click button that sent copy nobody read is the thing this
+# surface was built to stop; a one-click button that sends nothing is not.
+MANAGER_DECISION_STAGES = ("interview", "interview_2", "hired", "rejected")
 
 REVIEW_DEAD = {
     "unknown": ("This review link is not valid. It may have been mistyped — "
@@ -205,14 +207,17 @@ def api_review(token: str):
 @app.route("/api/review/<token>/decision", methods=["POST"])
 def api_review_decision(token: str):
     """
-    A manager marking one candidate hired or rejected, or putting somebody
-    they have interviewed through to round 2.
+    A manager marking one candidate hired or rejected, putting somebody
+    they have interviewed through to round 2, or moving somebody to interview
+    by hand.
 
     Body: {submission_id, stage, note?}.
 
-    NOT INTERVIEW. That is an invitation with a subject line and a body the
-    manager writes, and it goes through /api/review/<token>/invite, where there
-    is a composer and a preview in front of it.
+    INTERVIEW FROM HERE IS A RECORD, NOT AN INVITATION. The manager has set
+    the meeting up themselves and the board is catching up; the candidate is
+    sent nothing, whatever either mail switch says. The invitation with a
+    subject line and a body the manager writes still goes through
+    /api/review/<token>/invite, where there is a composer and a preview.
 
     NOBODY IS EMAILED FROM HERE while PIPELINE_AUTO_EMAIL is off. The manager's
     decision is recorded and comes back as `mail.queued`, and the page says "we
@@ -243,13 +248,6 @@ def api_review_decision(token: str):
 
     if not isinstance(submission_id, int):
         return jsonify({"error": "submission_id must be a number."}), 400
-    if stage == "interview":
-        return jsonify({
-            "error": "Interview invitations are written and sent from the "
-                     "invite composer, so the candidate gets a message you "
-                     "have read.",
-            "needs": "compose",
-        }), 400
     if stage not in MANAGER_DECISION_STAGES:
         return jsonify({"error": f"Unknown stage: {stage}"}), 400
     # The token's own list is the authority, not the role. Without this a
@@ -272,6 +270,15 @@ def api_review_decision(token: str):
         return jsonify({
             "error": "Round 2 is for candidates you have already interviewed. "
                      "Invite them to a first interview before moving them on.",
+        }), 409
+    # Back to a first interview from round 2 or a closed stage is the same
+    # mis-click the composer refuses: it would rewind a board other people are
+    # reading. Somebody already at interview is a no-op, not an error.
+    current = (submission.get("pipeline") or {}).get("stage")
+    if stage == "interview" and current in ("interview_2", "hired", "rejected"):
+        return jsonify({
+            "error": "This candidate is already past a first interview. Ask "
+                     "the recruiting team if their stage needs correcting.",
         }), 409
 
     manager = link["manager"]
@@ -300,7 +307,11 @@ def api_review_decision(token: str):
     # two rejections. Best-effort: the move has already happened and is not
     # rolled back because mail failed.
     mail: dict = {"sent": False, "reason": "No email is sent for this stage."}
-    if stage == "interview_2":
+    if stage == "interview":
+        # The manual move. The manager arranged the meeting; we record it.
+        mail = {"sent": False,
+                "reason": "moved by hand — no invitation is sent."}
+    elif stage == "interview_2":
         # Never sent from here, whatever the switch says. The invitation
         # carries the booking link of whoever takes the second interview, and
         # this page only knows the manager who took the first.
@@ -344,10 +355,14 @@ def api_review_decision(token: str):
                           "up — your decision is saved."}
 
     name = submission.get("candidate_name") or f"submission {submission_id}"
-    said = {"interview_2": "moved to round 2", "hired": "marked hired",
+    said = {"interview": "moved to interview",
+            "interview_2": "moved to round 2", "hired": "marked hired",
             "rejected": "marked rejected"}[stage]
     message = f"{name} {said}."
-    if stage == "interview_2":
+    if stage == "interview":
+        message += (" No invitation was sent — use Invite to interview if "
+                    "they still need one.")
+    elif stage == "interview_2":
         message += (" The recruiting team will send the invitation with the "
                     "second interviewer's booking link.")
     elif candidate_mail.stage_is_mailed(stage):

@@ -90,14 +90,16 @@ const STAGE_LABEL = {
 };
 
 // What each button does, in the manager's words rather than the schema's.
-const STAGE_VERB = { interview_2: 'Move to round 2', hired: 'Mark hired',
-                     rejected: 'Not proceeding' };
+const STAGE_VERB = { interview: 'Move to interview', interview_2: 'Move to round 2',
+                     hired: 'Mark hired', rejected: 'Not proceeding' };
 
 // The outcomes offered on a row. Round 2 only once there has been a round 1:
 // the server refuses it otherwise, and a button that fails is worse than none.
+// "Move to interview" is the manual move -- the meeting is already arranged and
+// no invitation goes out -- so it is only offered before a first interview.
 const decisionsFor = (c) => (
   c.stage === 'interview' || c.stage === 'interview_2'
-    ? ['interview_2', 'hired', 'rejected'] : ['hired', 'rejected']);
+    ? ['interview_2', 'hired', 'rejected'] : ['interview', 'hired', 'rejected']);
 
 // Who can still be picked for an interview. Somebody already at interview can
 // -- that is a reschedule, or a resend to a candidate who says nothing
@@ -354,6 +356,15 @@ function renderPickBar() {
 // in the dialog rather than the toast: after the send is too late to change
 // your mind.
 const CONFIRM = {
+  interview: {
+    title: 'Move to interview',
+    body: (n) => `${n} will be moved to Interview on the board. No invitation `
+                 + `is emailed — use this when you have already arranged the `
+                 + `meeting yourself. To send one, tick them and use Invite `
+                 + `to interview instead.`,
+    noteLabel: 'Note for the record',
+    noteHint: 'Internal only. The candidate never sees this.',
+  },
   interview_2: {
     title: 'Move to round 2',
     body: (n) => `${n} will be moved to Round 2 on the board. The recruiting `
@@ -434,11 +445,13 @@ async function submitDecision() {
       note: $('confirmNote').value.trim() || null,
     });
     // Somebody decided or in round 2 cannot be invited, so they leave any
-    // selection they were part of rather than sitting in it invisibly.
-    state.picked.delete(submissionId);
+    // selection they were part of rather than sitting in it invisibly. A
+    // manual interview move can still be invited, so their tick stays.
+    if (stage !== 'interview') state.picked.delete(submissionId);
     closeConfirm();
     render();
     toast(data.message, data.mail && data.mail.sent === false
+                        && stage !== 'interview'
                         && state.mailedStages.includes(stage));
   } catch (err) {
     toast(err.message, true);
