@@ -24,6 +24,9 @@ const state = {
     days_between_reminders: 2,
   },
   jobs: [],
+  // The candidate dashboard's roles. The Job filter lists these rather than
+  // every Workable posting, which repeat one role many times over.
+  roles: [],
   candidates: [],
   selected: new Set(),
   sort: { key: "business_days_elapsed", dir: "desc" },
@@ -90,6 +93,7 @@ function apply(data) {
   state.scanned = data.scanned !== false;
   state.stale = Boolean(data.stale);
   state.jobs = data.jobs || [];
+  state.roles = data.roles || [];
   state.candidates = (data.candidates || []).map((c) => {
     const withStatus = { ...c };
     withStatus.status = deriveStatus(withStatus);
@@ -283,10 +287,10 @@ function renderStats() {
 function renderJobFilter() {
   const sel = document.getElementById("jobFilter");
   if (sel.options.length > 1) return;
-  for (const j of state.jobs) {
+  for (const r of state.roles) {
     const opt = document.createElement("option");
-    opt.value = j.shortcode;
-    opt.textContent = j.label;
+    opt.value = r.id;
+    opt.textContent = r.label;
     sel.appendChild(opt);
   }
 }
@@ -296,7 +300,7 @@ function visibleRows() {
   const needle = q.trim().toLowerCase();
 
   const rows = state.candidates.filter((c) => {
-    if (job && c.job_shortcode !== job) return false;
+    if (job && c.role_id !== job) return false;
     if (status && c.status !== status) return false;
     if (needle && !`${c.name} ${c.email}`.toLowerCase().includes(needle)) return false;
     return true;
@@ -331,7 +335,7 @@ function renderTable() {
           <div class="cand-name">${esc(c.name)}</div>
           <div class="cand-email">${esc(c.email)}</div>
         </td>
-        <td class="dim">${esc(c.job_title || c.job_shortcode)}</td>
+        <td class="dim" title="${esc(c.job_title || c.job_shortcode)}">${esc(c.role_title || c.job_title || c.job_shortcode)}</td>
         <td class="dim nowrap">${esc(c.stage || "—")}</td>
         <td class="nowrap dim">${fmtDate(c.applied_at)}</td>
         <td class="num">${c.business_days_elapsed}</td>
@@ -555,10 +559,12 @@ const MOCK = {
   },
   portal: { total: 727, submitted: 434, in_progress: 293 },
   jobs: [{ shortcode: "0C6BA6AAA9", label: "Full Stack Developer" }],
+  roles: [{ id: "17", label: "Full Stack Developer" }],
   candidates: [
     {
       candidate_id: "c1", name: "Ananya Rao", email: "ananya.rao@example.com",
       job_shortcode: "0C6BA6AAA9", job_title: "Full Stack Developer",
+      role_id: "17", role_title: "Full Stack Developer",
       stage: "Applied", applied_at: "2026-07-29T09:12:00+00:00",
       business_days_elapsed: 7, portal_status: null, reminders_sent: 0,
       last_reminder_at: null, assessment_url: "https://example.com/a",
@@ -566,6 +572,7 @@ const MOCK = {
     {
       candidate_id: "c2", name: "Marcus Bell", email: "marcus.bell@example.com",
       job_shortcode: "0C6BA6AAA9", job_title: "Full Stack Developer",
+      role_id: "17", role_title: "Full Stack Developer",
       stage: "Assessment", applied_at: "2026-07-31T14:40:00+00:00",
       business_days_elapsed: 5, portal_status: null, reminders_sent: 1,
       last_reminder_at: "2026-08-04T09:00:00+00:00",
@@ -574,6 +581,7 @@ const MOCK = {
     {
       candidate_id: "c3", name: "Sara Okafor", email: "sara.okafor@example.com",
       job_shortcode: "0C6BA6AAA9", job_title: "Full Stack Developer",
+      role_id: "17", role_title: "Full Stack Developer",
       stage: "Applied", applied_at: "2026-07-30T10:00:00+00:00",
       business_days_elapsed: 6, portal_status: "in_progress", reminders_sent: 0,
       last_reminder_at: null, assessment_url: "https://example.com/a",
@@ -581,6 +589,7 @@ const MOCK = {
     {
       candidate_id: "c4", name: "Daniel Kim", email: "daniel.kim@example.com",
       job_shortcode: "0C6BA6AAA9", job_title: "Full Stack Developer",
+      role_id: "17", role_title: "Full Stack Developer",
       stage: "Assessment", applied_at: "2026-07-29T16:20:00+00:00",
       business_days_elapsed: 7, portal_status: "submitted", reminders_sent: 1,
       last_reminder_at: "2026-08-03T09:00:00+00:00",

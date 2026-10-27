@@ -430,8 +430,53 @@ def _remember(state: dict) -> None:
         log.warning("Could not write scan cache %s: %s", SCAN_CACHE_FILE, exc)
 
 
+def _dashboard_roles() -> tuple[list[dict], dict[str, dict]]:
+    """
+    The candidate dashboard's roles, and which of them each posting belongs to.
+
+    ASSESSMENT_JOBS is keyed by Workable posting, and there are ~99 of them --
+    one role is reposted per region, per seniority, per month. The candidate
+    dashboard groups them by the portal role they share (a few dozen), and
+    that is the list a recruiter knows. So the reminder page filters on the
+    same roles, under the same titles, rather than on every posting.
+
+    Returns (roles, by_shortcode). Titles come from the roles collection; if
+    the database is unreachable a posting's own label stands in, so the page
+    still works off the scan it already holds.
+    """
+    try:
+        titles = {str(r["_id"]): r.get("title") for r in store.role_index()}
+    except Exception as exc:
+        log.warning("Role titles unavailable for the reminder page: %s", exc)
+        titles = {}
+
+    by_shortcode: dict[str, dict] = {}
+    roles: dict[str, dict] = {}
+    for code, job in ASSESSMENT_JOBS.items():
+        role_id = job["portal_job_id"]
+        if titles and role_id not in titles:
+            continue  # not a role the candidate dashboard shows
+        role = roles.setdefault(role_id, {
+            "id": role_id, "label": titles.get(role_id) or job["label"]})
+        by_shortcode[code] = role
+    return sorted(roles.values(), key=lambda r: r["label"].lower()), by_shortcode
+
+
+def _with_roles(payload: dict) -> dict:
+    """Add the dashboard roles, and each candidate's, to a state payload."""
+    roles, by_shortcode = _dashboard_roles()
+    candidates = []
+    for c in payload["candidates"]:
+        role = by_shortcode.get(c.get("job_shortcode"))
+        if role is None:
+            continue  # a posting whose role is not on the candidate dashboard
+        # Copied, not annotated in place: `c` belongs to the cached scan.
+        candidates.append({**c, "role_id": role["id"], "role_title": role["label"]})
+    return {**payload, "roles": roles, "candidates": candidates}
+
+
 def _state_payload(state: dict) -> dict:
-    return {
+    return _with_roles({
         "last_run": state["generated_at"],
         "last_run_mode": "scan",
         "stale": _state_age(state) > STATE_MAX_AGE,
@@ -440,7 +485,7 @@ def _state_payload(state: dict) -> dict:
         "portal": state["portal"],
         "jobs": state["jobs"],
         "candidates": state["candidates"],
-    }
+    })
 
 
 def _empty_payload() -> dict:
@@ -451,7 +496,7 @@ def _empty_payload() -> dict:
     simply has not been asked yet, and saying so is the point of pausing the
     automatic scan.
     """
-    return {
+    return _with_roles({
         "last_run": None,
         "last_run_mode": None,
         "stale": True,
@@ -467,7 +512,7 @@ def _empty_payload() -> dict:
         "jobs": [{"shortcode": code, "label": job["label"]}
                  for code, job in ASSESSMENT_JOBS.items()],
         "candidates": [],
-    }
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -760,7 +805,11 @@ def api_run():
                 }), 409
             state = _last_state
 
-        candidates = state["candidates"]
+        # The same roles the table shows, so "All eligible" cannot reach a
+        # candidate the page never listed.
+        _roles, on_dashboard = _dashboard_roles()
+        candidates = [c for c in state["candidates"]
+                      if c.get("job_shortcode") in on_dashboard]
         eligible = [c for c in candidates if not c["portal_status"]]
 
         if mode == "scan-only":
