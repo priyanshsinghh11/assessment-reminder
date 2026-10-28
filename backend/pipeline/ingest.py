@@ -45,6 +45,7 @@ from backend.config import (
     required_artefacts_for,
 )
 from backend.db import store
+from backend.grading import tier_resolver
 from backend.scraping import portal_crawler
 from backend.scraping import resume_reader
 from backend.scraping import submission_reader
@@ -454,7 +455,24 @@ def run(
     if not roles_only:
         summary["submissions"] = ingest_submissions(review_buckets)
         summary["screening"] = apply_auto_rejections()
+        summary["tracks"] = label_tracks()
     return summary
+
+
+def label_tracks() -> dict:
+    """
+    Label who came in through a tracked posting -- EdTech, on the Full Stack
+    Product Engineer build -- as soon as they are stored.
+
+    Grading also does this, but grading reaches a role when the hourly rotation
+    does, and the badge is wanted the moment the candidate is on the dashboard.
+    Best-effort: a Workable outage leaves the label for the next run.
+    """
+    written = 0
+    for role in store.get_roles():
+        result = tier_resolver.ensure_tracks(role, store)
+        written += (result or {}).get("written", 0)
+    return {"labelled": written}
 
 
 def _report(summary: dict) -> None:
