@@ -243,15 +243,25 @@ def _download_bucket_by_role(
     queue, which is what an ignored filter looks like; and a role the jobs tab
     does not list, which nothing in the pieces can show -- so their combined
     size is held against the length the portal announced for the whole queue.
+
+    WHEN THE PORTAL ANNOUNCES NOTHING, the pieces are kept anyway. The length
+    comes off a request for the very export that just failed, so in an outage
+    of that export -- the only time this function runs -- it is usually
+    missing too. Refusing on that ground made the fallback a no-op: from
+    19 Oct 2026 the whole-queue export answered 503 on most requests, every
+    role-by-role fetch came down cleanly in two seconds, and nine days of
+    submissions were thrown away to protect against a role missing from the
+    jobs tab. The other two checks still hold; only the size one is skipped,
+    and it says so in the log.
     """
     # Imported here: portal_crawler imports this module for _login.
     from backend.scraping.portal_crawler import fetch_roles
 
     announced = _announced_length(session, url)
     if announced is None:
-        log.error("Queue '%s': the portal did not say how big it is, so a "
-                  "role-by-role fetch could not be checked for gaps.", bucket)
-        return None
+        log.warning("Queue '%s': the portal did not say how big it is, so a "
+                    "role-by-role fetch cannot be checked for a role the jobs "
+                    "tab does not list. Fetching it anyway.", bucket)
 
     job_ids = sorted({role["job_id"] for role in fetch_roles(session)})
     if not job_ids:
@@ -283,6 +293,10 @@ def _download_bucket_by_role(
 
     combined = header + "\n" + "".join(pieces)
     size = len(combined.encode("utf-8"))
+    if announced is None:
+        log.info("  %-10s fetched across %d role(s), %d bytes (unchecked)",
+                 bucket, len(job_ids), size)
+        return combined
     if size < announced * BY_ROLE_MIN_SHARE:
         log.error(
             "Queue '%s' came to %d bytes across %d role(s), against %d "

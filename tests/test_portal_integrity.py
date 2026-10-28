@@ -124,3 +124,24 @@ class TestRememberedCounts:
 
         monkeypatch.setattr(store, "get_db", boom)
         portal_scraper._remember_bucket_counts({"new": 10})   # must not raise
+
+
+def test_by_role_fallback_survives_an_export_that_announces_no_size(monkeypatch):
+    """
+    The whole-queue export is down, so it cannot say how big it is either. The
+    role-by-role pieces are still the queue; refusing them on that ground threw
+    away every submission from 19 to 28 Oct 2026.
+    """
+    from backend.scraping import portal_scraper, portal_crawler
+
+    head = "job_id,review_status,candidate_email"
+    bodies = {1: f"{head}\n1,new,a@x.io\n", 2: f"{head}\n2,new,b@x.io\n"}
+    monkeypatch.setattr(portal_scraper, "_announced_length", lambda s, u: None)
+    monkeypatch.setattr(portal_crawler, "fetch_roles",
+                        lambda s: [{"job_id": 1}, {"job_id": 2}])
+    monkeypatch.setattr(portal_scraper, "_download",
+                        lambda s, url, label: bodies[int(url.rsplit("=", 1)[1])])
+
+    body = portal_scraper._download_bucket_by_role(None, "new", "csv?review_status=new")
+
+    assert body.splitlines() == [head, "1,new,a@x.io", "2,new,b@x.io"]
