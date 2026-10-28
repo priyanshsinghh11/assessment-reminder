@@ -145,3 +145,32 @@ def test_by_role_fallback_survives_an_export_that_announces_no_size(monkeypatch)
     body = portal_scraper._download_bucket_by_role(None, "new", "csv?review_status=new")
 
     assert body.splitlines() == [head, "1,new,a@x.io", "2,new,b@x.io"]
+
+
+def test_upsert_is_batched_and_retries_a_dropped_connection(monkeypatch):
+    """
+    The whole sync in one bulk_write was ~100 MB by Oct 2026, and Atlas closed
+    the connection part-way through it. Batches, each retried, land anyway.
+    """
+    from types import SimpleNamespace
+    from pymongo.errors import AutoReconnect
+    from backend.db import store
+
+    sent, drops = [], [1]
+
+    def bulk_write(ops, ordered):
+        if drops:
+            drops.pop()
+            raise AutoReconnect("connection closed")
+        sent.append(len(ops))
+        return SimpleNamespace(modified_count=0, upserted_count=len(ops))
+
+    db = SimpleNamespace(submissions=SimpleNamespace(bulk_write=bulk_write))
+    monkeypatch.setattr(store, "get_db", lambda: db)
+    monkeypatch.setattr(store, "UPSERT_BATCH", 2)
+    monkeypatch.setattr(store.time, "sleep", lambda s: None)
+
+    result = store.upsert_submissions([{"submission_id": i} for i in range(5)])
+
+    assert sent == [2, 2, 1]
+    assert result == {"matched": 0, "upserted": 5}

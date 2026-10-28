@@ -16,11 +16,12 @@ import logging
 import os
 import re
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from pymongo import ASCENDING, DESCENDING, MongoClient, ReturnDocument, UpdateOne
-from pymongo.errors import PyMongoError
+from pymongo.errors import AutoReconnect, PyMongoError
 
 from backend.config import (CV_ONLY_ID_BASE, MONGO_URI, MONGO_DB,
                     REVIEW_LINK_DAYS, ROLE_TITLES,
@@ -1039,6 +1040,13 @@ def _next_cv_only_id() -> int:
     return CV_ONLY_ID_BASE + int(doc["seq"])
 
 
+# Ops per bulk_write in upsert_submissions, and tries per batch. 500 rows of
+# answer text is a few MB -- small enough that a dropped connection costs one
+# batch, not the sync.
+UPSERT_BATCH = 500
+UPSERT_ATTEMPTS = 3
+
+
 def upsert_submissions(records: list[dict]) -> dict:
     """
     Write portal-owned submission fields, leaving `decision` and `evaluation`
@@ -1053,11 +1061,24 @@ def upsert_submissions(records: list[dict]) -> dict:
         doc["synced_at"] = now()
         ops.append(UpdateOne({"_id": rec["submission_id"]}, {"$set": doc}, upsert=True))
 
-    result = get_db().submissions.bulk_write(ops, ordered=False)
-    return {
-        "matched": result.modified_count,
-        "upserted": result.upserted_count,
-    }
+    # In batches, each retried on a dropped connection. One bulk_write of the
+    # whole sync was ~100 MB by Oct 2026 -- every row carries its answer text --
+    # and Atlas closed the connection part-way through it, so nothing landed.
+    # Every op is an idempotent $set by _id, so re-sending a batch is safe.
+    matched = upserted = 0
+    for start in range(0, len(ops), UPSERT_BATCH):
+        batch = ops[start:start + UPSERT_BATCH]
+        for attempt in range(1, UPSERT_ATTEMPTS + 1):
+            try:
+                result = get_db().submissions.bulk_write(batch, ordered=False)
+                break
+            except AutoReconnect:
+                if attempt == UPSERT_ATTEMPTS:
+                    raise
+                time.sleep(2 * attempt)
+        matched += result.modified_count
+        upserted += result.upserted_count
+    return {"matched": matched, "upserted": upserted}
 
 
 def set_decision(submission_id: int, status: str, reason: str, source: str) -> bool:
