@@ -1997,7 +1997,7 @@ function renderPipeline() {
           data-id="${c.id}">
         ${tick}
         <td>
-          <div class="cand-name">${esc(c.candidate_name || '—')}</div>
+          <div class="cand-name">${esc(c.candidate_name || '—')}${trackBadge(c)}</div>
           <div class="cand-email">${esc(c.candidate_email || '')}</div>
         </td>
         <td class="dim">${esc(c.job_title || '—')}</td>
@@ -4852,7 +4852,7 @@ function renderCandidates() {
       <tr class="row-click${status === 'rejected' || status === 'in_progress' ? ' row-inert' : ''}"
           data-id="${c.id}">
         <td>
-          <div class="cand-name">${esc(c.candidate_name || '—')}${
+          <div class="cand-name">${esc(c.candidate_name || '—')}${trackBadge(c)}${
             stageOf(c)
               ? ` <span class="badge ${STAGE_CLASS[stageOf(c)]}">${
                   esc(STAGE_LABEL[stageOf(c)])}</span>`
@@ -4957,6 +4957,14 @@ async function gradePending() {
  * is the whole of what a reviewer reads about one person.
  */
 
+/* EdTech, on a candidate who came in through an EdTech posting. Those postings
+ * share the Full Stack Product Engineer build, so this is the only thing on
+ * the row that tells the two teams' candidates apart. The server sends it only
+ * for a tracked posting -- everyone else on the role carries no `track`. */
+function trackBadge(c) {
+  return c.track ? ` <span class="badge badge-track">${esc(c.track)}</span>` : '';
+}
+
 async function openDrawer(submissionId) {
   const drawer = $('drawer');
   drawer.hidden = false;
@@ -4964,7 +4972,7 @@ async function openDrawer(submissionId) {
 
   try {
     const c = await api(`/api/evaluations/submission/${submissionId}`);
-    $('drawerRole').textContent = c.job_title || '';
+    $('drawerRole').textContent = [c.job_title, c.track].filter(Boolean).join(' · ');
     $('drawerName').textContent = c.candidate_name || '—';
     $('drawerEmail').textContent = c.candidate_email || '';
     $('drawerBody').innerHTML = drawerContent(c);

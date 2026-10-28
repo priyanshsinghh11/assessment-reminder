@@ -447,6 +447,20 @@ def _new_york_seats(roles):
     return seats
 
 
+def _with_track(sub: dict) -> dict:
+    """
+    Set `track` -- "EdTech" -- on a candidate who came in through a tracked
+    posting, in place, and return it. Flat because the page draws it as one
+    badge and the manager allowlist names it as one field. Everyone else on the
+    role goes unmarked here; the spreadsheet is where both labels are spelled
+    out, see shortlist.row.
+    """
+    track = tier_resolver.track_label(sub, include_default=False)
+    if track:
+        sub["track"] = track
+    return sub
+
+
 # What a spotlight row needs out of a verdict, and nothing else.
 #
 # A stored `evaluation` carries the whole grid -- every block, every criterion,
@@ -869,6 +883,7 @@ def api_role_candidates(job_id: int):
             # download URL for text extraction, but exposing it here makes a
             # browser download the CV instead of opening its viewer.
             candidate["resume_open_link"] = candidate["resume_link"]
+        _with_track(candidate)
     # Do not let an old evaluation continue to look current when the stored
     # resume fetch already failed. Grading now blocks these rows; this keeps
     # previously stored scores honest until the role is reloaded/re-graded.
@@ -917,7 +932,7 @@ def api_submission(submission_id: int):
     if error:
         return error
 
-    payload = _project(_json_safe(sub))
+    payload = _project(_json_safe(_with_track(sub)))
     if payload.get("resume_link"):
         # The UI link must open the share/view page. Direct download URLs are
         # for the server-side resume reader only.
@@ -1337,7 +1352,7 @@ def api_pipeline():
             return error
 
     scope = _scope()
-    rows = _project([_json_safe(r) for r in
+    rows = _project([_json_safe(_with_track(r)) for r in
                      store.list_pipeline(stage=stage, job_id=job_id,
                                          job_ids=scope)])
 

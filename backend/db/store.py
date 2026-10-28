@@ -1293,6 +1293,33 @@ def submissions_missing_tier(job_id: int) -> list[dict]:
     return list(cursor)
 
 
+def set_posting_track(submission_id: int, label: str,
+                      shortcode: Optional[str] = None) -> None:
+    """
+    Record which hiring track this candidate came in on -- EdTech, say.
+
+    A label for the dashboard and the shortlist, never an input to grading;
+    see tier_resolver.resolve_tracks. `shortcode` is the tracked posting they
+    were found on, or None where they were given the role's default.
+    """
+    get_db().submissions.update_one(
+        {"_id": submission_id},
+        {"$set": {"posting_track": {
+            "label": label,
+            "shortcode": shortcode,
+            "at": now(),
+        }}},
+    )
+
+
+def submissions_missing_track(job_id: int) -> list[dict]:
+    """Submissions on a role that no track has been resolved for yet."""
+    cursor = get_db().submissions.find(
+        {"job_id": job_id, "posting_track": {"$exists": False}},
+        {"_id": 1, "candidate_email": 1},
+    )
+    return list(cursor)
+
 def tier_counts(job_id: int) -> dict[str, int]:
     """How many of a role's submissions sit at each tier, unresolved included."""
     counts: dict[str, int] = {}

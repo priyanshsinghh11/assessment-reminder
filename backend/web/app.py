@@ -623,6 +623,9 @@ MANAGER_SUBMISSION_FIELDS = (
     # stays the one record of what a manager may read and the two surfaces
     # cannot drift into disagreeing about it.
     "candidate_headline", "candidate_location",
+    # "EdTech", flattened from `posting_track` by the routes.
+    # Which posting they applied through -- a fact, not a judgement.
+    "track",
 )
 
 # Every score there is, in one field. `rubric_score`, the grid rows, the band,

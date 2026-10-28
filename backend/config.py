@@ -1292,6 +1292,11 @@ INVITES_START_AT = {
     # an invite that never arrived.
     "12D3F7B4DF": "2026-10-22",   # Entrepreneur in Residence
     "7F88AB2ECB": "2026-10-22",   # Entrepreneur in Residence (Remote)
+    # EdTech developers: 0/4 sampled invited on 2026-10-22, 2/4 on the 23rd
+    # (switched on that day), 4/4 on every day after. The 24th for the same
+    # reason as the Entrepreneur pair above.
+    "0895DC92C6": "2026-10-24",   # Lead Developer (EdTech, AI)
+    "CD4D14E6F6": "2026-10-24",   # Developer (EdTech, AI)
 }
 
 # Jobs to monitor: workable_shortcode -> (label, portal_job_id, apply_slug)
@@ -1353,6 +1358,11 @@ JOB_ASSESSMENTS = {
 
     # portal 28 -- Full Stack Product Engineer (161 portal records)
     "741C5E8B3F": ("Full Stack Product Engineer", "28", "product-engineer"),            # 130 shared, 81%
+    # Both created 2026-10-22 and invited to /apply/ajaia/product-engineer --
+    # 8/8 sampled from the 24th on. Their candidates sit the same build as the
+    # posting above and are labelled EdTech by POSTING_TRACKS below.
+    "0895DC92C6": ("Lead Developer (EdTech, AI)", "28", "product-engineer"),            # invite link in 4/4 sampled from 2026-10-24
+    "CD4D14E6F6": ("Developer (EdTech, AI)", "28", "product-engineer"),                 # invite link in 4/4 sampled from 2026-10-24
 
     # portal 33 -- Customer Experience & Product Success (78 portal records)
     "46E5B95C46": ("AI Product Support Specialist", "33", "ce-product-success"),        # 12 shared, 15%
@@ -1593,6 +1603,28 @@ JOB_TIERS = {
 def tier_for_job(shortcode: str | None) -> str | None:
     """The rubric tier a Workable posting's candidates are graded at, if any."""
     return JOB_TIERS.get(shortcode) if shortcode else None
+
+
+# --- Which hiring track a candidate came in on -------------------------------
+#
+# workable_shortcode -> the label a recruiter and a hiring manager see beside
+# the candidate's name and in the shortlist spreadsheet's "Track" column.
+#
+# A label and nothing more: unlike JOB_TIERS it never changes the grid. The
+# EdTech developers sit the identical Full Stack Product Engineer build and are
+# marked against the identical anchors, so they rank in one list with everyone
+# else on that role -- the label is what lets the manager tell them apart.
+POSTING_TRACKS = {
+    "0895DC92C6": "EdTech",      # Lead Developer (EdTech, AI)
+    "CD4D14E6F6": "EdTech",      # Developer (EdTech, AI)
+}
+
+# portal slug -> the label for a candidate on that slug who did NOT come in
+# through one of the postings above. Only slugs with a tracked posting belong
+# here; every other role carries no label at all.
+TRACK_DEFAULTS = {
+    "product-engineer": "Full Stack Dev",
+}
 
 
 def _validate_job_assessments() -> None:

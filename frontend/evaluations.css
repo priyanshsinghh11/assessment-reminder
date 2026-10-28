@@ -567,6 +567,9 @@ body.manager-view #pipelinePanel.manager-stage-focus > #pipelineHint {
  * it reads as a note on the name rather than competing with the status column. */
 .badge-queue      { color: var(--text-faint); border-style: dashed; font-weight: 400; }
 .badge-derived    { color: var(--text-faint); border-style: dashed; }
+/* Which hiring track: EdTech candidates on the shared Full Stack build. Sky
+ * rather than the accent, so it reads as who they are and not as a verdict. */
+.badge-track      { color: var(--sky); border-color: var(--sky); }
 /* Graded with a required artefact missing. Warm rather than red: this is a
  * fact about what was handed in, already priced inside the grid, not a verdict
  * on the candidate and not a thing anyone needs to go and fix. */

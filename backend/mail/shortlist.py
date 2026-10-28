@@ -195,6 +195,11 @@ def row(sub: dict, rank: int = 0, include_scores: bool | None = None) -> dict:
             (sub.get("evaluation") or {}).get("score_provisional")
             or (sub.get("evaluation") or {}).get("grid_complete") is False),
     }
+    # EdTech or Full Stack Dev, where one build is sat by both. Left off
+    # entirely on every other role, so its sheet keeps the columns it had.
+    track = tier_resolver.track_label(sub)
+    if track:
+        out["track"] = track
     # The one field on this row that is a decision rather than a fact
     # about the candidate. Present only when the send was asked for it, so
     # every surface downstream can read "is there a score here?" off the
@@ -400,6 +405,10 @@ def build_xlsx(role: dict, shortlist: list[dict], heading: str = "",
     show_scores = any("score" in row for row in shortlist)
     if show_scores:
         columns.insert(2, ("score", "AI score", 10))
+    # Beside the name, because it is read as part of who the person is: the
+    # manager hiring for the EdTech team scans this column first.
+    if any(row.get("track") for row in shortlist):
+        columns.insert(2, ("track", "Track", 15))
     # Only when there is something to say. A column of blanks on every normal
     # send would train people to ignore the one send where it is filled in.
     if any(row.get("provisional") for row in shortlist):

@@ -46,13 +46,22 @@ Nothing here is on the hot path. `ensure_resolved` is called once before a
 grading fan-out, does nothing at all for the fourteen families with one grid,
 and only looks up submissions that have no tier yet -- so a second run over the
 same role costs nothing. Grading itself reads only what this wrote.
+
+The same lookup also answers a smaller question: which hiring TRACK someone came
+in on, where postings for different teams share one build. The EdTech developer
+postings invite to the Full Stack Product Engineer assessment, so their
+candidates arrive on that role indistinguishable from everyone else on it. That
+answer is a label for the dashboard and the shortlist spreadsheet and nothing
+more -- it never picks a grid -- so it lives beside the tiers rather than in
+them. See POSTING_TRACKS in config.
 """
 
 import logging
 from typing import Optional
 
 from backend.grading import rubric_pack as pack
-from backend.config import JOB_ASSESSMENTS, JOB_TIERS
+from backend.config import (JOB_ASSESSMENTS, JOB_TIERS, POSTING_TRACKS,
+                            TRACK_DEFAULTS)
 from backend.scraping.workable_client import get_job_candidates
 
 log = logging.getLogger(__name__)
@@ -227,6 +236,7 @@ def ensure_resolved(role: dict, store) -> Optional[dict]:
     not do is quietly stop: the warning is what tells someone to re-resolve and
     regrade whoever moves.
     """
+    ensure_tracks(role, store)
     if not pack.tiers_for_slug(role.get("slug")):
         return None
     try:
@@ -237,4 +247,110 @@ def ensure_resolved(role: dict, store) -> Optional[dict]:
             "default grid; re-run once Workable is reachable and regrade "
             "anyone it moves.", role.get("title") or role.get("slug"), exc,
         )
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Tracks
+# ---------------------------------------------------------------------------
+
+# portal job id -> slug, for reading a submission's default track off its role
+# without a database round trip. JOB_ASSESSMENTS carries the id as a string.
+_SLUG_BY_PORTAL_JOB = {
+    str(portal_job_id): job_slug
+    for _label, portal_job_id, job_slug in JOB_ASSESSMENTS.values()
+}
+
+
+def tracked_postings(slug: Optional[str]) -> dict[str, str]:
+    """Workable shortcode -> track label, for the tracked postings feeding a slug."""
+    if not slug or slug not in TRACK_DEFAULTS:
+        return {}
+    return {
+        shortcode: POSTING_TRACKS[shortcode]
+        for shortcode, (_label, _portal_job_id, job_slug)
+        in JOB_ASSESSMENTS.items()
+        if job_slug == slug and shortcode in POSTING_TRACKS
+    }
+
+
+def track_label(sub: dict, include_default: bool = True) -> Optional[str]:
+    """
+    The track to show beside this candidate, or None on a role with no tracks.
+
+    A submission nobody has resolved yet shows its role's default rather than
+    nothing. Every tracked posting postdates the submissions already on its
+    role, so the default is the right answer for all of those, and a blank
+    would read as "unknown" on a list where the manager is comparing the two.
+
+    `include_default=False` answers only for candidates who came in through a
+    tracked posting -- the dashboard marks those and leaves everyone else on
+    the role unmarked, where a badge on all of them would say nothing.
+    """
+    default = TRACK_DEFAULTS.get(_SLUG_BY_PORTAL_JOB.get(str(sub.get("job_id"))))
+    label = (sub.get("posting_track") or {}).get("label") or default
+    if not include_default and label == default:
+        return None
+    return label
+
+
+def resolve_tracks(role: dict, store) -> dict:
+    """
+    Write a track onto every submission on this role that does not have one.
+
+    A candidate on a tracked posting gets that posting's label; everyone else
+    gets the role's default, written rather than left blank so that the next
+    run has nothing to look up -- the tracked postings run to thousands of
+    applicants, and re-paging all of them before every hourly grading run would
+    be the most expensive thing that run did.
+
+    Raises TierResolutionFailed when Workable cannot be reached, having written
+    nothing: a half-written pass would stamp the default on EdTech candidates
+    whose posting was simply the one that failed to load.
+    """
+    slug = role.get("slug")
+    postings = tracked_postings(slug)
+    if not postings:
+        return {"slug": slug, "tracked": False, "written": 0}
+
+    pending = store.submissions_missing_track(role["_id"])
+    if not pending:
+        return {"slug": slug, "tracked": True, "written": 0}
+
+    by_email: dict[str, tuple[str, str]] = {}
+    for shortcode, label in postings.items():
+        try:
+            candidates = get_job_candidates(shortcode)
+        except Exception as exc:
+            raise TierResolutionFailed(
+                f"Could not fetch candidates for {shortcode}: {exc}"
+            ) from exc
+        for cand in candidates:
+            email = (cand.get("email") or "").strip().lower()
+            if email:
+                by_email.setdefault(email, (label, shortcode))
+
+    default = TRACK_DEFAULTS[slug]
+    counts: dict[str, int] = {}
+    for sub in pending:
+        email = (sub.get("candidate_email") or "").strip().lower()
+        label, shortcode = by_email.get(email, (default, None))
+        store.set_posting_track(sub["_id"], label, shortcode)
+        counts[label] = counts.get(label, 0) + 1
+
+    log.info("%s: tracks written %s.", role.get("title") or slug, counts)
+    return {"slug": slug, "tracked": True, "written": len(pending),
+            "counts": counts}
+
+
+def ensure_tracks(role: dict, store) -> Optional[dict]:
+    """resolve_tracks, best-effort: a label is never worth stopping a run for."""
+    if not tracked_postings(role.get("slug")):
+        return None
+    try:
+        return resolve_tracks(role, store)
+    except TierResolutionFailed as exc:
+        log.warning("%s: could not resolve tracks (%s); unresolved candidates "
+                    "show the role's default until the next run.",
+                    role.get("title") or role.get("slug"), exc)
         return None
