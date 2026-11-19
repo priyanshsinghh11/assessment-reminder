@@ -69,6 +69,10 @@ MIN_STARTS = 10
 # block boundary so a section never lands across two messages.
 MESSAGE_LIMIT = 3800
 
+# Older portal data than this gets a warning line on the report. The sync runs
+# just before the report, so on a normal day the data is minutes old.
+STALE_SYNC = timedelta(hours=6)
+
 # A bookmark older than this is not trusted as a window start: a report that
 # has not run for a week should say "the last 24 hours", not dump a week.
 MAX_WINDOW = timedelta(days=7)
@@ -440,9 +444,18 @@ def main() -> int:
              for row in top}
 
     sync_note = ""
+    synced = store.last_synced_at()
     if args.sync_status and args.sync_status != "success":
         sync_note = ("This morning's portal sync did not finish "
                      f"({args.sync_status}), so recent applicants may be missing.")
+    elif not synced or until - synced > STALE_SYNC:
+        # The sync can report success having downloaded nothing -- a review
+        # queue that would not download is a warning, not a failure -- and
+        # then every role reads "no new applicants". Say so instead.
+        when = (f"{synced:%a} {synced.day} {synced:%b} {synced:%H:%M} UTC"
+                if synced else "never")
+        sync_note = (f"Portal data was last synced {when}, so the newest "
+                     "applicants are missing from these numbers.")
 
     messages = build_messages(
         since=since, until=until, titles=titles, stats=stats, scored=scored,

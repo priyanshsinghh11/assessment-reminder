@@ -1919,6 +1919,15 @@ def set_workable_link(submission_id: int, url: str) -> None:
         {"$set": {"workable_link": {"url": url, "at": now()}}})
 
 
+def last_synced_at() -> Optional[datetime]:
+    """When the portal sync last wrote a submission. A sync that runs but
+    downloads nothing leaves this behind -- which is how the report tells
+    "nobody applied" apart from "nothing was fetched"."""
+    rows = list(get_db().submissions.aggregate([
+        {"$group": {"_id": None, "at": {"$max": "$synced_at"}}}]))
+    return _aware(rows[0]["at"]) if rows and rows[0].get("at") else None
+
+
 def last_report_until() -> Optional[datetime]:
     """Where the last posted daily report's window ended, if one was posted."""
     row = get_db().reports.find_one({"_id": "daily"})
