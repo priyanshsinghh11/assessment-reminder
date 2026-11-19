@@ -77,8 +77,9 @@ TREND_BAND = 0.15
 # block boundary so a section never lands across two messages.
 MESSAGE_LIMIT = 3800
 
-# Older portal data than this gets a warning line on the report. The sync runs
-# just before the report, so on a normal day the data is minutes old.
+# Older portal data than this gets a warning line on the report. The sync is
+# started 90 minutes before the report, so on a normal day the data is about an
+# hour old.
 STALE_SYNC = timedelta(hours=6)
 
 # A bookmark older than this is not trusted as a window start: a report that
@@ -359,9 +360,6 @@ def main() -> int:
     parser.add_argument("--hours", type=float, default=0,
                         help="a fixed window of this many hours; does not move "
                              "the bookmark the scheduled run reads")
-    parser.add_argument("--sync-status", default="",
-                        help="the portal sync's conclusion, from the workflow; "
-                             "anything but 'success' adds a warning line")
     args = parser.parse_args()
 
     setup_logging()
@@ -400,13 +398,11 @@ def main() -> int:
 
     sync_note = ""
     synced = store.last_synced_at()
-    if args.sync_status and args.sync_status != "success":
-        sync_note = ("This morning's portal sync did not finish "
-                     f"({args.sync_status}), so recent applicants may be missing.")
-    elif not synced or until - synced > STALE_SYNC:
-        # The sync can report success having downloaded nothing -- a review
-        # queue that would not download is a warning, not a failure -- and
-        # then every role reads "no new applicants". Say so instead.
+    if not synced or until - synced > STALE_SYNC:
+        # The morning sync can be late, fail, or report success having
+        # downloaded nothing -- a review queue that would not download is a
+        # warning, not a failure -- and then every role reads "no new
+        # applicants". Say so instead.
         when = (f"{synced:%a} {synced.day} {synced:%b} {synced:%H:%M} UTC"
                 if synced else "never")
         sync_note = (f"Portal data was last synced {when}, so the newest "

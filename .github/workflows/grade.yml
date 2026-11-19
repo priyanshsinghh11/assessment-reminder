@@ -49,7 +49,7 @@ name: Grading
 
 on:
   schedule:
-    # Every hour, at half past. HALF PAST ON PURPOSE: sync.yml runs at 11:00
+    # Every hour, at half past. HALF PAST ON PURPOSE: sync.yml runs at 03:00
     # and roles-crawl.yml at 04:00 on Mondays, both on the hour, and all three
     # share one concurrency group -- starting on the hour would just make one
     # queue behind another. :30 also avoids the busiest minute on GitHub's

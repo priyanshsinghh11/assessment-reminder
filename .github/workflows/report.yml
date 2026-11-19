@@ -1,16 +1,21 @@
 # The daily recruiting report, posted to a Google Chat space.
 #
-# WHY IT RUNS OFF THE SYNC AND NOT OFF A CLOCK. "New applicants in the last 24
-# hours" is only true of a database that was synced a moment ago: the portal
-# sync runs once a day, and a report built hours after it would miss everyone
-# who applied since. So this starts when sync.yml finishes, and the time the
-# report lands is the time in sync.yml's cron. Move that one to move both.
+# 8:00 AM NEW YORK TIME, STARTED FROM OUTSIDE. There is no `schedule` here on
+# purpose. GitHub's scheduler is best-effort, and on this repository it is far
+# worse than "a few minutes late": in November 2026 sync.yml's 03:00 UTC cron
+# started around 11:00, and the hourly grading cron ran three times a day. A
+# post meant for 8 AM cannot ride on that. A workflow_dispatch starts within
+# seconds, so an outside clock calls GitHub's API instead:
 #
-# Only a SCHEDULED sync posts. A sync somebody dispatched by hand at 3pm would
-# otherwise post a second report covering the few hours since the morning's.
-# The report still runs when the sync failed -- yesterday's data with a warning
-# line on top beats a silent space, and silence is what the brief asked to
-# avoid.
+#   cron-job.org, time zone America/New_York (so daylight saving is its problem)
+#     06:30  POST .../actions/workflows/sync.yml/dispatches    {"ref":"main"}
+#     08:00  POST .../actions/workflows/report.yml/dispatches  {"ref":"main"}
+#   with a fine-grained GitHub token limited to this repository, Actions:
+#   read and write. README "The daily recruiting report" has the steps.
+#
+# The sync goes first so "the last 24 hours" is measured against fresh data.
+# If it is late or fails, the report still posts at 8 and says how old its data
+# is -- a warning beats a silent space, which is what the brief asked to avoid.
 #
 # NOT IN THE `batch` GROUP. It writes nothing the other jobs touch -- only its
 # own bookmark -- so there is nothing to serialise against, and waiting behind
@@ -22,19 +27,15 @@
 name: Daily recruiting report
 
 on:
-  workflow_run:
-    workflows: ["Portal sync"]
-    types: [completed]
   workflow_dispatch:
     inputs:
       hours:
-        description: "Window in hours. A manual run never moves the bookmark the daily report reads."
+        description: "Leave empty for the daily report (since the last one). A number posts a test window of that many hours and leaves the daily bookmark alone."
         required: false
-        default: "24"
+        default: ""
 
 jobs:
   report:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -83,9 +84,11 @@ jobs:
       - name: Build and post the report
         # The report holds counts and role names only, never a candidate, so
         # nothing it logs is private -- this repository's run pages are public.
+        env:
+          HOURS: ${{ github.event.inputs.hours }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            python manage.py report --hours "${{ github.event.inputs.hours || '24' }}"
+          if [ -n "$HOURS" ]; then
+            python manage.py report --hours "$HOURS"
           else
-            python manage.py report --sync-status "${{ github.event.workflow_run.conclusion }}"
+            python manage.py report
           fi

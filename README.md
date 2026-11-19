@@ -1514,8 +1514,8 @@ which this is not.
 
 | Workflow | Schedule | Command |
 |---|---|---|
-| `sync.yml` | daily, 11:00 UTC | `ingest --skip-roles` |
-| `report.yml` | when the scheduled sync finishes | `report` — the daily recruiting report, to Google Chat |
+| `sync.yml` | 6:30 AM New York, started by cron-job.org; 03:00 UTC cron as a backup | `ingest --skip-roles` |
+| `report.yml` | 8:00 AM New York, started by cron-job.org | `report` — the daily recruiting report, to Google Chat |
 | `grade.yml` | hourly, :30 | `grade --next --limit 50` |
 | `roles-crawl.yml` | Mondays 04:00 UTC | `ingest --roles-only`, then commits the assessment diff |
 
@@ -1526,14 +1526,32 @@ pipeline totals, the most and least crowded roles, then **Areas to focus**
 where candidates drop off the assessment, roles gone quiet, the grading queue,
 thin pools) and **What's going well** (the application trend, strong new
 scores, roles whose candidates finish the assessment, interviews, the deepest
-pools). Counts and role names only; no candidate appears in it. It needs the `GOOGLE_CHAT_WEBHOOK_URL` repository secret (in the
-space: Apps & integrations → Webhooks). The readers are the space's members, so
-adding or removing someone is done in Chat. "Unreviewed" means nobody has moved
-the candidate on the pipeline board or made a manual decision; the portal's own
-review status moves without a human, so it is not used. `report.yml` is not in
-the `concurrency` group: it only reads, apart from caching each listed
-candidate's Workable link. Try it locally with `python manage.py report
---dry-run`, which prints instead of posting and refuses to run on Actions.
+pools). Counts and role names only; no candidate appears in it.
+
+It needs the `GOOGLE_CHAT_WEBHOOK_URL` repository secret (in the space: Apps &
+integrations → Webhooks). The readers are the space's members, so adding or
+removing someone is done in Chat. "Unreviewed" means nobody has moved the
+candidate on the pipeline board or made a manual decision; the portal's own
+review status moves without a human, so it is not used. Try it locally with
+`python manage.py report --dry-run`, which prints instead of posting.
+
+*Why cron-job.org and not a cron here.* GitHub's scheduler is best-effort, and
+on this repository it has run the 03:00 sync around 11:00 and the hourly
+grading three times a day, so a post meant for 8 AM cannot ride on it. A
+`workflow_dispatch` starts within seconds, so two jobs on
+[cron-job.org](https://cron-job.org), time zone **America/New_York** (which
+also takes care of daylight saving), start the workflows through GitHub's API:
+
+| Time | URL (POST) |
+|---|---|
+| 6:30 AM | `https://api.github.com/repos/priyanshsinghh11/assessment-reminder/actions/workflows/sync.yml/dispatches` |
+| 8:00 AM | `https://api.github.com/repos/priyanshsinghh11/assessment-reminder/actions/workflows/report.yml/dispatches` |
+
+Both with the body `{"ref":"main"}` and the headers `Accept:
+application/vnd.github+json` and `Authorization: Bearer <token>`, where the
+token is a fine-grained GitHub token for this repository only, with
+**Actions: Read and write** and nothing else. If the sync is late or fails, the
+report still posts at 8 with a line saying how old its data is.
 
 Sync and grading were one workflow on one schedule until they needed two
 cadences: submissions are pulled once a day, and grading runs every hour. A
