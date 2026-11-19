@@ -12,10 +12,9 @@
 # line on top beats a silent space, and silence is what the brief asked to
 # avoid.
 #
-# NOT IN THE `batch` GROUP. It writes nothing the other jobs touch -- a
-# Workable link cached per listed candidate and its own bookmark -- so there is
-# nothing to serialise against, and waiting behind an hourly grading run would
-# only make it late.
+# NOT IN THE `batch` GROUP. It writes nothing the other jobs touch -- only its
+# own bookmark -- so there is nothing to serialise against, and waiting behind
+# an hourly grading run would only make it late.
 #
 # WHO GETS IT is the Chat space's membership. Add or remove people in Chat;
 # nothing here changes.
@@ -49,13 +48,8 @@ jobs:
       # there. The report logs status codes only, never the URL.
       GOOGLE_CHAT_WEBHOOK_URL: ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
 
-      # Best effort, so it is not in the guard: without it, or with it expired,
-      # the report still posts, with "Workable: not found" where the link goes.
-      WORKABLE_API_TOKEN: ${{ secrets.WORKABLE_API_TOKEN }}
-
       # --- Configuration, not secrets. Read with _env(), so unset is safe. ---
       MONGO_DB: ${{ vars.MONGO_DB }}
-      REPORT_DASHBOARD_URL: ${{ vars.REPORT_DASHBOARD_URL }}
 
     steps:
       - uses: actions/checkout@v4
@@ -87,9 +81,8 @@ jobs:
           echo "credentials present"
 
       - name: Build and post the report
-        # Never --dry-run here: it prints candidate names, and this
-        # repository's run pages are public. The command refuses it under
-        # Actions anyway.
+        # The report holds counts and role names only, never a candidate, so
+        # nothing it logs is private -- this repository's run pages are public.
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             python manage.py report --hours "${{ github.event.inputs.hours || '24' }}"

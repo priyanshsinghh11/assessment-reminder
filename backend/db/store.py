@@ -1766,46 +1766,7 @@ def role_top(job_id: int, limit: int = 5) -> list[dict]:
 # ---------------------------------------------------------------------------
 #
 # Read by backend/report/daily.py, which posts it to Google Chat. Everything
-# here is a read except the Workable link cache and the report's own bookmark.
-
-# What a report line needs about a candidate, and nothing heavier: answer text
-# and CV text are megabytes across a day's applicants.
-REPORT_FIELDS = {
-    "job_id": 1, "job_title": 1, "candidate_name": 1, "candidate_email": 1,
-    "evaluation.score": 1, "evaluation.graded_at": 1,
-    "evaluation.grid_complete": 1, "evaluation.score_provisional": 1,
-    "decision.status": 1, "pipeline.stage": 1, "admin_url": 1,
-    "profile_url": 1, "workable_link": 1, "cv_only": 1,
-    "started_at": 1, "submitted_at": 1,
-}
-
-# Nobody on the recruiting side has acted on them. The portal's own
-# `review_status` is no signal: on 2026-11-20 every scored candidate read "new"
-# or "pending", including the ones already interviewed and hired, so the
-# portal's queue moves without a human. What a human leaves behind is here --
-# a pipeline move (kept in the history even after an undo) or a manual
-# decision from the dashboard.
-UNREVIEWED = {
-    "pipeline.stage": {"$in": [None, ""]},
-    "pipeline.history.0": {"$exists": False},
-    "decision.source": {"$ne": "manual"},
-}
-
-
-def applicants_between(since: str, until: str) -> list[dict]:
-    """
-    Everyone who applied in [since, until), both ISO strings.
-
-    "Applied" is the rule role_applicant_days() uses: the day they started the
-    assessment, or handed it in where the portal kept no start (a Workable
-    row). The portal writes both as "YYYY-MM-DDTHH:MM:SS.mmmZ", which sorts as
-    text, so the window is a string range.
-    """
-    window = {"$gte": since, "$lt": until}
-    return list(get_db().submissions.find(
-        {"$or": [{"started_at": window},
-                 {"started_at": {"$in": [None, ""]}, "submitted_at": window}]},
-        REPORT_FIELDS))
+# here is a read except the report's own bookmark.
 
 
 def scored_between(since: datetime, until: datetime) -> list[dict]:
@@ -1814,28 +1775,7 @@ def scored_between(since: datetime, until: datetime) -> list[dict]:
     return list(get_db().submissions.find(
         {"evaluation.graded_at": {"$gte": since, "$lt": until},
          "evaluation.score": {"$type": "number"}, **COMPLETE_GRID},
-        REPORT_FIELDS))
-
-
-def top_unreviewed(job_ids: set[int], limit: int = 5) -> list[dict]:
-    """
-    The best finished score nobody has acted on yet in each of these roles,
-    from any date, then the best `limit` of those.
-
-    One per role: the biggest role has a dozen unreviewed 100s, and a top five
-    that is all one role says nothing about the other twenty-two.
-    """
-    return [row["top"] for row in get_db().submissions.aggregate([
-        {"$match": {"job_id": {"$in": sorted(job_ids)},
-                    "evaluation.score": {"$type": "number"},
-                    "decision.status": {"$ne": "rejected"},
-                    **UNREVIEWED, **COMPLETE_GRID}},
-        {"$sort": {"evaluation.score": DESCENDING, "submitted_at": ASCENDING}},
-        {"$project": REPORT_FIELDS},
-        {"$group": {"_id": "$job_id", "top": {"$first": "$$ROOT"}}},
-        {"$sort": {"top.evaluation.score": DESCENDING, "top.submitted_at": ASCENDING}},
-        {"$limit": limit},
-    ])]
+        {"job_id": 1, "evaluation.score": 1}))
 
 
 def report_role_stats(job_ids: set[int], *, day: str, week: str, month: str,
@@ -1844,13 +1784,16 @@ def report_role_stats(job_ids: set[int], *, day: str, week: str, month: str,
     What the daily summary says about each role, in one pass over its
     submissions: {job_id: {on_file, new_day, new_week, last_applied,
     started_month, submitted_month, scored, at_bar, at_best,
-    waiting_at_bar}}.
+    waiting_at_bar, awaiting_score, in_interview, hired}}.
 
     `day`, `week` and `month` are ISO strings -- window starts compared
-    against the applied date the way applicants_between() does. `bar` and
-    `best` are score floors from the rubric pack's bands. `waiting_at_bar` is
-    candidates at or over the bar that nobody has reviewed, by the rule
-    UNREVIEWED states.
+    against the applied date, which is role_applicant_days()'s rule: the
+    assessment start, or the hand-in where the portal kept no start. The
+    portal writes both as "YYYY-MM-DDTHH:MM:SS.mmmZ", which sorts as text.
+
+    `bar` and `best` are score floors from the rubric pack's bands.
+    `waiting_at_bar` is candidates at or over the bar that nobody has
+    reviewed, by the rule stated where `unreviewed` is built below.
 
     Auto-rejected candidates are purged and only counted (see
     purge_auto_rejected), so `on_file` adds their tally back the way
@@ -1866,6 +1809,12 @@ def report_role_stats(job_ids: set[int], *, day: str, week: str, month: str,
         {"$ne": ["$evaluation.grid_complete", False]},
         {"$ne": ["$evaluation.score_provisional", True]},
     ]}
+    # Nobody on the recruiting side has acted on them. The portal's own
+    # `review_status` is no signal: on 2026-11-20 every scored candidate read
+    # "new" or "pending", including the ones already interviewed and hired, so
+    # the portal's queue moves without a human. What a human leaves behind is
+    # here -- a pipeline move (kept in the history even after an undo) or a
+    # manual decision from the dashboard.
     unreviewed = {"$and": [
         {"$in": [{"$ifNull": ["$pipeline.stage", ""]}, [""]]},
         {"$eq": [{"$size": {"$ifNull": ["$pipeline.history", []]}}, 0]},
@@ -1900,6 +1849,13 @@ def report_role_stats(job_ids: set[int], *, day: str, week: str, month: str,
             "at_bar": count(scored_over(bar)),
             "at_best": count(scored_over(best)),
             "waiting_at_bar": count({"$and": [scored_over(bar), unreviewed]}),
+            # Handed in and not yet graded: the grading queue, by role.
+            "awaiting_score": count({"$and": [
+                "$submitted",
+                {"$eq": [{"$ifNull": ["$decision.status", "pending"]}, "pending"]}]}),
+            "in_interview": count({"$in": ["$pipeline.stage",
+                                           ["interview", "interview_2"]]}),
+            "hired": count({"$eq": ["$pipeline.stage", "hired"]}),
         }},
     ])
     stats = {row.pop("_id"): row for row in rows}
@@ -1909,14 +1865,6 @@ def report_role_stats(job_ids: set[int], *, day: str, week: str, month: str,
         stats[row["_id"]]["on_file"] = (stats[row["_id"]].get("on_file", 0)
                                         + row.get("count", 0))
     return stats
-
-
-def set_workable_link(submission_id: int, url: str) -> None:
-    """Remember where a portal candidate's Workable application is, so the
-    report asks Workable once per candidate rather than once per day."""
-    get_db().submissions.update_one(
-        {"_id": submission_id},
-        {"$set": {"workable_link": {"url": url, "at": now()}}})
 
 
 def last_synced_at() -> Optional[datetime]:
