@@ -87,9 +87,11 @@ STALE_SYNC = timedelta(hours=6)
 MAX_WINDOW = timedelta(days=7)
 
 
-# A daily report posted less than this long ago counts as today's. Under a day,
-# so tomorrow's is never mistaken for a repeat.
-REPOSTED = timedelta(hours=20)
+# A daily report posted less than this long ago counts as today's. Long enough
+# to cover the morning's triggers -- none acts more than four hours after the
+# 8 AM post, because report.yml stops at noon -- and short enough that a report
+# posted by hand the evening before does not stop the next morning's.
+REPOSTED = timedelta(hours=6)
 
 
 def posted_recently() -> bool:
