@@ -32,10 +32,10 @@ name: Portal sync
 
 on:
   schedule:
-    # 03:00 UTC daily, as a BACKUP. The sync that matters is started by an
-    # outside clock at 6:30 AM New York time, ahead of the 8 AM recruiting
-    # report -- see the header of report.yml for why that is not a cron here.
-    # This one catches a day the outside clock misses.
+    # 03:00 UTC daily, as a BACKUP. The sync that matters is started by
+    # report.yml at 6:30 AM New York time, ahead of the 8 AM recruiting report
+    # -- see its header for why that is not a cron here. This one catches a
+    # day that misses.
     #
     # GitHub's scheduler is best-effort, and on this repository it has started
     # this cron around 11:00 rather than 03:00 -- treat it as "once a day", not

@@ -1,25 +1,36 @@
-# The daily recruiting report, posted to a Google Chat space.
+# The daily recruiting report, posted to a Google Chat space at 8:00 AM New
+# York time.
 #
-# 8:00 AM NEW YORK TIME, STARTED FROM OUTSIDE. There is no `schedule` here on
-# purpose. GitHub's scheduler is best-effort, and on this repository it is far
-# worse than "a few minutes late": in November 2026 sync.yml's 03:00 UTC cron
-# started around 11:00, and the hourly grading cron ran three times a day. A
-# post meant for 8 AM cannot ride on that. A workflow_dispatch starts within
-# seconds, so an outside clock calls GitHub's API instead:
+# WHY SEVEN TRIGGERS FOR ONE POST. GitHub's scheduler is best-effort, and on
+# this repository it is far worse than "a few minutes late": in November 2026
+# sync.yml's 03:00 UTC cron started around 11:00, and the hourly grading cron
+# ran three times a day. One cron at 8 AM would post whenever GitHub got round
+# to it. So the cron below fires every hour through the early morning, and:
 #
-#   cron-job.org, time zone America/New_York (so daylight saving is its problem)
-#     06:30  POST .../actions/workflows/sync.yml/dispatches    {"ref":"main"}
-#     08:00  POST .../actions/workflows/report.yml/dispatches  {"ref":"main"}
-#   with a fine-grained GitHub token limited to this repository, Actions:
-#   read and write. README "The daily recruiting report" has the steps.
+#   * The first run to arrive WAITS ON THE RUNNER until 8:00 New York time and
+#     posts then. A wait is free -- this repository is public, so Actions
+#     minutes cost nothing -- and `sleep` keeps time where the scheduler does
+#     not.
+#   * On the way it starts the portal sync at 6:30, by workflow_dispatch, which
+#     starts within seconds where a cron does not, so "the last 24 hours" is
+#     measured against fresh data. If the sync is late or fails, the report
+#     still posts at 8 and says how old its data is.
+#   * Every later run finds the report already posted and stops.
 #
-# The sync goes first so "the last 24 hours" is measured against fresh data.
-# If it is late or fails, the report still posts at 8 and says how old its data
-# is -- a warning beats a silent space, which is what the brief asked to avoid.
+# The `report` concurrency group lets one run wait at a time; the next queues
+# behind it and then sees the post. A run that arrives more than 5h30 before
+# 8:00 stops at once and leaves it to a later trigger, because a job may run
+# for at most six hours. One that arrives after noon with nothing posted stops
+# too: a recruiting report at 3pm is noise, and tomorrow's covers the gap.
+#
+# The New York hour is worked out on the runner (TZ=America/New_York), so the
+# post stays at 8 AM through daylight saving; the cron hours below cover both
+# 8 AM EDT (12:00 UTC) and 8 AM EST (13:00 UTC).
 #
 # NOT IN THE `batch` GROUP. It writes nothing the other jobs touch -- only its
 # own bookmark -- so there is nothing to serialise against, and waiting behind
-# an hourly grading run would only make it late.
+# an hourly grading run would only make it late. The sync it starts does join
+# `batch`, like every sync.
 #
 # WHO GETS IT is the Chat space's membership. Add or remove people in Chat;
 # nothing here changes.
@@ -27,20 +38,32 @@
 name: Daily recruiting report
 
 on:
+  schedule:
+    # Hourly from 07:05 to 13:05 UTC: 2-3 AM to 8-9 AM New York time. Five
+    # past, not on the hour, which is the busiest minute on GitHub's scheduler.
+    - cron: "5 7-13 * * *"
   workflow_dispatch:
     inputs:
       hours:
-        description: "Leave empty for the daily report (since the last one). A number posts a test window of that many hours and leaves the daily bookmark alone."
+        description: "Leave empty to post the daily report now (since the last one). A number posts a test window of that many hours and leaves the daily bookmark alone."
         required: false
         default: ""
+
+concurrency:
+  group: report
+  cancel-in-progress: false
 
 jobs:
   report:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Up to 5h30 of waiting plus the post, inside the six-hour job ceiling.
+    timeout-minutes: 350
 
+    # `actions: write` is for starting the sync, with the job's own token --
+    # the same permission grade.yml uses to start its next run.
     permissions:
       contents: read
+      actions: write
 
     env:
       # --- Required. The guard step below fails the run if one is missing. ---
@@ -81,7 +104,54 @@ jobs:
           fi
           echo "credentials present"
 
+      - name: Wait for the morning
+        id: clock
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(python manage.py report --posted 2>/dev/null | tail -1)" = "yes" ]; then
+            echo "Today's report has already been posted."
+            echo "go=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          at() { TZ=America/New_York date -d "today $1" +%s; }
+          now=$(date +%s)
+          sync=$(at 06:30); post=$(at 08:00); noon=$(at 12:00)
+          echo "New York time now: $(TZ=America/New_York date '+%a %H:%M %Z')"
+
+          if [ "$now" -lt $((post - 330 * 60)) ]; then
+            echo "Too early to wait it out; a later trigger will post."
+            echo "go=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$now" -ge "$noon" ]; then
+            echo "Past noon in New York with nothing posted; tomorrow's report covers today."
+            echo "go=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$now" -lt "$sync" ]; then
+            echo "Waiting $(( (sync - now) / 60 )) min to start the portal sync at 6:30."
+            sleep $((sync - now))
+          fi
+          # Not when there is under half an hour to go: a sync that cannot
+          # finish before 8 only competes with the report for nothing.
+          if [ "$(date +%s)" -lt $((post - 30 * 60)) ]; then
+            gh workflow run sync.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME"
+            echo "Started the portal sync."
+          fi
+
+          now=$(date +%s)
+          if [ "$now" -lt "$post" ]; then
+            echo "Waiting $(( (post - now) / 60 )) min to post at 8:00."
+            sleep $((post - now))
+          fi
+          echo "go=yes" >> "$GITHUB_OUTPUT"
+
       - name: Build and post the report
+        if: github.event_name == 'workflow_dispatch' || steps.clock.outputs.go == 'yes'
         # The report holds counts and role names only, never a candidate, so
         # nothing it logs is private -- this repository's run pages are public.
         env:
@@ -89,6 +159,8 @@ jobs:
         run: |
           if [ -n "$HOURS" ]; then
             python manage.py report --hours "$HOURS"
+          elif [ "${{ github.event_name }}" = "schedule" ]; then
+            python manage.py report --if-not-posted
           else
             python manage.py report
           fi

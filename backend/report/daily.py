@@ -87,6 +87,18 @@ STALE_SYNC = timedelta(hours=6)
 MAX_WINDOW = timedelta(days=7)
 
 
+# A daily report posted less than this long ago counts as today's. Under a day,
+# so tomorrow's is never mistaken for a repeat.
+REPOSTED = timedelta(hours=20)
+
+
+def posted_recently() -> bool:
+    """Whether today's daily report has already gone out. Several triggers
+    race to post it (see report.yml), and only the first may."""
+    last = store.last_report_until()
+    return bool(last and datetime.now(timezone.utc) - last < REPOSTED)
+
+
 def open_roles() -> set[int]:
     """Roles wired to a live posting -- the dashboard's "recruiting" flag."""
     return ({int(job["portal_job_id"]) for job in ASSESSMENT_JOBS.values()}
@@ -360,11 +372,17 @@ def main() -> int:
     parser.add_argument("--hours", type=float, default=0,
                         help="a fixed window of this many hours; does not move "
                              "the bookmark the scheduled run reads")
+    parser.add_argument("--if-not-posted", action="store_true",
+                        help="do nothing if today's daily report already went "
+                             "out (the scheduled workflow's guard)")
+    parser.add_argument("--posted", action="store_true",
+                        help="print 'yes' if today's daily report already went "
+                             "out, 'no' otherwise, and stop")
     args = parser.parse_args()
 
     setup_logging()
 
-    if not args.dry_run and not GOOGLE_CHAT_WEBHOOK_URL:
+    if not (args.dry_run or args.posted) and not GOOGLE_CHAT_WEBHOOK_URL:
         log.error("GOOGLE_CHAT_WEBHOOK_URL is not set -- there is nowhere to "
                   "post. --dry-run prints the report instead.")
         return 1
@@ -374,6 +392,13 @@ def main() -> int:
     except store.MongoUnavailable as exc:
         log.error("%s", exc)
         return 1
+
+    if args.posted:
+        print("yes" if posted_recently() else "no")
+        return 0
+    if args.if_not_posted and posted_recently():
+        log.info("Today's report has already been posted; nothing to do.")
+        return 0
 
     until = datetime.now(timezone.utc).replace(second=0, microsecond=0)
     if args.hours:
