@@ -1,19 +1,22 @@
 """
-The daily recruiting report, posted to a Google Chat space.
+The daily recruiting summary, posted to a Google Chat space.
 
     python manage.py report                 # build it and post it
     python manage.py report --dry-run       # print it instead (laptop only)
     python manage.py report --hours 24      # a fixed window; leaves the bookmark
 
-One post a day, so nobody has to open the dashboard to know what is new:
+One short post a day, so nobody has to open the dashboard to know where the
+pipeline stands:
 
-  * New applicants in the window, total and by role
-  * Newly scored in the window, total and by role
-  * Top 5 from the window: the best-scored of the people who applied in it
-  * Top 3 unreviewed per open role, from any date
-
-Each candidate carries three links: their evaluation on the dashboard, their
-submission on the assessment portal, and their Workable application.
+  * The last 24 hours: new applicants against the week's daily average, what
+    was scored, which roles drew the most applicants, which drew none
+  * The pipeline: applicants on file, scored, interviews, hires
+  * The roles: most and least crowded, strongest pools, which roles' candidates
+    finish the assessment and which drop off, which have gone quiet, and where
+    strong candidates are waiting on a review
+  * Top 5 to look at: the best-scored of today's applicants -- or, while none
+    of them is scored yet, the best nobody has reviewed -- each with links to
+    the evaluation, the portal submission and the Workable application
 
 THE WINDOW IS "SINCE THE LAST REPORT", which on a normal day is the last 24
 hours. It is bookmarked in Mongo rather than computed from the clock because
@@ -45,15 +48,25 @@ from backend.config import (ASSESSMENT_JOBS, CV_ONLY_JOBS, CV_ONLY_JOB_IDS,
                             GOOGLE_CHAT_WEBHOOK_URL, REPORT_DASHBOARD_URL,
                             WORKABLE_API_TOKEN)
 from backend.db import store
+from backend.grading.rubric_pack import BANDS
 from backend.logging_setup import setup_logging
 
 log = logging.getLogger(__name__)
 
-TOP_TODAY = 5
-TOP_PER_ROLE = 3
+TOP = 5           # candidates listed at the bottom
+PODIUM = 3        # roles named on each "most / least" line
+
+# The score floors, from the rubric pack, so the summary's "75+" is the same
+# bar the dashboard draws. "better" is the lowest band that advances.
+BAR = next(b["min"] for b in BANDS if b["key"] == "better")
+BEST = next(b["min"] for b in BANDS if b["key"] == "best")
+
+# A completion rate on a handful of starts is noise. A role needs this many
+# starts in the last 30 days to be ranked on how many finish.
+MIN_STARTS = 10
 
 # Google Chat caps a message's text. Comfortably under the cap, and split at a
-# block boundary so a candidate's line never lands apart from their links.
+# block boundary so a section never lands across two messages.
 MESSAGE_LIMIT = 3800
 
 # A bookmark older than this is not trusted as a window start: a report that
@@ -156,52 +169,8 @@ def _score(row: dict) -> str:
     return f"{round(float(row['evaluation']['score']), 1):g}"
 
 
-def _day(value) -> str:
-    """'3 Nov' from a portal ISO string, or '' when there is none."""
-    try:
-        when = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError:
-        return ""
-    return f"{when.day} {when:%b}"
-
-
 def applied_at(row: dict) -> str:
     return row.get("started_at") or row.get("submitted_at") or ""
-
-
-def candidate_block(rank: int, row: dict, title: str, links: dict,
-                    show_role: bool) -> str:
-    head = f"{rank}. *{_plain(row.get('candidate_name'))}*"
-    if show_role:
-        head += f" · {_plain(title)}"
-    head += f" · Score *{_score(row)}*"
-    applied = _day(applied_at(row))
-    if applied and not show_role:
-        head += f" · applied {applied}"
-
-    parts = [f"<{links['evaluation']}|Evaluation>"]
-    if links.get("submission"):
-        parts.append(f"<{links['submission']}|Submission>")
-    elif row.get("cv_only"):
-        parts.append("No assessment (CV only)")
-    parts.append(f"<{links['workable']}|Workable>" if links.get("workable")
-                 else "Workable: not found")
-    return head + "\n      " + " · ".join(parts)
-
-
-def count_section(heading: str, rows: list[dict], titles: dict[int, str],
-                  roles: set[int], none_text: str) -> str:
-    by_role: dict[int, int] = {}
-    for row in rows:
-        by_role[row["job_id"]] = by_role.get(row["job_id"], 0) + 1
-    lines = [f"*{heading}: {len(rows)}*"]
-    for job_id, n in sorted(by_role.items(),
-                            key=lambda kv: (-kv[1], titles.get(kv[0], ""))):
-        lines.append(f"• {_plain(titles.get(job_id))}: {n}")
-    quiet = sorted(_plain(titles.get(j)) for j in roles if j not in by_role)
-    if quiet:
-        lines.append(f"_{none_text}:_ {', '.join(quiet)}")
-    return "\n".join(lines)
 
 
 def window_label(since: datetime, until: datetime) -> str:
@@ -213,49 +182,122 @@ def window_label(since: datetime, until: datetime) -> str:
             f" ({hours:.0f} hours), to {to}_")
 
 
+def podium(stats: dict[int, dict], titles: dict[int, str], value,
+           fmt="{:,}", lowest=False, keep=lambda s: True) -> str:
+    """'Role A (12) · Role B (9) · Role C (4)': the top -- or bottom -- three
+    roles by `value`, leaving out any `keep` rejects."""
+    ranked = sorted(((value(s), job_id) for job_id, s in stats.items() if keep(s)),
+                    key=lambda vj: (vj[0] if lowest else -vj[0],
+                                    titles.get(vj[1], "")))
+    return " · ".join(f"{_plain(titles.get(job_id))} ({fmt.format(v)})"
+                      for v, job_id in ranked[:PODIUM]) or "—"
+
+
+def _completion(s: dict) -> float:
+    return s.get("submitted_month", 0) / max(s.get("started_month", 0), 1)
+
+
+def candidate_line(rank: int, row: dict, title: str, links: dict) -> str:
+    head = (f"{rank}. *{_plain(row.get('candidate_name'))}* · {_plain(title)}"
+            f" · *{_score(row)}*")
+    parts = [f"<{links['evaluation']}|Evaluation>"]
+    if links.get("submission"):
+        parts.append(f"<{links['submission']}|Submission>")
+    elif row.get("cv_only"):
+        parts.append("No assessment (CV only)")
+    parts.append(f"<{links['workable']}|Workable>" if links.get("workable")
+                 else "Workable: not found")
+    return head + "\n      " + " · ".join(parts)
+
+
 def build_messages(*, since: datetime, until: datetime, titles: dict[int, str],
-                   roles: set[int], applicants: list[dict], scored: list[dict],
-                   top_today: list[dict], unreviewed: dict[int, list[dict]],
+                   stats: dict[int, dict], scored: list[dict],
+                   pipeline: dict[str, int], top: list[dict], top_is_today: bool,
                    links: dict[int, dict], sync_note: str = "") -> list[str]:
     """
-    The report as Chat messages, each under MESSAGE_LIMIT.
+    The summary as Chat messages -- one on any normal day.
 
-    Counts first, then today's best, then the per-role lists -- so the part a
-    reader can take in at a glance is the top of the first message.
+    `stats` is store.report_role_stats() for the open roles. Headline numbers
+    first, then the roles, then the five people to open first.
     """
+    roles = len(stats)
+    new_day = sum(s.get("new_day", 0) for s in stats.values())
+    per_day = sum(s.get("new_week", 0) for s in stats.values()) / 7
+    if new_day > per_day * 1.15:
+        trend = f"▲ above the week's {per_day:.0f} a day"
+    elif new_day < per_day * 0.85:
+        trend = f"▼ below the week's {per_day:.0f} a day"
+    else:
+        trend = f"about the week's {per_day:.0f} a day"
+    scored_open = [r for r in scored if r["job_id"] in stats]
+    quiet_today = sorted(_plain(titles.get(j)) for j, s in stats.items()
+                         if not s.get("new_day"))
+
+    day = ["*Last 24 hours*",
+           f"• *{new_day:,}* new applicant{'' if new_day == 1 else 's'} · {trend}",
+           f"• *{len(scored_open):,}* scored · "
+           f"*{sum(1 for r in scored_open if r['evaluation']['score'] >= BAR)}*"
+           f" of them {BAR}+"]
+    if new_day:
+        day.append("• Most applicants: " + podium(
+            stats, titles, lambda s: s.get("new_day", 0),
+            keep=lambda s: s.get("new_day", 0) > 0))
+    if quiet_today:
+        day.append(f"• No new applicants ({len(quiet_today)} of {roles} roles): "
+                   + ", ".join(quiet_today))
+
+    waiting = sum(s.get("waiting_at_bar", 0) for s in stats.values())
+    pipe = ["*Pipeline now*",
+            f"• *{sum(s.get('on_file', 0) for s in stats.values()):,}* applicants "
+            f"across {roles} open roles · "
+            f"*{sum(s.get('scored', 0) for s in stats.values()):,}* scored · "
+            f"*{sum(s.get('at_best', 0) for s in stats.values()):,}* at {BEST}+",
+            f"• *{pipeline.get('interview', 0)}* in interview · "
+            f"*{pipeline.get('interview_2', 0)}* in round 2 · "
+            f"*{pipeline.get('hired', 0)}* hired",
+            f"• *{waiting:,}* candidates at {BAR}+ that nobody has reviewed"]
+
+    engaged = lambda s: s.get("started_month", 0) >= MIN_STARTS
+    quiet_week = sorted(_plain(titles.get(j)) for j, s in stats.items()
+                        if not s.get("new_week"))
+    role_lines = [
+        "*Roles*",
+        "• Most crowded: " + podium(stats, titles, lambda s: s.get("on_file", 0)),
+        "• Least crowded: " + podium(stats, titles, lambda s: s.get("on_file", 0),
+                                     lowest=True),
+        "• Busiest this week: " + podium(stats, titles,
+                                         lambda s: s.get("new_week", 0)),
+        f"• Strongest pools ({BEST}+): " + podium(
+            stats, titles, lambda s: s.get("at_best", 0),
+            keep=lambda s: s.get("at_best", 0) > 0),
+        "• Most engaging (finish the assessment, 30 days): " + podium(
+            stats, titles, _completion, fmt="{:.0%}", keep=engaged),
+        "• Least engaging: " + podium(stats, titles, _completion, fmt="{:.0%}",
+                                      lowest=True, keep=engaged),
+        f"• Waiting on review ({BAR}+): " + podium(
+            stats, titles, lambda s: s.get("waiting_at_bar", 0),
+            keep=lambda s: s.get("waiting_at_bar", 0) > 0),
+    ]
+    if quiet_week:
+        role_lines.append("• Gone quiet (nobody in 7 days): " + ", ".join(quiet_week))
+
+    if top:
+        heading = (f"*Top {len(top)} from the last 24 hours*" if top_is_today
+                   else f"*Top {len(top)} to review* _(none of today's "
+                        "applicants is scored yet, so the best unreviewed "
+                        "candidate in each of the strongest roles)_")
+        people = [heading] + [candidate_line(i, row, titles.get(row["job_id"], ""),
+                                             links[row["_id"]])
+                              for i, row in enumerate(top, 1)]
+    else:
+        people = ["*Top 5*", "_Nobody scored is waiting on a review._"]
+
     blocks = [
-        f"*Daily recruiting report* · {until:%a} {until.day} {until:%b %Y}\n"
+        f"*Recruiting summary* · {until:%a} {until.day} {until:%b %Y}\n"
         + window_label(since, until)
         + (f"\n⚠️ {sync_note}" if sync_note else ""),
-        count_section("New applicants", applicants, titles, roles,
-                      "No new applicants for"),
-        count_section("Newly scored", scored, titles, roles,
-                      "None newly scored for"),
+        "\n".join(day), "\n".join(pipe), "\n".join(role_lines), "\n".join(people),
     ]
-
-    if top_today:
-        blocks.append(f"*Top {len(top_today)} from today*\n" + "\n".join(
-            candidate_block(i, row, titles.get(row["job_id"], ""),
-                            links[row["_id"]], show_role=True)
-            for i, row in enumerate(top_today, 1)))
-    else:
-        blocks.append("*Top 5 from today*\n_No applicant from this window "
-                      "has been scored yet._")
-
-    blocks.append(f"*Top {TOP_PER_ROLE} unreviewed per role*")
-    empty = []
-    for job_id in sorted(roles, key=lambda j: titles.get(j, "").lower()):
-        rows = unreviewed.get(job_id) or []
-        if not rows:
-            empty.append(_plain(titles.get(job_id)))
-            continue
-        blocks.append(f"*{_plain(titles.get(job_id))}*\n" + "\n".join(
-            candidate_block(i, row, "", links[row["_id"]], show_role=False)
-            for i, row in enumerate(rows, 1)))
-    if empty:
-        blocks.append("_No unreviewed scored candidates for:_ "
-                      + ", ".join(empty))
-
     return pack(blocks)
 
 
@@ -369,25 +411,33 @@ def main() -> int:
     titles = {r["_id"]: r.get("title") or f"Role {r['_id']}"
               for r in store.role_index()}
 
-    applicants = store.applicants_between(_iso(since), _iso(until))
-    scored = store.scored_between(since, until)
-    unreviewed = store.top_unreviewed(roles, TOP_PER_ROLE)
-    top_today = sorted((r for r in applicants if _finished(r) and _still_in(r)),
-                       key=lambda r: (-r["evaluation"]["score"], applied_at(r))
-                       )[:TOP_TODAY]
+    stats = store.report_role_stats(
+        roles, day=_iso(since), week=_iso(until - timedelta(days=7)),
+        month=_iso(until - timedelta(days=30)), bar=BAR, best=BEST)
+    for job_id in roles:                    # a role nobody has applied to yet
+        stats.setdefault(job_id, {})
+        titles.setdefault(job_id, f"Role {job_id}")
 
-    # A role off the roles collection still needs a name on its line.
-    for row in applicants + scored:
-        titles.setdefault(row["job_id"], row.get("job_title") or f"Role {row['job_id']}")
+    scored = store.scored_between(since, until)
+    pipeline: dict[str, int] = {}
+    for job_id, stages in store.pipeline_counts()["by_role"].items():
+        if job_id in roles:
+            for stage, n in stages.items():
+                pipeline[stage] = pipeline.get(stage, 0) + n
+
+    applicants = [r for r in store.applicants_between(_iso(since), _iso(until))
+                  if r["job_id"] in roles]
+    top = sorted((r for r in applicants if _finished(r) and _still_in(r)),
+                 key=lambda r: (-r["evaluation"]["score"], applied_at(r)))[:TOP]
+    top_is_today = bool(top)
+    if not top:
+        top = store.top_unreviewed(roles, TOP)
 
     postings = _shortcodes_by_role()
-    listed = {row["_id"]: row for row in top_today}
-    for rows in unreviewed.values():
-        listed.update((row["_id"], row) for row in rows)
-    links = {sid: {"evaluation": evaluation_url(row),
-                   "submission": row.get("admin_url") or "",
-                   "workable": workable_url(row, postings)}
-             for sid, row in listed.items()}
+    links = {row["_id"]: {"evaluation": evaluation_url(row),
+                          "submission": row.get("admin_url") or "",
+                          "workable": workable_url(row, postings)}
+             for row in top}
 
     sync_note = ""
     if args.sync_status and args.sync_status != "success":
@@ -395,15 +445,17 @@ def main() -> int:
                      f"({args.sync_status}), so recent applicants may be missing.")
 
     messages = build_messages(
-        since=since, until=until, titles=titles, roles=roles,
-        applicants=applicants, scored=scored, top_today=top_today,
-        unreviewed=unreviewed, links=links, sync_note=sync_note)
+        since=since, until=until, titles=titles, stats=stats, scored=scored,
+        pipeline=pipeline, top=top, top_is_today=top_is_today, links=links,
+        sync_note=sync_note)
 
-    log.info("Report window %s -> %s: %d applicant(s), %d scored, %d in today's "
-             "top, %d listed across %d open role(s), %d Workable link(s) found, "
-             "%d message(s)", _iso(since), _iso(until), len(applicants),
-             len(scored), len(top_today), len(listed), len(roles),
-             sum(1 for l in links.values() if l["workable"]), len(messages))
+    log.info("Report window %s -> %s: %d applicant(s) on %d open role(s), "
+             "%d scored, top %d (%s), %d Workable link(s) found, %d message(s), "
+             "%d characters", _iso(since), _iso(until), len(applicants),
+             len(roles), len(scored), len(top),
+             "today's" if top_is_today else "unreviewed",
+             sum(1 for l in links.values() if l["workable"]), len(messages),
+             sum(len(m) for m in messages))
 
     if args.dry_run:
         print("\n\n----- next message -----\n\n".join(messages))

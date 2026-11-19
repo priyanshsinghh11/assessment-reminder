@@ -1817,22 +1817,98 @@ def scored_between(since: datetime, until: datetime) -> list[dict]:
         REPORT_FIELDS))
 
 
-def top_unreviewed(job_ids: set[int], per_role: int = 3) -> dict[int, list[dict]]:
+def top_unreviewed(job_ids: set[int], limit: int = 5) -> list[dict]:
     """
-    Each role's best finished scores that nobody has acted on yet, from any
-    date: {job_id: [submission, ...]}, highest first.
+    The best finished score nobody has acted on yet in each of these roles,
+    from any date, then the best `limit` of those.
+
+    One per role: the biggest role has a dozen unreviewed 100s, and a top five
+    that is all one role says nothing about the other twenty-two.
     """
-    rows = get_db().submissions.aggregate([
+    return [row["top"] for row in get_db().submissions.aggregate([
         {"$match": {"job_id": {"$in": sorted(job_ids)},
                     "evaluation.score": {"$type": "number"},
                     "decision.status": {"$ne": "rejected"},
                     **UNREVIEWED, **COMPLETE_GRID}},
         {"$sort": {"evaluation.score": DESCENDING, "submitted_at": ASCENDING}},
         {"$project": REPORT_FIELDS},
-        {"$group": {"_id": "$job_id", "top": {"$push": "$$ROOT"}}},
-        {"$project": {"top": {"$slice": ["$top", per_role]}}},
+        {"$group": {"_id": "$job_id", "top": {"$first": "$$ROOT"}}},
+        {"$sort": {"top.evaluation.score": DESCENDING, "top.submitted_at": ASCENDING}},
+        {"$limit": limit},
+    ])]
+
+
+def report_role_stats(job_ids: set[int], *, day: str, week: str, month: str,
+                      bar: float, best: float) -> dict[int, dict]:
+    """
+    What the daily summary says about each role, in one pass over its
+    submissions: {job_id: {on_file, new_day, new_week, last_applied,
+    started_month, submitted_month, scored, at_bar, at_best,
+    waiting_at_bar}}.
+
+    `day`, `week` and `month` are ISO strings -- window starts compared
+    against the applied date the way applicants_between() does. `bar` and
+    `best` are score floors from the rubric pack's bands. `waiting_at_bar` is
+    candidates at or over the bar that nobody has reviewed, by the rule
+    UNREVIEWED states.
+
+    Auto-rejected candidates are purged and only counted (see
+    purge_auto_rejected), so `on_file` adds their tally back the way
+    role_counts() does.
+    """
+    def text(field: str) -> dict:
+        return {"$cond": [{"$eq": [{"$type": field}, "string"]}, field, ""]}
+
+    applied = {"$cond": [{"$ne": [text("$started_at"), ""]},
+                         text("$started_at"), text("$submitted_at")]}
+    finished = {"$and": [
+        {"$isNumber": "$evaluation.score"},
+        {"$ne": ["$evaluation.grid_complete", False]},
+        {"$ne": ["$evaluation.score_provisional", True]},
+    ]}
+    unreviewed = {"$and": [
+        {"$in": [{"$ifNull": ["$pipeline.stage", ""]}, [""]]},
+        {"$eq": [{"$size": {"$ifNull": ["$pipeline.history", []]}}, 0]},
+        {"$ne": ["$decision.source", "manual"]},
+        {"$ne": ["$decision.status", "rejected"]},
+    ]}
+
+    def count(condition) -> dict:
+        return {"$sum": {"$cond": [condition, 1, 0]}}
+
+    def scored_over(floor: float) -> dict:
+        return {"$and": [finished, {"$gte": ["$evaluation.score", floor]}]}
+
+    rows = get_db().submissions.aggregate([
+        {"$match": {"job_id": {"$in": sorted(job_ids)}}},
+        {"$project": {"job_id": 1, "applied": applied,
+                      "submitted": {"$eq": ["$submission_status", "submitted"]},
+                      "evaluation.score": 1, "evaluation.grid_complete": 1,
+                      "evaluation.score_provisional": 1,
+                      "pipeline.stage": 1, "pipeline.history": 1,
+                      "decision.source": 1, "decision.status": 1}},
+        {"$group": {
+            "_id": "$job_id",
+            "on_file": {"$sum": 1},
+            "new_day": count({"$gte": ["$applied", day]}),
+            "new_week": count({"$gte": ["$applied", week]}),
+            "last_applied": {"$max": "$applied"},
+            "started_month": count({"$gte": ["$applied", month]}),
+            "submitted_month": count({"$and": [
+                {"$gte": ["$applied", month]}, "$submitted"]}),
+            "scored": count(finished),
+            "at_bar": count(scored_over(bar)),
+            "at_best": count(scored_over(best)),
+            "waiting_at_bar": count({"$and": [scored_over(bar), unreviewed]}),
+        }},
     ])
-    return {row["_id"]: row["top"] for row in rows}
+    stats = {row.pop("_id"): row for row in rows}
+    for row in get_db().rejected_counts.find(
+            {"_id": {"$in": sorted(job_ids)}}, {"count": 1}):
+        stats.setdefault(row["_id"], {})
+        stats[row["_id"]]["on_file"] = (stats[row["_id"]].get("on_file", 0)
+                                        + row.get("count", 0))
+    return stats
 
 
 def set_workable_link(submission_id: int, url: str) -> None:
