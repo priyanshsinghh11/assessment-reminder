@@ -1514,9 +1514,23 @@ which this is not.
 
 | Workflow | Schedule | Command |
 |---|---|---|
-| `sync.yml` | daily, 03:00 UTC | `ingest --skip-roles` |
+| `sync.yml` | daily, 11:00 UTC | `ingest --skip-roles` |
+| `report.yml` | when the scheduled sync finishes | `report` — the daily recruiting report, to Google Chat |
 | `grade.yml` | hourly, :30 | `grade --next --limit 50` |
 | `roles-crawl.yml` | Mondays 04:00 UTC | `ingest --roles-only`, then commits the assessment diff |
+
+**The daily recruiting report.** `manage.py report` posts one report a day to a
+Google Chat space through an incoming webhook: new and newly scored applicants
+by role, the top 5 from the window, and the top 3 unreviewed per open role, each
+with links to the evaluation, the portal submission and the Workable
+application. It needs the `GOOGLE_CHAT_WEBHOOK_URL` repository secret (in the
+space: Apps & integrations → Webhooks). The readers are the space's members, so
+adding or removing someone is done in Chat. "Unreviewed" means nobody has moved
+the candidate on the pipeline board or made a manual decision; the portal's own
+review status moves without a human, so it is not used. `report.yml` is not in
+the `concurrency` group: it only reads, apart from caching each listed
+candidate's Workable link. Try it locally with `python manage.py report
+--dry-run`, which prints instead of posting and refuses to run on Actions.
 
 Sync and grading were one workflow on one schedule until they needed two
 cadences: submissions are pulled once a day, and grading runs every hour. A

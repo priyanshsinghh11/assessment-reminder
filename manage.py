@@ -55,6 +55,8 @@ COMMANDS = {
                   "is the grader using the scale, or just spotting gaps?"),
     "cv-role": ("backend.pipeline.cv_role",
                 "ingest and grade a posting that has no assessment"),
+    "report": ("backend.report.daily",
+               "the daily recruiting report, posted to Google Chat"),
     "users": ("backend.manage_users",
               "dashboard accounts: the first admin, and the way back in"),
     "migrate-db": ("tools.migrate_db",

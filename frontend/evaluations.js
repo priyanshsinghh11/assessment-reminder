@@ -534,6 +534,9 @@ async function loadRoles() {
     if (linked && state.activeRoleId === null) {
       const tab = allowedTab(params.get('tab'));
       openRole(linked, false, tab, params.get('tier') || null);
+      // The daily Chat report links straight to one candidate.
+      const candidate = Number(params.get('candidate'));
+      if (candidate) openDrawer(candidate);
     } else if (state.activeRoleId !== null) {
       // Refresh while a role is open: re-tally its header, and put the two
       // cross-role selects back on this role -- rebuilding their options just

@@ -32,13 +32,20 @@ name: Portal sync
 
 on:
   schedule:
-    # 03:00 UTC daily. An ODD hour on purpose: grade.yml runs on even hours,
-    # and a shared start time would just make one queue behind the other.
+    # 11:00 UTC daily (6am ET, 4:30pm IST). On the hour on purpose: grade.yml
+    # starts at half past, and a shared start time would just make one queue
+    # behind the other.
+    #
+    # THIS IS ALSO WHEN THE DAILY RECRUITING REPORT GOES OUT. report.yml starts
+    # when this finishes, so its "last 24 hours" is measured against a database
+    # that was just synced. It was 03:00 until the report needed a morning slot;
+    # move this line to move the report.
     #
     # GitHub's scheduler is best-effort and is delayed under load, sometimes by
-    # tens of minutes -- treat this as "once a day", not as a clock. Nothing
-    # downstream depends on the exact minute, because ingest is idempotent.
-    - cron: "0 3 * * *"
+    # tens of minutes -- treat this as "once a day", not as a clock. Ingest is
+    # idempotent, and the report bookmarks where its last window ended, so a
+    # late run shifts the post rather than dropping anybody from it.
+    - cron: "0 11 * * *"
   workflow_dispatch:
 
 # Shared with grade.yml and roles-crawl.yml. See the header: these three all

@@ -1761,6 +1761,101 @@ def role_top(job_id: int, limit: int = 5) -> list[dict]:
             ("submitted_at", ASCENDING)]).limit(limit))
 
 
+# ---------------------------------------------------------------------------
+# The daily recruiting report
+# ---------------------------------------------------------------------------
+#
+# Read by backend/report/daily.py, which posts it to Google Chat. Everything
+# here is a read except the Workable link cache and the report's own bookmark.
+
+# What a report line needs about a candidate, and nothing heavier: answer text
+# and CV text are megabytes across a day's applicants.
+REPORT_FIELDS = {
+    "job_id": 1, "job_title": 1, "candidate_name": 1, "candidate_email": 1,
+    "evaluation.score": 1, "evaluation.graded_at": 1,
+    "evaluation.grid_complete": 1, "evaluation.score_provisional": 1,
+    "decision.status": 1, "pipeline.stage": 1, "admin_url": 1,
+    "profile_url": 1, "workable_link": 1, "cv_only": 1,
+    "started_at": 1, "submitted_at": 1,
+}
+
+# Nobody on the recruiting side has acted on them. The portal's own
+# `review_status` is no signal: on 2026-11-20 every scored candidate read "new"
+# or "pending", including the ones already interviewed and hired, so the
+# portal's queue moves without a human. What a human leaves behind is here --
+# a pipeline move (kept in the history even after an undo) or a manual
+# decision from the dashboard.
+UNREVIEWED = {
+    "pipeline.stage": {"$in": [None, ""]},
+    "pipeline.history.0": {"$exists": False},
+    "decision.source": {"$ne": "manual"},
+}
+
+
+def applicants_between(since: str, until: str) -> list[dict]:
+    """
+    Everyone who applied in [since, until), both ISO strings.
+
+    "Applied" is the rule role_applicant_days() uses: the day they started the
+    assessment, or handed it in where the portal kept no start (a Workable
+    row). The portal writes both as "YYYY-MM-DDTHH:MM:SS.mmmZ", which sorts as
+    text, so the window is a string range.
+    """
+    window = {"$gte": since, "$lt": until}
+    return list(get_db().submissions.find(
+        {"$or": [{"started_at": window},
+                 {"started_at": {"$in": [None, ""]}, "submitted_at": window}]},
+        REPORT_FIELDS))
+
+
+def scored_between(since: datetime, until: datetime) -> list[dict]:
+    """Everyone whose verdict landed in [since, until) -- a finished grid only,
+    for the reason top_candidates() gives."""
+    return list(get_db().submissions.find(
+        {"evaluation.graded_at": {"$gte": since, "$lt": until},
+         "evaluation.score": {"$type": "number"}, **COMPLETE_GRID},
+        REPORT_FIELDS))
+
+
+def top_unreviewed(job_ids: set[int], per_role: int = 3) -> dict[int, list[dict]]:
+    """
+    Each role's best finished scores that nobody has acted on yet, from any
+    date: {job_id: [submission, ...]}, highest first.
+    """
+    rows = get_db().submissions.aggregate([
+        {"$match": {"job_id": {"$in": sorted(job_ids)},
+                    "evaluation.score": {"$type": "number"},
+                    "decision.status": {"$ne": "rejected"},
+                    **UNREVIEWED, **COMPLETE_GRID}},
+        {"$sort": {"evaluation.score": DESCENDING, "submitted_at": ASCENDING}},
+        {"$project": REPORT_FIELDS},
+        {"$group": {"_id": "$job_id", "top": {"$push": "$$ROOT"}}},
+        {"$project": {"top": {"$slice": ["$top", per_role]}}},
+    ])
+    return {row["_id"]: row["top"] for row in rows}
+
+
+def set_workable_link(submission_id: int, url: str) -> None:
+    """Remember where a portal candidate's Workable application is, so the
+    report asks Workable once per candidate rather than once per day."""
+    get_db().submissions.update_one(
+        {"_id": submission_id},
+        {"$set": {"workable_link": {"url": url, "at": now()}}})
+
+
+def last_report_until() -> Optional[datetime]:
+    """Where the last posted daily report's window ended, if one was posted."""
+    row = get_db().reports.find_one({"_id": "daily"})
+    return _aware(row["until"]) if row and row.get("until") else None
+
+
+def record_report(until: datetime, messages: int) -> None:
+    get_db().reports.update_one(
+        {"_id": "daily"},
+        {"$set": {"until": until, "messages": messages, "posted_at": now()}},
+        upsert=True)
+
+
 def role_owners(job_ids: Optional[set[int]] = None) -> dict[int, dict]:
     """
     Who owns each seat and when its shortlist last went out, without the rest

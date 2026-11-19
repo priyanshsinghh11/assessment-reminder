@@ -1,0 +1,98 @@
+# The daily recruiting report, posted to a Google Chat space.
+#
+# WHY IT RUNS OFF THE SYNC AND NOT OFF A CLOCK. "New applicants in the last 24
+# hours" is only true of a database that was synced a moment ago: the portal
+# sync runs once a day, and a report built hours after it would miss everyone
+# who applied since. So this starts when sync.yml finishes, and the time the
+# report lands is the time in sync.yml's cron. Move that one to move both.
+#
+# Only a SCHEDULED sync posts. A sync somebody dispatched by hand at 3pm would
+# otherwise post a second report covering the few hours since the morning's.
+# The report still runs when the sync failed -- yesterday's data with a warning
+# line on top beats a silent space, and silence is what the brief asked to
+# avoid.
+#
+# NOT IN THE `batch` GROUP. It writes nothing the other jobs touch -- a
+# Workable link cached per listed candidate and its own bookmark -- so there is
+# nothing to serialise against, and waiting behind an hourly grading run would
+# only make it late.
+#
+# WHO GETS IT is the Chat space's membership. Add or remove people in Chat;
+# nothing here changes.
+
+name: Daily recruiting report
+
+on:
+  workflow_run:
+    workflows: ["Portal sync"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: "Window in hours. A manual run never moves the bookmark the daily report reads."
+        required: false
+        default: "24"
+
+jobs:
+  report:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    permissions:
+      contents: read
+
+    env:
+      # --- Required. The guard step below fails the run if one is missing. ---
+      MONGO_URI: ${{ secrets.MONGO_URI }}
+      # The space's incoming webhook. A credential: anyone holding it can post
+      # there. The report logs status codes only, never the URL.
+      GOOGLE_CHAT_WEBHOOK_URL: ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+
+      # Best effort, so it is not in the guard: without it, or with it expired,
+      # the report still posts, with "Workable: not found" where the link goes.
+      WORKABLE_API_TOKEN: ${{ secrets.WORKABLE_API_TOKEN }}
+
+      # --- Configuration, not secrets. Read with _env(), so unset is safe. ---
+      MONGO_DB: ${{ vars.MONGO_DB }}
+      REPORT_DASHBOARD_URL: ${{ vars.REPORT_DASHBOARD_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Refuse to run without credentials
+        # MONGO_URI defaults to 127.0.0.1, which on a runner is nothing at all:
+        # the report would post "no new applicants" to the whole space, look
+        # entirely successful, and be false.
+        run: |
+          missing=""
+          for name in MONGO_URI GOOGLE_CHAT_WEBHOOK_URL; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing"
+            echo "Settings -> Secrets and variables -> Actions -> New repository secret"
+            exit 1
+          fi
+          echo "credentials present"
+
+      - name: Build and post the report
+        # Never --dry-run here: it prints candidate names, and this
+        # repository's run pages are public. The command refuses it under
+        # Actions anyway.
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            python manage.py report --hours "${{ github.event.inputs.hours || '24' }}"
+          else
+            python manage.py report --sync-status "${{ github.event.workflow_run.conclusion }}"
+          fi

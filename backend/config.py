@@ -975,6 +975,19 @@ DASHBOARD_BASE_URL = (os.environ.get("DASHBOARD_BASE_URL", "").strip()
 MANAGER_DASHBOARD_URL = (os.environ.get("MANAGER_DASHBOARD_URL", "").strip()
                          or "https://assessment-reminder.vercel.app/")
 
+# --- The daily recruiting report (backend/report/daily.py) ---
+# The Google Chat space's incoming webhook. It IS a credential -- anyone holding
+# it can post into the space -- so it lives in a repository secret and is never
+# logged. Unset, `manage.py report` refuses to run rather than build a report
+# nobody receives. Who reads the report is the space's membership, managed in
+# Chat; nothing here lists people.
+GOOGLE_CHAT_WEBHOOK_URL = _env("GOOGLE_CHAT_WEBHOOK_URL", "")
+
+# Where the report's "Evaluation" links point. The production dashboard for the
+# reason MANAGER_DASHBOARD_URL gives: the report is built on a runner, and
+# DASHBOARD_BASE_URL there would be 127.0.0.1.
+REPORT_DASHBOARD_URL = _env("REPORT_DASHBOARD_URL", MANAGER_DASHBOARD_URL).rstrip("/")
+
 # Whether that deep link is rendered in the manager's copy at all. Its own
 # switch so it can be dropped without editing the template or blanking
 # DASHBOARD_BASE_URL, which would leave a setting whose emptiness is load
