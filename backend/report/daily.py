@@ -17,9 +17,9 @@ pipeline stands:
     gone quiet, the grading queue, thin pools
   * What's going well: the application trend, strong new scores, roles whose
     candidates finish the assessment, interview momentum, the deepest pools
-  * Top 5 not yet interviewed: the best-scored candidate in each role who has
-    not had an interview, best five of those, with links to the evaluation on
-    the dashboard and the submission on the portal
+  * Top 5 not yet interviewed, for every role, in the messages after the
+    summary: the best-scored candidates who have not had an interview, with
+    links to the evaluation on the dashboard and the submission on the portal
 
 Roles in config.REPORT_EXCLUDED_ROLES are left out of every line.
 
@@ -46,6 +46,7 @@ import re
 import sys
 import time
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 import requests
 
@@ -263,27 +264,49 @@ def evaluation_url(row: dict) -> str:
             f"#role={row['job_id']}&candidate={row['_id']}")
 
 
-def candidate_line(rank: int, row: dict, title: str) -> str:
+def candidate_line(rank: int, row: dict) -> str:
+    """One line a candidate: rank, name, score, then the two links."""
     score = f"{round(float(row['evaluation']['score']), 1):g}"
     links = [f"<{evaluation_url(row)}|Evaluation>"]
     if row.get("admin_url"):
         links.append(f"<{row['admin_url']}|Submission>")
     elif row.get("cv_only"):
-        links.append("No assessment (CV only)")
-    return (f"{rank}. *{_plain(row.get('candidate_name'))}* · {_plain(title)}"
-            f" · *{score}*\n      " + " · ".join(links))
+        links.append("CV only")
+    return (f"{rank}. *{_plain(row.get('candidate_name'))}* · *{score}* · "
+            + " · ".join(links))
+
+
+def top_blocks(top: dict[int, list[dict]], titles: dict[int, str],
+               roles) -> list[str]:
+    """The per-role lists, one block a role so a role never splits across
+    two messages, alphabetical so a reader can find theirs."""
+    blocks = [f"🏆 *Top {TOP} not yet interviewed, by role*"]
+    empty = []
+    for job_id in sorted(roles, key=lambda j: titles.get(j, "").lower()):
+        rows = top.get(job_id) or []
+        if not rows:
+            empty.append(_plain(titles.get(job_id)))
+            continue
+        blocks.append(f"*{_plain(titles.get(job_id))}*\n" + "\n".join(
+            candidate_line(i, row) for i, row in enumerate(rows, 1)))
+    if empty:
+        blocks.append("_Nobody scored is waiting for an interview in:_ "
+                      + ", ".join(empty))
+    return blocks
 
 
 def build_messages(*, since: datetime, until: datetime, titles: dict[int, str],
                    stats: dict[int, dict], scored: list[dict],
-                   top: list[dict] = (), sync_note: str = "") -> list[str]:
+                   top: Optional[dict[int, list[dict]]] = None,
+                   sync_note: str = "") -> list[str]:
     """
     The summary as Chat messages -- one on any normal day.
 
     `stats` is store.report_role_stats() for the open roles, and `scored` the
     verdicts that landed in the window. Headline numbers first, then the roles,
-    then what to act on and what is working, then the five people to open.
-    `top` is store.top_not_interviewed().
+    then what to act on and what is working. Then, from the second message on,
+    each role's top five not yet interviewed. `top` is
+    store.top_not_interviewed().
     """
     roles = len(stats)
     new_day = _total(stats, "new_day")
@@ -334,12 +357,10 @@ def build_messages(*, since: datetime, until: datetime, titles: dict[int, str],
                                   or "• Nothing stands out today."),
         "✅ *What's going well*\n" + ("\n".join(f"• {p}" for p in well)
                                      or "• Nothing stands out today."),
-        f"🏆 *Top {TOP} not yet interviewed* _(best in each role)_\n"
-        + ("\n".join(candidate_line(i, row, titles.get(row["job_id"], ""))
-                     for i, row in enumerate(top, 1))
-           or "• Every scored candidate has had an interview."),
     ]
-    return pack(blocks)
+    # The summary is the first message on its own; the lists follow it, so the
+    # part a reader takes in at a glance is never pushed down by a hundred names.
+    return pack(blocks) + pack(top_blocks(top or {}, titles, stats))
 
 
 def pack(blocks: list[str], limit: int = MESSAGE_LIMIT) -> list[str]:
@@ -479,7 +500,7 @@ def main() -> int:
     log.info("Report window %s -> %s: %d new applicant(s) on %d open role(s), "
              "%d scored, %d in the top, %d message(s), %d characters",
              _iso(since), _iso(until), _total(stats, "new_day"), len(roles),
-             len(scored), len(top), len(messages),
+             len(scored), sum(len(rows) for rows in top.values()), len(messages),
              sum(len(m) for m in messages))
 
     if args.dry_run:

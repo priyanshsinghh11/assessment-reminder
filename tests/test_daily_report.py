@@ -44,12 +44,12 @@ def section(text, heading):
 
 
 class TestSummary:
-    def test_one_message_with_the_headlines_first(self):
+    def test_the_whole_summary_is_the_first_message(self):
         messages = daily.build_messages(since=SINCE, until=UNTIL, titles=TITLES,
                                         stats=STATS, scored=[])
-        assert len(messages) == 1
         assert messages[0].startswith("*Recruiting summary* · Fri 20 Nov 2026\n"
                                       "_Last 24 hours, to 11:20 UTC_")
+        assert "✅ *What's going well*" in messages[0]
 
     def test_the_last_24_hours(self):
         text = build(scored=[scored(1, 90), scored(1, 60)])
@@ -73,32 +73,49 @@ class TestSummary:
             assert job_id not in daily.open_roles()
 
 
+def candidate(sid, job_id, score, name="Alex Doe", **extra):
+    return {"_id": sid, "job_id": job_id, "candidate_name": name,
+            "evaluation": {"score": score}, **extra}
+
+
 class TestTopNotInterviewed:
-    def test_each_candidate_carries_evaluation_and_submission(self):
-        top = [{"_id": 10, "job_id": 1, "candidate_name": "Alex Doe",
-                "evaluation": {"score": 97.25},
-                "admin_url": "https://portal/s/10"}]
+    def test_the_summary_stays_the_first_message(self):
+        top = {1: [candidate(i, 1, 90 - i, admin_url=f"https://portal/s/{i}")
+                   for i in range(5)]}
+        messages = daily.build_messages(since=SINCE, until=UNTIL, titles=TITLES,
+                                        stats=STATS, scored=[], top=top)
+        assert "🏆" not in messages[0]
+        assert messages[1].startswith("🏆 *Top 5 not yet interviewed, by role*")
+
+    def test_each_role_lists_its_own_with_both_links(self):
+        top = {1: [candidate(10, 1, 97.25, admin_url="https://portal/s/10")],
+               3: [candidate(11, 3, 88, name="Sam Roe")]}
         text = build(top=top)
-        assert "🏆 *Top 5 not yet interviewed* _(best in each role)_\n" in text
-        assert "1. *Alex Doe* · Product Manager · *97.2*" in text
-        assert (f"<{daily.REPORT_DASHBOARD_URL}/evaluations.html#role=1&candidate=10"
+        assert ("*Product Manager*\n1. *Alex Doe* · *97.2* · "
+                f"<{daily.REPORT_DASHBOARD_URL}/evaluations.html#role=1&candidate=10"
                 "|Evaluation> · <https://portal/s/10|Submission>") in text
+        assert "*Recruiter*\n1. *Sam Roe* · *88* · " in text
+        assert "_Nobody scored is waiting for an interview in:_ UI/UX Designer" in text
         assert "Workable" not in text
 
+    def test_roles_never_split_across_messages(self):
+        top = {j: [candidate(j * 10 + i, j, 90, admin_url="https://portal/" + "x" * 300)
+                   for i in range(5)] for j in STATS}
+        for message in daily.build_messages(since=SINCE, until=UNTIL, titles=TITLES,
+                                            stats=STATS, scored=[], top=top):
+            assert len(message) <= daily.MESSAGE_LIMIT
+            for title in TITLES.values():
+                if f"*{title}*\n" in message:
+                    assert message.split(f"*{title}*\n", 1)[1].count("\n5. ") <= 1
+
     def test_a_cv_only_candidate_says_so(self):
-        top = [{"_id": 10, "job_id": 1, "candidate_name": "Alex Doe",
-                "evaluation": {"score": 90}, "cv_only": True}]
-        assert "No assessment (CV only)" in build(top=top)
+        assert "CV only" in build(top={1: [candidate(10, 1, 90, cv_only=True)]})
 
     def test_a_name_cannot_inject_chat_markup(self):
-        top = [{"_id": 10, "job_id": 1, "evaluation": {"score": 90},
-                "candidate_name": "*Bold* <https://evil|click>"}]
-        text = build(top=top)
+        text = build(top={1: [candidate(10, 1, 90,
+                                        name="*Bold* <https://evil|click>")]})
         assert "evil|click" not in text
         assert "*Bold https://evilclick*" in text
-
-    def test_says_so_when_nobody_is_waiting(self):
-        assert "• Every scored candidate has had an interview." in build()
 
 
 class TestGuards:

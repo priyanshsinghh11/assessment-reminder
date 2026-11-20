@@ -1778,16 +1778,14 @@ def scored_between(since: datetime, until: datetime) -> list[dict]:
         {"job_id": 1, "evaluation.score": 1}))
 
 
-def top_not_interviewed(job_ids: set[int], limit: int = 5) -> list[dict]:
+def top_not_interviewed(job_ids: set[int],
+                        per_role: int = 5) -> dict[int, list[dict]]:
     """
-    The best finished score in each of these roles among candidates who have
-    not been interviewed -- never moved to interview, round 2 or hired, and not
-    turned down -- then the best `limit` of those, highest first.
-
-    One per role: the biggest role has a dozen 100s waiting, and a top five
-    that is all one role says nothing about the others.
+    Each role's best finished scores among candidates who have not been
+    interviewed -- never moved to interview, round 2 or hired, and not turned
+    down: {job_id: [submission, ...]}, highest first.
     """
-    return [row["top"] for row in get_db().submissions.aggregate([
+    rows = get_db().submissions.aggregate([
         {"$match": {"job_id": {"$in": sorted(job_ids)},
                     "evaluation.score": {"$type": "number"},
                     "decision.status": {"$ne": "rejected"},
@@ -1797,14 +1795,15 @@ def top_not_interviewed(job_ids: set[int], limit: int = 5) -> list[dict]:
                     "pipeline.history.stage": {
                         "$nin": ["interview", "interview_2", "hired"]},
                     **COMPLETE_GRID}},
-        {"$sort": {"evaluation.score": DESCENDING, "submitted_at": ASCENDING}},
+        # Trimmed BEFORE the sort: a submission carries its whole answer text,
+        # and sorting two thousand of those overruns Mongo's 32 MB sort limit.
         {"$project": {"job_id": 1, "candidate_name": 1, "evaluation.score": 1,
                       "admin_url": 1, "cv_only": 1, "submitted_at": 1}},
-        {"$group": {"_id": "$job_id", "top": {"$first": "$$ROOT"}}},
-        {"$sort": {"top.evaluation.score": DESCENDING,
-                   "top.submitted_at": ASCENDING}},
-        {"$limit": limit},
-    ])]
+        {"$sort": {"evaluation.score": DESCENDING, "submitted_at": ASCENDING}},
+        {"$group": {"_id": "$job_id", "top": {"$push": "$$ROOT"}}},
+        {"$project": {"top": {"$slice": ["$top", per_role]}}},
+    ])
+    return {row["_id"]: row["top"] for row in rows}
 
 
 def report_role_stats(job_ids: set[int], *, day: str, week: str, month: str,
