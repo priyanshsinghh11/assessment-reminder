@@ -108,6 +108,13 @@ class TestTopNotInterviewed:
                 if f"*{title}*\n" in message:
                     assert message.split(f"*{title}*\n", 1)[1].count("\n5. ") <= 1
 
+    def test_a_no_candidate_role_gets_no_list(self, monkeypatch):
+        monkeypatch.setattr(daily, "REPORT_NO_CANDIDATE_ROLES", {3: "Recruiter"})
+        text = build(top={3: [candidate(11, 3, 88, name="Sam Roe")]})
+        assert "Sam Roe" not in text and "*Recruiter*\n" not in text
+        # ...but it is still counted in the summary.
+        assert "Most applicants: Product Manager (12), Recruiter (3)" in text
+
     def test_a_cv_only_candidate_says_so(self):
         assert "CV only" in build(top={1: [candidate(10, 1, 90, cv_only=True)]})
 

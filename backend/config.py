@@ -992,6 +992,12 @@ REPORT_EXCLUDED_ROLES = {
     46: "Client Delivery Lead",
 }
 
+# Roles that stay in the report's numbers but get no "Top 5 not yet
+# interviewed" list. Same shape as above. Asked for on 2026-11-20.
+REPORT_NO_CANDIDATE_ROLES = {
+    38: "AI Strategist",
+}
+
 # Where the report's "Evaluation" links point. The production dashboard for the
 # reason MANAGER_DASHBOARD_URL gives: the report is built on a runner, and
 # DASHBOARD_BASE_URL there would be 127.0.0.1.

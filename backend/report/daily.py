@@ -21,7 +21,8 @@ pipeline stands:
     summary: the best-scored candidates who have not had an interview, with
     links to the evaluation on the dashboard and the submission on the portal
 
-Roles in config.REPORT_EXCLUDED_ROLES are left out of every line.
+Roles in config.REPORT_EXCLUDED_ROLES are left out of every line; roles in
+config.REPORT_NO_CANDIDATE_ROLES stay in the numbers but get no candidate list.
 
 THE WINDOW IS "SINCE THE LAST REPORT", which on a normal day is the last 24
 hours. It is bookmarked in Mongo rather than computed from the clock because
@@ -52,7 +53,7 @@ import requests
 
 from backend.config import (ASSESSMENT_JOBS, CV_ONLY_JOB_IDS,
                             GOOGLE_CHAT_WEBHOOK_URL, REPORT_DASHBOARD_URL,
-                            REPORT_EXCLUDED_ROLES)
+                            REPORT_EXCLUDED_ROLES, REPORT_NO_CANDIDATE_ROLES)
 from backend.db import store
 from backend.grading.rubric_pack import BANDS
 from backend.logging_setup import setup_logging
@@ -360,7 +361,8 @@ def build_messages(*, since: datetime, until: datetime, titles: dict[int, str],
     ]
     # The summary is the first message on its own; the lists follow it, so the
     # part a reader takes in at a glance is never pushed down by a hundred names.
-    return pack(blocks) + pack(top_blocks(top or {}, titles, stats))
+    listed = set(stats) - set(REPORT_NO_CANDIDATE_ROLES)
+    return pack(blocks) + pack(top_blocks(top or {}, titles, listed))
 
 
 def pack(blocks: list[str], limit: int = MESSAGE_LIMIT) -> list[str]:
@@ -479,7 +481,7 @@ def main() -> int:
         titles.setdefault(job_id, f"Role {job_id}")
 
     scored = store.scored_between(since, until)
-    top = store.top_not_interviewed(roles, TOP)
+    top = store.top_not_interviewed(roles - set(REPORT_NO_CANDIDATE_ROLES), TOP)
 
     sync_note = ""
     synced = store.last_synced_at()
