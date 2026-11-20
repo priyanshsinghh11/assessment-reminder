@@ -983,6 +983,20 @@ MANAGER_DASHBOARD_URL = (os.environ.get("MANAGER_DASHBOARD_URL", "").strip()
 # Chat; nothing here lists people.
 GOOGLE_CHAT_WEBHOOK_URL = _env("GOOGLE_CHAT_WEBHOOK_URL", "")
 
+# Roles left out of the report although they are still wired to a live posting,
+# so they stay in reminders, grading and the dashboard. Dashboard job_id -> the
+# title, for whoever reads this list. Asked for on 2026-11-20.
+REPORT_EXCLUDED_ROLES = {
+    29: "Chief of Staff",
+    33: "Customer Experience & Product Success Assessment",
+    46: "Client Delivery Lead",
+}
+
+# Where the report's "Evaluation" links point. The production dashboard for the
+# reason MANAGER_DASHBOARD_URL gives: the report is built on a runner, and
+# DASHBOARD_BASE_URL there would be 127.0.0.1.
+REPORT_DASHBOARD_URL = _env("REPORT_DASHBOARD_URL", MANAGER_DASHBOARD_URL).rstrip("/")
+
 # Whether that deep link is rendered in the manager's copy at all. Its own
 # switch so it can be dropped without editing the template or blanking
 # DASHBOARD_BASE_URL, which would leave a setting whose emptiness is load

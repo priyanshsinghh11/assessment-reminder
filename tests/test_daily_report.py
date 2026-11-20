@@ -68,10 +68,45 @@ class TestSummary:
         assert "• Most crowded: Product Manager (900), Recruiter (300), UI/UX Designer (40)" in text
         assert "• Least crowded: UI/UX Designer (40), Recruiter (300), Product Manager (900)" in text
 
-    def test_no_candidate_is_named(self):
-        # Counts and role names only: the report needs no Workable lookup, and
-        # nothing it logs on a public run page is private.
-        assert "Evaluation" not in build() and "Workable" not in build()
+    def test_excluded_roles_are_not_open(self):
+        for job_id in daily.REPORT_EXCLUDED_ROLES:
+            assert job_id not in daily.open_roles()
+
+
+class TestTopNotInterviewed:
+    def test_each_candidate_carries_evaluation_and_submission(self):
+        top = [{"_id": 10, "job_id": 1, "candidate_name": "Alex Doe",
+                "evaluation": {"score": 97.25},
+                "admin_url": "https://portal/s/10"}]
+        text = build(top=top)
+        assert "🏆 *Top 5 not yet interviewed* _(best in each role)_\n" in text
+        assert "1. *Alex Doe* · Product Manager · *97.2*" in text
+        assert (f"<{daily.REPORT_DASHBOARD_URL}/evaluations.html#role=1&candidate=10"
+                "|Evaluation> · <https://portal/s/10|Submission>") in text
+        assert "Workable" not in text
+
+    def test_a_cv_only_candidate_says_so(self):
+        top = [{"_id": 10, "job_id": 1, "candidate_name": "Alex Doe",
+                "evaluation": {"score": 90}, "cv_only": True}]
+        assert "No assessment (CV only)" in build(top=top)
+
+    def test_a_name_cannot_inject_chat_markup(self):
+        top = [{"_id": 10, "job_id": 1, "evaluation": {"score": 90},
+                "candidate_name": "*Bold* <https://evil|click>"}]
+        text = build(top=top)
+        assert "evil|click" not in text
+        assert "*Bold https://evilclick*" in text
+
+    def test_says_so_when_nobody_is_waiting(self):
+        assert "• Every scored candidate has had an interview." in build()
+
+
+class TestGuards:
+    def test_dry_run_refuses_on_actions(self, monkeypatch):
+        # --dry-run prints names, and Actions logs on this repository are public.
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
+        monkeypatch.setattr("sys.argv", ["report", "--dry-run"])
+        assert daily.main() == 1
 
 
 class TestAreasToFocus:

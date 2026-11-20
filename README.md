@@ -1526,7 +1526,10 @@ pipeline totals, the most and least crowded roles, then **Areas to focus**
 where candidates drop off the assessment, roles gone quiet, the grading queue,
 thin pools) and **What's going well** (the application trend, strong new
 scores, roles whose candidates finish the assessment, interviews, the deepest
-pools). Counts and role names only; no candidate appears in it.
+pools), then the **Top 5 not yet interviewed**: the best-scored candidate in
+each role who has had no interview, best five of those, with links to the
+evaluation and the portal submission. Roles in `REPORT_EXCLUDED_ROLES`
+(`backend/config.py`) are left out of every line.
 
 It needs the `GOOGLE_CHAT_WEBHOOK_URL` repository secret (in the space: Apps &
 integrations → Webhooks). The readers are the space's members, so adding or

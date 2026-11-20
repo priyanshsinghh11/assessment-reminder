@@ -1778,6 +1778,35 @@ def scored_between(since: datetime, until: datetime) -> list[dict]:
         {"job_id": 1, "evaluation.score": 1}))
 
 
+def top_not_interviewed(job_ids: set[int], limit: int = 5) -> list[dict]:
+    """
+    The best finished score in each of these roles among candidates who have
+    not been interviewed -- never moved to interview, round 2 or hired, and not
+    turned down -- then the best `limit` of those, highest first.
+
+    One per role: the biggest role has a dozen 100s waiting, and a top five
+    that is all one role says nothing about the others.
+    """
+    return [row["top"] for row in get_db().submissions.aggregate([
+        {"$match": {"job_id": {"$in": sorted(job_ids)},
+                    "evaluation.score": {"$type": "number"},
+                    "decision.status": {"$ne": "rejected"},
+                    "pipeline.stage": {"$in": [None, ""]},
+                    # Kept in the history after an undo, so "pulled back out of
+                    # an interview" still counts as interviewed.
+                    "pipeline.history.stage": {
+                        "$nin": ["interview", "interview_2", "hired"]},
+                    **COMPLETE_GRID}},
+        {"$sort": {"evaluation.score": DESCENDING, "submitted_at": ASCENDING}},
+        {"$project": {"job_id": 1, "candidate_name": 1, "evaluation.score": 1,
+                      "admin_url": 1, "cv_only": 1, "submitted_at": 1}},
+        {"$group": {"_id": "$job_id", "top": {"$first": "$$ROOT"}}},
+        {"$sort": {"top.evaluation.score": DESCENDING,
+                   "top.submitted_at": ASCENDING}},
+        {"$limit": limit},
+    ])]
+
+
 def report_role_stats(job_ids: set[int], *, day: str, week: str, month: str,
                       bar: float, best: float) -> dict[int, dict]:
     """

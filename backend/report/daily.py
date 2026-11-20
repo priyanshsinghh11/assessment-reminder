@@ -17,6 +17,11 @@ pipeline stands:
     gone quiet, the grading queue, thin pools
   * What's going well: the application trend, strong new scores, roles whose
     candidates finish the assessment, interview momentum, the deepest pools
+  * Top 5 not yet interviewed: the best-scored candidate in each role who has
+    not had an interview, best five of those, with links to the evaluation on
+    the dashboard and the submission on the portal
+
+Roles in config.REPORT_EXCLUDED_ROLES are left out of every line.
 
 THE WINDOW IS "SINCE THE LAST REPORT", which on a normal day is the last 24
 hours. It is bookmarked in Mongo rather than computed from the clock because
@@ -28,13 +33,15 @@ test post does not shorten tomorrow's.
 WHO RECEIVES IT is the Chat space's membership. Nothing here lists people;
 adding or removing a reader is done in Chat.
 
-NOTHING ABOUT A CANDIDATE IS IN IT. The summary is counts and role names only,
-and so is its log -- this runs on a runner of a public repository, where stdout
-is a world-readable page.
+NOTHING ABOUT A CANDIDATE IS LOGGED. The top 5 names people, and this runs on
+a runner of a public repository, where stdout is a world-readable page. The log
+says how many, never who -- which is also why --dry-run refuses to run under
+GitHub Actions.
 """
 
 import argparse
 import logging
+import os
 import re
 import sys
 import time
@@ -43,7 +50,8 @@ from datetime import datetime, timedelta, timezone
 import requests
 
 from backend.config import (ASSESSMENT_JOBS, CV_ONLY_JOB_IDS,
-                            GOOGLE_CHAT_WEBHOOK_URL)
+                            GOOGLE_CHAT_WEBHOOK_URL, REPORT_DASHBOARD_URL,
+                            REPORT_EXCLUDED_ROLES)
 from backend.db import store
 from backend.grading.rubric_pack import BANDS
 from backend.logging_setup import setup_logging
@@ -51,6 +59,7 @@ from backend.logging_setup import setup_logging
 log = logging.getLogger(__name__)
 
 PODIUM = 3        # roles named on each "most / least" line
+TOP = 5           # candidates in "Top 5 not yet interviewed"
 
 # The score floors, from the rubric pack, so the summary's "75+" is the same
 # bar the dashboard draws. "better" is the lowest band that advances.
@@ -102,9 +111,10 @@ def posted_recently() -> bool:
 
 
 def open_roles() -> set[int]:
-    """Roles wired to a live posting -- the dashboard's "recruiting" flag."""
+    """Roles wired to a live posting -- the dashboard's "recruiting" flag --
+    less the ones the report has been asked to leave out."""
     return ({int(job["portal_job_id"]) for job in ASSESSMENT_JOBS.values()}
-            | set(CV_ONLY_JOB_IDS))
+            | set(CV_ONLY_JOB_IDS)) - set(REPORT_EXCLUDED_ROLES)
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +122,8 @@ def open_roles() -> set[int]:
 # ---------------------------------------------------------------------------
 
 def _plain(text) -> str:
-    """A role title with Chat's markup characters taken out."""
+    """A name or title with Chat's markup characters taken out, so a candidate
+    called *Alex* cannot bold half the message or break a link."""
     return re.sub(r"[*_~`<>|]", "", str(text or "")).strip() or "—"
 
 
@@ -247,15 +258,32 @@ def going_well_points(stats: dict[int, dict], titles: dict[int, str],
     return points
 
 
+def evaluation_url(row: dict) -> str:
+    return (f"{REPORT_DASHBOARD_URL}/evaluations.html"
+            f"#role={row['job_id']}&candidate={row['_id']}")
+
+
+def candidate_line(rank: int, row: dict, title: str) -> str:
+    score = f"{round(float(row['evaluation']['score']), 1):g}"
+    links = [f"<{evaluation_url(row)}|Evaluation>"]
+    if row.get("admin_url"):
+        links.append(f"<{row['admin_url']}|Submission>")
+    elif row.get("cv_only"):
+        links.append("No assessment (CV only)")
+    return (f"{rank}. *{_plain(row.get('candidate_name'))}* · {_plain(title)}"
+            f" · *{score}*\n      " + " · ".join(links))
+
+
 def build_messages(*, since: datetime, until: datetime, titles: dict[int, str],
                    stats: dict[int, dict], scored: list[dict],
-                   sync_note: str = "") -> list[str]:
+                   top: list[dict] = (), sync_note: str = "") -> list[str]:
     """
     The summary as Chat messages -- one on any normal day.
 
     `stats` is store.report_role_stats() for the open roles, and `scored` the
     verdicts that landed in the window. Headline numbers first, then the roles,
-    then what to act on and what is working.
+    then what to act on and what is working, then the five people to open.
+    `top` is store.top_not_interviewed().
     """
     roles = len(stats)
     new_day = _total(stats, "new_day")
@@ -306,6 +334,10 @@ def build_messages(*, since: datetime, until: datetime, titles: dict[int, str],
                                   or "• Nothing stands out today."),
         "✅ *What's going well*\n" + ("\n".join(f"• {p}" for p in well)
                                      or "• Nothing stands out today."),
+        f"🏆 *Top {TOP} not yet interviewed* _(best in each role)_\n"
+        + ("\n".join(candidate_line(i, row, titles.get(row["job_id"], ""))
+                     for i, row in enumerate(top, 1))
+           or "• Every scored candidate has had an interview."),
     ]
     return pack(blocks)
 
@@ -384,6 +416,10 @@ def main() -> int:
 
     setup_logging()
 
+    if args.dry_run and os.environ.get("GITHUB_ACTIONS"):
+        log.error("--dry-run prints candidate names, and this repository's run "
+                  "pages are public. Refusing.")
+        return 1
     if not (args.dry_run or args.posted) and not GOOGLE_CHAT_WEBHOOK_URL:
         log.error("GOOGLE_CHAT_WEBHOOK_URL is not set -- there is nowhere to "
                   "post. --dry-run prints the report instead.")
@@ -422,6 +458,7 @@ def main() -> int:
         titles.setdefault(job_id, f"Role {job_id}")
 
     scored = store.scored_between(since, until)
+    top = store.top_not_interviewed(roles, TOP)
 
     sync_note = ""
     synced = store.last_synced_at()
@@ -436,11 +473,13 @@ def main() -> int:
                      "applicants are missing from these numbers.")
 
     messages = build_messages(since=since, until=until, titles=titles,
-                              stats=stats, scored=scored, sync_note=sync_note)
+                              stats=stats, scored=scored, top=top,
+                              sync_note=sync_note)
 
     log.info("Report window %s -> %s: %d new applicant(s) on %d open role(s), "
-             "%d scored, %d message(s), %d characters", _iso(since), _iso(until),
-             _total(stats, "new_day"), len(roles), len(scored), len(messages),
+             "%d scored, %d in the top, %d message(s), %d characters",
+             _iso(since), _iso(until), _total(stats, "new_day"), len(roles),
+             len(scored), len(top), len(messages),
              sum(len(m) for m in messages))
 
     if args.dry_run:
