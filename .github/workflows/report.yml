@@ -1,11 +1,20 @@
 # The daily recruiting report, posted to a Google Chat space at 8:00 AM New
 # York time.
 #
-# WHY SEVEN TRIGGERS FOR ONE POST. GitHub's scheduler is best-effort, and on
-# this repository it is far worse than "a few minutes late": in November 2026
-# sync.yml's 03:00 UTC cron started around 11:00, and the hourly grading cron
-# ran three times a day. One cron at 8 AM would post whenever GitHub got round
-# to it. So the cron below fires every hour through the early morning, and:
+# THE 8 AM POST IS STARTED FROM OUTSIDE. GitHub's scheduler is best-effort,
+# and on this repository it is far worse than "a few minutes late": in November
+# 2026 sync.yml's 03:00 UTC cron started around 11:00, the hourly grading cron
+# ran three times a day, and on 2026-11-20 not one of the seven triggers below
+# fired at all. A workflow_dispatch starts within seconds, so cron-job.org
+# (time zone America/New_York) calls GitHub's API:
+#
+#   06:30  POST .../actions/workflows/sync.yml/dispatches    {"ref":"main"}
+#   08:00  POST .../actions/workflows/report.yml/dispatches  {"ref":"main"}
+#
+# with a fine-grained token for this repository only, Actions: read and write.
+#
+# THE SCHEDULE BELOW IS THE BACKUP, for a morning the outside clock misses. It
+# fires every hour through the early morning, and:
 #
 #   * The first run to arrive WAITS ON THE RUNNER until 8:00 New York time and
 #     posts then. A wait is free -- this repository is public, so Actions
@@ -156,11 +165,12 @@ jobs:
         # nothing it logs is private -- this repository's run pages are public.
         env:
           HOURS: ${{ github.event.inputs.hours }}
+        # --if-not-posted on every daily run, dispatched or scheduled: the 8 AM
+        # dispatch from cron-job.org and a scheduled run that happened to wait
+        # for 8 can both get here, and only the first may post.
         run: |
           if [ -n "$HOURS" ]; then
             python manage.py report --hours "$HOURS"
-          elif [ "${{ github.event_name }}" = "schedule" ]; then
-            python manage.py report --if-not-posted
           else
-            python manage.py report
+            python manage.py report --if-not-posted
           fi
